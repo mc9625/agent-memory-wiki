@@ -1,0 +1,12 @@
+{
+  "name": "@agent-memory-wiki/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint src --no-error-on-unmatched-pattern",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  }
+}

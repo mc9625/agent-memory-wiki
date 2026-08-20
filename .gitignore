@@ -16,6 +16,8 @@ node_modules/
 dist/
 coverage/
 gitleaks-report.*
+next-env.d.ts
+*.tsbuildinfo
 
 # Local tooling and OS files
 .DS_Store

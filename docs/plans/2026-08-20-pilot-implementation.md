@@ -215,7 +215,7 @@ git commit -m "docs: define architecture and contracts"
 - Create: `pnpm-lock.yaml`
 - Create: `tsconfig.base.json`
 - Create: `eslint.config.mjs`
-- Create: `vitest.workspace.ts`
+- Create: `vitest.config.ts`
 - Create: `apps/web/**`
 - Create: `packages/{domain,application,contracts,db,admin-cli}/package.json`
 - Create: `packages/{domain,application,contracts,db,admin-cli}/tsconfig.json`
@@ -267,7 +267,7 @@ Expected: all commands pass.
 **Step 5: Commit**
 
 ```bash
-git add package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json eslint.config.mjs vitest.workspace.ts apps packages
+git add package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json eslint.config.mjs vitest.config.ts apps packages
 git commit -m "chore: bootstrap TypeScript workspace"
 ```
 
