@@ -16,12 +16,14 @@
     "@agent-memory-wiki/contracts": "workspace:*",
     "@agent-memory-wiki/db": "workspace:*",
     "@agent-memory-wiki/domain": "workspace:*",
+    "@modelcontextprotocol/server": "^2.0.0",
     "next": "16.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4"
   }
