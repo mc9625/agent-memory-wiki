@@ -1,7 +1,10 @@
+import process from "node:process";
+
 /** @type {import("next").NextConfig} */
 const nextConfig = {
   agentRules: false,
-  output: "standalone",
+  // Vercel traces functions itself; standalone remains the portable Docker artifact.
+  ...(process.env.VERCEL === "1" ? {} : { output: "standalone" }),
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {
