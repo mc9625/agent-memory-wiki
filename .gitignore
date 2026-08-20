@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.env.test
 
 # TokenSave local graph
 .tokensave/
@@ -14,6 +15,7 @@ node_modules/
 .next/
 dist/
 coverage/
+gitleaks-report.*
 
 # Local tooling and OS files
 .DS_Store

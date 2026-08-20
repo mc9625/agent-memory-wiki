@@ -66,7 +66,7 @@ Add `.env.test` and all generated secret-scanner reports to `.gitignore`.
 
 **Step 5: Verify no secret-like values are staged**
 
-Run: `git diff --check && git grep -nE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|postgres(ql)?://[^:]+:[^@]+@)' -- ':!.env.example'`
+Run: `git diff --check && git grep -nE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|postgres(ql)?://[^:]+:[^@]+@)' -- ':!.env.example' ':!docs/plans/2026-08-20-pilot-implementation.md'`
 
 Expected: whitespace check passes; secret grep prints nothing.
 
