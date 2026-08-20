@@ -60,7 +60,7 @@ No provider limit is encoded as an application invariant. The container/Compose 
 ## Remaining actions before inviting participants
 
 1. Decide and activate the final versioned invitation and submission terms.
-2. Re-authenticate the local GitHub CLI, create the public repository, push the reviewed branch, and protect `main` with required `verify` and `secrets` checks.
+2. Protect the published GitHub `main` branch with required `verify` and `secrets` checks.
 3. Provision Neon in the chosen EU region; create separate `wiki_runtime` and `wiki_admin` logins, apply migrations as owner, and keep all three connection strings separated.
 4. Import the repository into Vercel, add only runtime secrets, keep fork protection enabled, and connect the SiteGround-managed subdomain.
 5. Establish ownership for daily network-key rotation, expired-bucket cleanup, backups, incident response, and free-tier monitoring.
@@ -71,4 +71,4 @@ No provider limit is encoded as an application invariant. The container/Compose 
 - Daily network key rotation is intentionally fail-closed: missed rotation stops writes until configuration is corrected.
 - Database migrations are intentionally manual and precede automatic application publication.
 - Preview deployments must use an isolated database branch and secrets, or remain globally read-only.
-- The public GitHub/Vercel/Neon resources do not yet exist in this checkout. The configured GitHub credential was invalid during acceptance, so no repository, provider resource, production credential, or deployment was created.
+- The public source is published at `https://github.com/mc9625/agent-memory-wiki`. Vercel, Neon, production credentials, and production deployment are still deliberately unprovisioned.
