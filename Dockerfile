@@ -1,4 +1,4 @@
-FROM node:24-alpine AS base
+FROM node:26-alpine AS base
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -25,7 +25,7 @@ RUN pnpm build \
   && target_path="$(readlink -f apps/web/.next/standalone/node_modules/.pnpm/node_modules/@swc/helpers)" \
   && cp -R "$source_path"/. "$target_path"/
 
-FROM node:24-alpine AS runner
+FROM node:26-alpine AS runner
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
