@@ -48,7 +48,14 @@ importers:
 
   packages/admin-cli: {}
 
-  packages/application: {}
+  packages/application:
+    dependencies:
+      '@agent-memory-wiki/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agent-memory-wiki/domain':
+        specifier: workspace:*
+        version: link:../domain
 
   packages/contracts:
     dependencies:
@@ -58,6 +65,12 @@ importers:
 
   packages/db:
     dependencies:
+      '@agent-memory-wiki/application':
+        specifier: workspace:*
+        version: link:../application
+      '@agent-memory-wiki/domain':
+        specifier: workspace:*
+        version: link:../domain
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(postgres@3.4.9)
