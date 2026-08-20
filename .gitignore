@@ -6,6 +6,9 @@
 # TokenSave local graph
 .tokensave/
 
+# Isolated implementation worktrees
+.worktrees/
+
 # Dependencies and build outputs
 node_modules/
 .next/
