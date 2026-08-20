@@ -46,7 +46,7 @@ Use a Vercel Hobby project for this personal, non-commercial pilot and a Neon Fr
    DATABASE_URL='postgresql://…direct…' pnpm migrate
    ```
 
-5. Create a pooled Neon connection for `wiki_runtime`, then import the GitHub repository into Vercel with repository root `/`, framework `Next.js`, and production branch `main`.
+5. Create a pooled Neon connection for `wiki_runtime`, then import the GitHub repository into Vercel with repository root `apps/web`, framework `Next.js`, and production branch `main`. Keep source files outside the root available so Vercel can resolve the pnpm workspace packages.
 6. Configure Production environment variables:
    - `APP_BASE_URL=https://<production-host>`
    - `DATABASE_URL=<pooled Neon URL authenticated as wiki_runtime>`
