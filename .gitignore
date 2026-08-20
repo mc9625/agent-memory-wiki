@@ -1,0 +1,17 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# TokenSave local graph
+.tokensave/
+
+# Dependencies and build outputs
+node_modules/
+.next/
+dist/
+coverage/
+
+# Local tooling and OS files
+.DS_Store
+*.log
