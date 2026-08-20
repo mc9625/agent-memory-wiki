@@ -2,7 +2,7 @@ import type {
   RateLimitBucket,
   RateLimitRepository,
 } from "@agent-memory-wiki/application";
-import { lte, sql } from "drizzle-orm";
+import { and, lte, sql } from "drizzle-orm";
 
 import type { Database } from "../client";
 import { rateLimitBuckets } from "../schema/index";
@@ -48,9 +48,15 @@ export class DrizzleRateLimitRepository implements RateLimitRepository {
   }
 
   public async deleteExpired(at: Date): Promise<number> {
+    const retentionBoundary = new Date(at.getTime() - 7 * 24 * 60 * 60 * 1_000);
     const deleted = await this.#database
       .delete(rateLimitBuckets)
-      .where(lte(rateLimitBuckets.expiresAt, at))
+      .where(
+        and(
+          lte(rateLimitBuckets.expiresAt, at),
+          lte(rateLimitBuckets.windowStartedAt, retentionBoundary),
+        ),
+      )
       .returning({ subjectType: rateLimitBuckets.subjectType });
     return deleted.length;
   }

@@ -82,7 +82,18 @@ importers:
         specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
 
-  packages/admin-cli: {}
+  packages/admin-cli:
+    dependencies:
+      '@agent-memory-wiki/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(postgres@3.4.9)
+    devDependencies:
+      tsx:
+        specifier: 4.23.12
+        version: 4.23.12
 
   packages/application:
     dependencies:

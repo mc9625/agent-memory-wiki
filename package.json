@@ -9,6 +9,7 @@
     "pnpm": ">=10 <11"
   },
   "scripts": {
+    "admin": "pnpm --filter @agent-memory-wiki/admin-cli admin --",
     "build": "pnpm --filter @agent-memory-wiki/web build",
     "dev": "pnpm --filter @agent-memory-wiki/web dev",
     "lint": "eslint .",

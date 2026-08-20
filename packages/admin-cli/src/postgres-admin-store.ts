@@ -1,0 +1,91 @@
+import { randomUUID } from "node:crypto";
+
+import {
+  articleStateEvents,
+  articles,
+  auditEvents,
+  pilotCredentials,
+  rateLimitBuckets,
+  revisions,
+  revisionStateEvents,
+  systemSettings,
+} from "@agent-memory-wiki/db";
+import type { Database } from "@agent-memory-wiki/db";
+import { and, eq, lte, sql } from "drizzle-orm";
+
+import type { AdminStore, NewCredentialRecord } from "./ports";
+
+export class PostgresAdminStore implements AdminStore {
+  readonly #database: Database;
+
+  public constructor(database: Database) {
+    this.#database = database;
+  }
+
+  public async createCredential(record: NewCredentialRecord): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      await transaction.insert(pilotCredentials).values({
+        id: record.id,
+        instructionSetId: record.instructionSetId,
+        operatorLabel: record.operatorLabel,
+        publicPrefix: record.publicPrefix,
+        rateLimitPerDay: record.rateLimitPerDay,
+        rateLimitPerMinute: record.rateLimitPerMinute,
+        secretDigest: record.secretDigest,
+        status: "active",
+        termsAcceptedAt: record.termsAcceptedAt,
+        termsVersion: record.termsVersion,
+      });
+      await transaction.insert(auditEvents).values({
+        action: "create_credential",
+        actorType: "admin",
+        createdAt: new Date(),
+        id: randomUUID(),
+        outcomeCode: "ACCEPTED",
+        requestId: randomUUID(),
+        safeMetadata: {},
+        targetId: record.id,
+        targetType: "credential",
+      });
+    });
+  }
+
+  public async revokeCredential(input: Parameters<AdminStore["revokeCredential"]>[0]): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const updated = await transaction.update(pilotCredentials).set({ status: "revoked", revokedAt: input.at }).where(and(eq(pilotCredentials.id, input.credentialId), eq(pilotCredentials.status, "active"))).returning({ id: pilotCredentials.id });
+      if (updated.length !== 1) throw new Error("Active credential not found.");
+      await transaction.insert(auditEvents).values({ action: "revoke_credential", actorType: input.actorType, createdAt: input.at, id: randomUUID(), outcomeCode: "ACCEPTED", reasonCode: input.reasonCode, requestId: input.requestId, safeMetadata: {}, targetId: input.credentialId, targetType: "credential" });
+    });
+  }
+
+  public async setReadOnly(input: Parameters<AdminStore["setReadOnly"]>[0]): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const updated = await transaction.update(systemSettings).set({ readOnly: input.enabled, settingsVersion: sql`${systemSettings.settingsVersion} + 1`, updatedAt: input.at }).where(eq(systemSettings.singleton, true)).returning({ singleton: systemSettings.singleton });
+      if (updated.length !== 1) throw new Error("System settings are unavailable.");
+      await transaction.insert(auditEvents).values({ action: "set_read_only", actorType: input.actorType, createdAt: input.at, id: randomUUID(), outcomeCode: "ACCEPTED", reasonCode: input.reasonCode, requestId: input.requestId, safeMetadata: { enabled: input.enabled }, targetType: "system_settings" });
+    });
+  }
+
+  public async quarantineRevision(input: Parameters<AdminStore["quarantineRevision"]>[0]): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const [revision] = await transaction.select({ id: revisions.id }).from(revisions).where(eq(revisions.id, input.revisionId)).limit(1);
+      if (!revision) throw new Error("Revision not found.");
+      await transaction.insert(revisionStateEvents).values({ actorType: "admin", createdAt: input.at, id: randomUUID(), reasonCode: input.reasonCode, revisionId: input.revisionId, state: "quarantined" });
+      await transaction.insert(auditEvents).values({ action: "quarantine_revision", actorType: input.actorType, createdAt: input.at, id: randomUUID(), outcomeCode: "ACCEPTED", reasonCode: input.reasonCode, requestId: input.requestId, safeMetadata: {}, targetId: input.revisionId, targetType: "revision" });
+    });
+  }
+
+  public async hideArticle(input: Parameters<AdminStore["hideArticle"]>[0]): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const [article] = await transaction.select({ id: articles.id }).from(articles).where(eq(articles.id, input.articleId)).limit(1);
+      if (!article) throw new Error("Article not found.");
+      await transaction.insert(articleStateEvents).values({ actorType: "admin", articleId: input.articleId, createdAt: input.at, id: randomUUID(), reasonCode: input.reasonCode, visibility: "hidden" });
+      await transaction.insert(auditEvents).values({ action: "hide_article", actorType: input.actorType, createdAt: input.at, id: randomUUID(), outcomeCode: "ACCEPTED", reasonCode: input.reasonCode, requestId: input.requestId, safeMetadata: {}, targetId: input.articleId, targetType: "article" });
+    });
+  }
+
+  public async deleteExpiredRateLimits(input: Parameters<AdminStore["deleteExpiredRateLimits"]>[0]): Promise<number> {
+    const deleted = await this.#database.delete(rateLimitBuckets).where(and(lte(rateLimitBuckets.expiresAt, input.expiredAtOrBefore), lte(rateLimitBuckets.windowStartedAt, input.windowStartedAtOrBefore))).returning({ subjectType: rateLimitBuckets.subjectType });
+    return deleted.length;
+  }
+}

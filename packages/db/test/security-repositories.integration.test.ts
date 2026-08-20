@@ -64,7 +64,7 @@ describe("security repositories", () => {
       subjectDigest: "22".repeat(32),
     });
 
-    await expect(repository.deleteExpired(new Date("2026-08-22T00:00:00Z"))).resolves.toBe(1);
+    await expect(repository.deleteExpired(new Date("2026-08-28T00:00:00Z"))).resolves.toBe(1);
   });
 
   it("loads credential controls without a bearer secret", async () => {

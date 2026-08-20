@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
+  "dependencies": {
+    "@agent-memory-wiki/db": "workspace:*",
+    "drizzle-orm": "0.45.2"
+  },
   "scripts": {
+    "admin": "tsx src/index.ts",
     "lint": "eslint src test --no-error-on-unmatched-pattern",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "4.23.12"
   }
 }
