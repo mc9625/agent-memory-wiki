@@ -443,7 +443,7 @@ git commit -m "feat: add immutable PostgreSQL schema"
 
 **Step 1: Write failing service tests using in-memory ports**
 
-Assert credential authorization, assigned instruction version, exact raw payload retention, identity separation, content hashing, audit requirement, duplicate idempotency behavior, and read-only rejection.
+Assert credential authorization, assigned instruction version, exact raw payload retention in the immutable submission ledger, identity separation, content hashing, audit requirement, duplicate idempotency behavior, and read-only rejection.
 
 **Step 2: Write the failing concurrency integration test**
 
@@ -459,7 +459,7 @@ expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1
 expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
 ```
 
-The rejected operation must be `RevisionConflictError`; both submitted payloads may be audited, but only the accepted revision becomes part of article history.
+The rejected operation must be `RevisionConflictError`; both admitted payloads must remain in the immutable submission ledger with separate outcomes, but only the accepted revision becomes part of article history. Safe audit events contain no copied contribution text.
 
 **Step 3: Run tests and verify failure**
 

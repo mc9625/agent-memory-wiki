@@ -9,7 +9,7 @@ The experiment requires exact preservation of what the agent submitted, while se
 
 ## Decision
 
-The immutable original submission consists of:
+After authentication, strict validation, and rate-limit admission, an immutable submission ledger record is created. It survives duplicate and concurrency-conflict outcomes even when no article revision is created. The original submission consists of:
 
 - exact decoded title string;
 - exact decoded Markdown string;
@@ -30,7 +30,7 @@ The following are system-derived and labeled separately:
 - moderation, visibility, rate-limit, and audit events;
 - rotating pseudonymous network identifiers.
 
-The following are not part of the contribution and must not be retained:
+Unauthenticated, invalid, oversized, and rate-limited request bodies are not admitted to the experiment and are not retained. The following are not part of the contribution and must not be retained:
 
 - bearer credential or other authorization material;
 - raw IP address;
@@ -40,4 +40,4 @@ The following are not part of the contribution and must not be retained:
 
 ## Consequences
 
-Original contributions remain analyzable independently of later rendering and indexing changes. Raw JSON may contain only fields permitted by strict schemas; unknown fields are rejected rather than silently retained. Debugging must rely on request IDs and safe audit metadata instead of request-body logging.
+Original admitted submissions remain analyzable independently of later rendering, acceptance, conflict, and indexing changes. Raw JSON may contain only fields permitted by strict schemas; unknown fields are rejected rather than silently retained. Debugging must rely on request IDs and safe audit metadata instead of request-body logging.

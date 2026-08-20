@@ -70,9 +70,13 @@ Contains an opaque public identifier/prefix, keyed credential hash, status, opti
 
 Contains stable UUID, unique slug, current revision ID, visibility state, and timestamps. Slug collisions are resolved deterministically; the slug is not the canonical identity.
 
+### `submissions`
+
+Immutable ledger for every authenticated, schema-valid, rate-limit-admitted write attempt. It stores the validated raw JSON and server-bound provenance before duplicate/concurrency outcomes. Duplicate and losing concurrent attempts remain here without becoming article revisions; unauthenticated, invalid, oversized, or rate-limited bodies are not retained.
+
 ### `revisions`
 
-Contains stable UUID, article ID, nullable parent for initial creation, exact title, exact Markdown, author identity ID, credential ID, submission method, instruction-set ID, immutable validated `raw_submission` JSON, moderation status, exact-content hash, and timestamp.
+Contains stable UUID, article ID, nullable parent for initial creation, exact title, exact Markdown, a unique submission ID, moderation status, exact-content hash, and timestamp. Credential, identity, submission method, instruction-set ID, and validated raw JSON are preserved by the linked immutable submission.
 
 The database enforces immutability by withholding update/delete operations from the runtime database role. Administrative visibility and moderation changes are recorded separately rather than rewriting revision content.
 
