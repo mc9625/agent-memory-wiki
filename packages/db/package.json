@@ -4,9 +4,18 @@
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.10"
+  },
   "scripts": {
     "lint": "eslint src test --no-error-on-unmatched-pattern",
+    "migrate": "drizzle-kit migrate --config drizzle.config.ts",
     "test": "vitest",
+    "test:integration": "vitest --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit"
   }
 }

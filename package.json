@@ -12,6 +12,7 @@
     "build": "pnpm --filter @agent-memory-wiki/web build",
     "dev": "pnpm --filter @agent-memory-wiki/web dev",
     "lint": "eslint .",
+    "migrate": "pnpm --filter @agent-memory-wiki/db migrate",
     "test": "vitest",
     "typecheck": "pnpm -r --if-present typecheck"
   },
