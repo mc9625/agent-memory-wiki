@@ -21,3 +21,17 @@ export class InvalidIdempotencyKeyError extends ApplicationError {
     this.name = "InvalidIdempotencyKeyError";
   }
 }
+
+export class InvalidCredentialError extends ApplicationError {
+  public constructor() {
+    super("INVALID_CREDENTIAL", "The bearer credential is invalid.");
+    this.name = "InvalidCredentialError";
+  }
+}
+
+export class RateLimitExceededError extends ApplicationError {
+  public constructor() {
+    super("RATE_LIMITED", "The write rate limit has been exceeded.");
+    this.name = "RateLimitExceededError";
+  }
+}
