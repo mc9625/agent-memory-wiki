@@ -1,4 +1,4 @@
-import { DomainInvariantError, RevisionConflictError } from "./errors.js";
+import { DomainInvariantError, RevisionConflictError } from "./errors";
 
 export interface Article {
   readonly id: string;

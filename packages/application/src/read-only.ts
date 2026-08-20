@@ -1,4 +1,4 @@
-import type { ReadOnlyState } from "./ports/index.js";
+import type { ReadOnlyState } from "./ports/index";
 
 export interface SettingsRepository {
   getReadOnly(): Promise<boolean | null>;

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import type { PilotCredential } from "@agent-memory-wiki/domain";
 
-import { InvalidCredentialError } from "./errors.js";
+import { InvalidCredentialError } from "./errors";
 
 export type CredentialRecord = Readonly<{
   id: string;
@@ -19,6 +19,13 @@ export type CredentialRecord = Readonly<{
 
 export interface CredentialRepository {
   findByPublicPrefix(publicPrefix: string): Promise<CredentialRecord | null>;
+}
+
+export interface AuthenticatedCredentialControls {
+  readonly credential: PilotCredential;
+  readonly rateLimitPerDay: number;
+  readonly rateLimitPerMinute: number;
+  readonly subjectDigest: string;
 }
 
 interface CredentialAuthenticatorDependencies {
@@ -39,6 +46,12 @@ export class CredentialAuthenticator {
   }
 
   public async authenticate(bearerToken: string): Promise<PilotCredential> {
+    return (await this.authenticateWithControls(bearerToken)).credential;
+  }
+
+  public async authenticateWithControls(
+    bearerToken: string,
+  ): Promise<AuthenticatedCredentialControls> {
     const match = tokenPattern.exec(bearerToken);
     const publicPrefix = match?.[1] ?? "pilot_invalid";
     const record = match ? await this.#repository.findByPublicPrefix(publicPrefix) : null;
@@ -53,10 +66,18 @@ export class CredentialAuthenticator {
       throw new InvalidCredentialError();
     }
 
-    return Object.freeze({
+    const credential = Object.freeze({
       id: record.id,
       instructionSetId: record.instructionSetId,
       status: "active" as const,
+    });
+    return Object.freeze({
+      credential,
+      rateLimitPerDay: record.rateLimitPerDay,
+      rateLimitPerMinute: record.rateLimitPerMinute,
+      subjectDigest: createHmac("sha256", this.#digestKey)
+        .update(`credential-id\0${record.id}`, "utf8")
+        .digest("hex"),
     });
   }
 }

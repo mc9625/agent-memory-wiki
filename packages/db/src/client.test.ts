@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createDatabase } from "./client.js";
+import { createDatabase } from "./client";
 
 describe("createDatabase", () => {
   it("returns a closeable Drizzle database boundary", async () => {

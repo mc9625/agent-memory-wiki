@@ -1,7 +1,7 @@
 export const packageName = "@agent-memory-wiki/domain" as const;
 
-export * from "./article.js";
-export * from "./credential.js";
-export * from "./errors.js";
-export * from "./instruction-set.js";
-export * from "./revision.js";
+export * from "./article";
+export * from "./credential";
+export * from "./errors";
+export * from "./instruction-set";
+export * from "./revision";

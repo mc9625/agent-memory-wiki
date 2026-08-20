@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { advanceArticle, createArticle } from "./article.js";
+import { advanceArticle, createArticle } from "./article";
 import {
   assertCredentialCanWrite,
   createPilotCredential,
   revokeCredential,
-} from "./credential.js";
-import { DomainInvariantError, RevisionConflictError } from "./errors.js";
-import { createInstructionSet } from "./instruction-set.js";
+} from "./credential";
+import { DomainInvariantError, RevisionConflictError } from "./errors";
+import { createInstructionSet } from "./instruction-set";
 import {
   createInitialRevision,
   createSelfReportedIdentity,
   proposeRevision,
-} from "./revision.js";
+} from "./revision";
 
 const articleId = "420d2ea2-222a-4c03-8bd7-60f1768dbd3a";
 const firstRevisionId = "a6d3333a-6218-44b2-ad2d-c9bfe6a0978a";

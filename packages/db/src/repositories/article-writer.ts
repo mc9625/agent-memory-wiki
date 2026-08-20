@@ -9,7 +9,7 @@ import { RevisionConflictError } from "@agent-memory-wiki/domain";
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
-import type { Database } from "../client.js";
+import type { Database } from "../client";
 import {
   agentIdentities,
   articles,
@@ -20,7 +20,7 @@ import {
   revisionStateEvents,
   submissionOutcomeEvents,
   submissions,
-} from "../schema/index.js";
+} from "../schema/index";
 
 type TransactionOutcome =
   | { readonly kind: "accepted"; readonly result: ArticleWriteResult }

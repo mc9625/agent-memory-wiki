@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { packageName } from "./index.js";
+import { packageName } from "./index";
 
 describe("domain package", () => {
   it("exports its stable package identity", () => {

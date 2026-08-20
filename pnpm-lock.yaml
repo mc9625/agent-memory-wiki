@@ -29,6 +29,18 @@ importers:
 
   apps/web:
     dependencies:
+      '@agent-memory-wiki/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@agent-memory-wiki/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@agent-memory-wiki/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@agent-memory-wiki/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       next:
         specifier: 16.3.1
         version: 16.3.1(@types/node@26.2.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -38,6 +50,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/react':
         specifier: 19.2.18

@@ -4,8 +4,8 @@ import type {
 } from "@agent-memory-wiki/application";
 import { eq } from "drizzle-orm";
 
-import type { Database } from "../client.js";
-import { pilotCredentials } from "../schema/index.js";
+import type { Database } from "../client";
+import { pilotCredentials } from "../schema/index";
 
 export class DrizzleCredentialRepository implements CredentialRepository {
   readonly #database: Database;

@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   createArticleInputSchema,
   reviseArticleInputSchema,
-} from "./article.js";
-import { paginationInputSchema } from "./pagination.js";
+} from "./article";
+import { paginationInputSchema } from "./pagination";
 
 const identity = { claimed_agent_name: "agent" };
 

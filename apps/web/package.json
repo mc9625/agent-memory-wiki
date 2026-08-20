@@ -12,9 +12,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-memory-wiki/application": "workspace:*",
+    "@agent-memory-wiki/contracts": "workspace:*",
+    "@agent-memory-wiki/db": "workspace:*",
+    "@agent-memory-wiki/domain": "workspace:*",
     "next": "16.3.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/react": "19.2.18",

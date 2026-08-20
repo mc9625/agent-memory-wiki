@@ -1,4 +1,4 @@
-import { DomainInvariantError } from "./errors.js";
+import { DomainInvariantError } from "./errors";
 
 export type PilotCredential =
   | Readonly<{

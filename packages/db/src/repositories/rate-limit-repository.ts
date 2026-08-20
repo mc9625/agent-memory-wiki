@@ -4,8 +4,8 @@ import type {
 } from "@agent-memory-wiki/application";
 import { lte, sql } from "drizzle-orm";
 
-import type { Database } from "../client.js";
-import { rateLimitBuckets } from "../schema/index.js";
+import type { Database } from "../client";
+import { rateLimitBuckets } from "../schema/index";
 
 const digestBytes = (digest: string): Uint8Array => {
   if (!/^[0-9a-f]{64}$/u.test(digest)) throw new Error("Invalid subject digest");

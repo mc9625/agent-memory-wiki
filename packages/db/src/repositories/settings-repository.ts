@@ -1,8 +1,8 @@
 import type { SettingsRepository } from "@agent-memory-wiki/application";
 import { eq } from "drizzle-orm";
 
-import type { Database } from "../client.js";
-import { systemSettings } from "../schema/index.js";
+import type { Database } from "../client";
+import { systemSettings } from "../schema/index";
 
 export class DrizzleSettingsRepository implements SettingsRepository {
   readonly #database: Database;

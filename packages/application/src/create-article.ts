@@ -1,7 +1,7 @@
 import type { CreateArticleInput } from "@agent-memory-wiki/contracts";
 import { assertCredentialCanWrite } from "@agent-memory-wiki/domain";
 
-import { InvalidIdempotencyKeyError, ReadOnlyError } from "./errors.js";
+import { InvalidIdempotencyKeyError, ReadOnlyError } from "./errors";
 import type {
   ArticleWriteResult,
   ArticleWriter,
@@ -11,7 +11,7 @@ import type {
   IdGenerator,
   ReadOnlyState,
   SubmissionMethod,
-} from "./ports/index.js";
+} from "./ports/index";
 
 interface CreateArticleDependencies {
   readonly clock: Clock;

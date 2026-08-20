@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { selfReportedIdentitySchema } from "./identity.js";
+import { selfReportedIdentitySchema } from "./identity";
 
 const textEncoder = new TextEncoder();
 const rawHtmlPattern = /<!--|<![A-Za-z]|<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*?)?\/?>/u;

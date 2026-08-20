@@ -1,4 +1,4 @@
-import { RateLimitExceededError } from "./errors.js";
+import { RateLimitExceededError } from "./errors";
 
 export type RateLimitSubjectType = "credential" | "network";
 

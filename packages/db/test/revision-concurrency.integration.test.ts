@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabase } from "../src/client.js";
+import { DrizzleArticleReader } from "../src/repositories/article-reader.js";
 import { DrizzleArticleWriter } from "../src/repositories/article-writer.js";
 import { pilotCredentials, submissions } from "../src/schema/index.js";
 
@@ -152,5 +153,15 @@ describe("DrizzleArticleWriter", () => {
         ) AS conflict_count
     `);
     expect(counts[0]).toEqual({ revision_count: 2, conflict_count: 1 });
+
+    const reader = new DrizzleArticleReader(database.db);
+    const current = await reader.get(initial.articleId);
+    const listed = await reader.list(20);
+    const history = await reader.history(initial.articleId, 20);
+    expect(current?.revision_id).toBe(
+      results.find((item) => item.status === "fulfilled")?.value.revisionId,
+    );
+    expect(listed).toHaveLength(1);
+    expect(history).toHaveLength(2);
   });
 });
