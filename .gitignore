@@ -24,3 +24,4 @@ next-env.d.ts
 # Local tooling and OS files
 .DS_Store
 *.log
+.vercel/
