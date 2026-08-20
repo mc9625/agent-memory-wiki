@@ -7,7 +7,7 @@ import type {
 import { ApplicationError } from "@agent-memory-wiki/application";
 import { RevisionConflictError } from "@agent-memory-wiki/domain";
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { Database } from "../client";
 import {
@@ -71,6 +71,11 @@ export class DrizzleArticleWriter implements ArticleWriter {
 
   public async create(command: CreateArticleCommand): Promise<ArticleWriteResult> {
     const outcome = await this.#database.transaction(async (transaction) => {
+      await transaction.execute(sql`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`idempotency:${command.credentialId}:${command.idempotencyKeyDigest}`}, 0)
+        )
+      `);
       const [existingIdempotency] = await transaction
         .select()
         .from(idempotencyRecords)
@@ -147,6 +152,9 @@ export class DrizzleArticleWriter implements ArticleWriter {
         receivedAt: command.receivedAt,
       });
 
+      await transaction.execute(sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${`content:${command.contentDigest}`}, 0))
+      `);
       const [duplicate] = await transaction
         .select({ id: revisions.id })
         .from(revisions)
@@ -272,6 +280,11 @@ export class DrizzleArticleWriter implements ArticleWriter {
 
   public async revise(command: ReviseArticleCommand): Promise<ArticleWriteResult> {
     const outcome: TransactionOutcome = await this.#database.transaction(async (transaction) => {
+      await transaction.execute(sql`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`idempotency:${command.credentialId}:${command.idempotencyKeyDigest}`}, 0)
+        )
+      `);
       const [existingIdempotency] = await transaction
         .select()
         .from(idempotencyRecords)
@@ -307,8 +320,11 @@ export class DrizzleArticleWriter implements ArticleWriter {
             };
           }
         }
-        return existingIdempotency.outcomeCode === "REVISION_CONFLICT"
-          ? { kind: "conflict" }
+        if (existingIdempotency.outcomeCode === "REVISION_CONFLICT") {
+          return { kind: "conflict" };
+        }
+        return existingIdempotency.outcomeCode === "DUPLICATE_CONTENT"
+          ? { kind: "duplicate" }
           : { kind: "idempotency_conflict" };
       }
 
@@ -344,6 +360,53 @@ export class DrizzleArticleWriter implements ArticleWriter {
         payloadSha256: digestBytes(command.payloadDigest),
         receivedAt: command.receivedAt,
       });
+
+      await transaction.execute(sql`
+        SELECT pg_advisory_xact_lock(hashtextextended(${`content:${command.contentDigest}`}, 0))
+      `);
+      const [duplicate] = await transaction
+        .select({ id: revisions.id })
+        .from(revisions)
+        .where(
+          and(
+            eq(revisions.contentSha256, digestBytes(command.contentDigest)),
+            eq(revisions.title, command.title),
+            eq(revisions.bodyMarkdown, command.bodyMarkdown),
+          ),
+        )
+        .limit(1);
+      if (duplicate) {
+        await transaction.insert(submissionOutcomeEvents).values({
+          id: randomUUID(),
+          submissionId: command.submissionId,
+          outcomeCode: "DUPLICATE_CONTENT",
+          articleId: command.articleId,
+          safeMetadata: {},
+          createdAt: command.receivedAt,
+        });
+        await transaction.insert(idempotencyRecords).values({
+          credentialId: command.credentialId,
+          idempotencyKeyDigest: digestBytes(command.idempotencyKeyDigest),
+          requestDigest: digestBytes(command.requestDigest),
+          operation: command.operation,
+          outcomeCode: "DUPLICATE_CONTENT",
+          createdAt: command.receivedAt,
+          expiresAt: idempotencyExpiry(command.receivedAt),
+        });
+        await transaction.insert(auditEvents).values({
+          id: randomUUID(),
+          requestId: command.requestId,
+          actorType: "credential",
+          actorId: command.credentialId,
+          action: command.operation,
+          targetType: "article",
+          targetId: command.articleId,
+          outcomeCode: "DUPLICATE_CONTENT",
+          safeMetadata: {},
+          createdAt: command.receivedAt,
+        });
+        return { kind: "duplicate" };
+      }
 
       let conflict = false;
       try {

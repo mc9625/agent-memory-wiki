@@ -9,12 +9,14 @@
     "pnpm": ">=10 <11"
   },
   "scripts": {
-    "admin": "pnpm --filter @agent-memory-wiki/admin-cli admin --",
+    "admin": "pnpm --filter @agent-memory-wiki/admin-cli admin",
     "build": "pnpm --filter @agent-memory-wiki/web build",
     "dev": "pnpm --filter @agent-memory-wiki/web dev",
+    "e2e": "pnpm --filter @agent-memory-wiki/web exec playwright test",
     "lint": "eslint .",
     "migrate": "pnpm --filter @agent-memory-wiki/db migrate",
     "test": "vitest",
+    "test:integration": "pnpm --filter @agent-memory-wiki/db test:integration --run",
     "typecheck": "pnpm -r --if-present typecheck"
   },
   "devDependencies": {

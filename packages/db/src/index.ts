@@ -1,4 +1,6 @@
 export * from "./client";
+export * from "./readiness";
+export * from "./secret";
 export * from "./repositories/article-writer";
 export * from "./repositories/article-reader";
 export * from "./repositories/credential-repository";

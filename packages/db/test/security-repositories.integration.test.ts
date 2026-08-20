@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabase } from "../src/client.js";
 import { DrizzleCredentialRepository } from "../src/repositories/credential-repository.js";
@@ -18,6 +18,16 @@ beforeEach(async () => {
   await database.db.execute(sql.raw(`
     TRUNCATE TABLE rate_limit_buckets, pilot_credentials RESTART IDENTITY CASCADE
   `));
+  await database.db
+    .insert(systemSettings)
+    .values({ singleton: true, readOnly: false, settingsVersion: 1 })
+    .onConflictDoUpdate({
+      target: systemSettings.singleton,
+      set: { readOnly: false, settingsVersion: 1 },
+    });
+});
+
+afterEach(async () => {
   await database.db
     .insert(systemSettings)
     .values({ singleton: true, readOnly: false, settingsVersion: 1 })

@@ -1,6 +1,7 @@
 import { hostHeaderValidationResponse, originValidationResponse } from "@modelcontextprotocol/server";
 
 import { getHttpServices } from "../../lib/http/runtime";
+import { readBoundedBody } from "../../lib/http/bounded-body";
 import { createAgentMemoryWikiMcpHandler } from "../../lib/mcp/server";
 
 export const dynamic = "force-dynamic";
@@ -14,13 +15,6 @@ const allowedValues = (name: string, local: readonly string[]): string[] => {
 };
 
 export const POST = async (request: Request): Promise<Response> => {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > 32_768) {
-    return Response.json({ error: "PAYLOAD_TOO_LARGE" }, { status: 413 });
-  }
-  if ((await request.clone().arrayBuffer()).byteLength > 32_768) {
-    return Response.json({ error: "PAYLOAD_TOO_LARGE" }, { status: 413 });
-  }
   const hostFailure = hostHeaderValidationResponse(
     request,
     allowedValues("MCP_ALLOWED_HOSTS", ["localhost", "127.0.0.1"]),
@@ -31,6 +25,18 @@ export const POST = async (request: Request): Promise<Response> => {
     allowedValues("MCP_ALLOWED_ORIGINS", ["http://localhost", "http://127.0.0.1"]),
   );
   if (originFailure) return originFailure;
+  const body = await readBoundedBody(request, 32_768);
+  if (!body.ok) {
+    return Response.json({ error: "PAYLOAD_TOO_LARGE" }, { status: 413 });
+  }
+  const boundedRequest = new Request(request.url, {
+    body: body.bytes.buffer.slice(
+      body.bytes.byteOffset,
+      body.bytes.byteOffset + body.bytes.byteLength,
+    ) as ArrayBuffer,
+    headers: request.headers,
+    method: request.method,
+  });
   handlerPromise ??= buildHandler();
-  return (await handlerPromise).fetch(request);
+  return (await handlerPromise).fetch(boundedRequest);
 };

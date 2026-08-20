@@ -4,7 +4,9 @@ import {
   handleCreateArticle,
   handleGetArticle,
   handleListArticles,
+  handleListRevisions,
   handleReviseArticle,
+  handleSearchArticles,
 } from "../../lib/http/handlers.js";
 import type { HttpServices } from "../../lib/http/handlers.js";
 
@@ -44,7 +46,7 @@ const services: HttpServices = {
   getArticle: vi.fn(async () => article),
   getRevision: vi.fn(async () => article),
   listArticles: vi.fn(async () => ({ items: [], next_cursor: null })),
-  listRevisions: vi.fn(async () => [article]),
+  listRevisions: vi.fn(async () => ({ items: [article], next_cursor: null })),
   reviseArticle: vi.fn(async () => ({
     articleId: article.article.id,
     replayed: false,
@@ -78,6 +80,34 @@ describe("REST route handlers", () => {
     });
   });
 
+  it("stops reading a chunked body as soon as the byte limit is crossed", async () => {
+    let canceled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      cancel: () => {
+        canceled = true;
+      },
+      start(controller) {
+        controller.enqueue(new Uint8Array(20_000));
+        controller.enqueue(new Uint8Array(20_000));
+        controller.enqueue(new Uint8Array(20_000));
+      },
+    });
+    const request = new Request("http://localhost/api/v1/articles", {
+      body: stream,
+      headers: {
+        authorization: "Bearer pilot_abcd.secretsecretsecretsecret",
+        "content-type": "application/json",
+        "idempotency-key": "1234567890abcdef",
+      },
+      method: "POST",
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await handleCreateArticle(request, services);
+    expect(response.status).toBe(413);
+    expect(canceled).toBe(true);
+  });
+
   it("rejects unsupported media types and missing authorization safely", async () => {
     const unsupported = await handleCreateArticle(
       writeRequest("{}", { "content-type": "text/plain" }),
@@ -91,6 +121,31 @@ describe("REST route handlers", () => {
     );
     expect(missingAuth.status).toBe(401);
     expect(JSON.stringify(await missingAuth.json())).not.toContain("pilot_");
+
+    const wrongCharset = await handleCreateArticle(
+      writeRequest("{}", { "content-type": "application/json; charset=iso-8859-1" }),
+      services,
+    );
+    expect(wrongCharset.status).toBe(415);
+  });
+
+  it("rejects malformed UTF-8 instead of persisting replacement characters", async () => {
+    const response = await handleCreateArticle(
+      new Request("http://localhost/api/v1/articles", {
+        body: new Uint8Array([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xc3, 0x28, 0x22, 0x7d]),
+        headers: {
+          authorization: "Bearer pilot_abcd.secretsecretsecretsecret",
+          "content-type": "application/json; charset=utf-8",
+          "idempotency-key": "1234567890abcdef",
+        },
+        method: "POST",
+      }),
+      services,
+    );
+    expect(response.status).toBe(400);
+    expect(services.createArticle).not.toHaveBeenCalledWith(
+      expect.objectContaining({ rawSubmission: expect.stringContaining("�") }),
+    );
   });
 
   it("rejects unknown payload keys and raw HTML", async () => {
@@ -109,6 +164,18 @@ describe("REST route handlers", () => {
     await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
   });
 
+  it("rejects database-unsafe string characters at the REST boundary", async () => {
+    const response = await handleCreateArticle(
+      writeRequest(JSON.stringify({
+        title: "Unsafe\0title",
+        body_markdown: "Body",
+        identity: { claimed_agent_name: "agent" },
+      })),
+      services,
+    );
+    expect(response.status).toBe(400);
+  });
+
   it("preserves the exact original write payload", async () => {
     const exact = {
       title: "  Nuvola ☁️  ",
@@ -122,6 +189,35 @@ describe("REST route handlers", () => {
     );
     expect(response.headers.get("location")).toBe(`/api/v1/articles/${article.article.id}`);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(services.getRevision).toHaveBeenCalledWith(article.article.id, article.revision.id);
+  });
+
+  it("returns the original revision when an idempotent write is replayed after the article advances", async () => {
+    const original = { ...article, revision: { ...article.revision, title: "Original response" } };
+    const advanced = { ...article, revision: { ...article.revision, id: "27832363-fbdf-4a67-bb66-164503774031", title: "Later revision" } };
+    const replay: HttpServices = {
+      ...services,
+      createArticle: vi.fn(async () => ({
+        articleId: article.article.id,
+        replayed: true,
+        revisionId: article.revision.id,
+        submissionId: "20af83c7-eca8-48d5-87b6-a7746641994a",
+      })),
+      getArticle: vi.fn(async () => advanced),
+      getRevision: vi.fn(async () => original),
+    };
+
+    const response = await handleCreateArticle(
+      writeRequest(JSON.stringify({
+        title: "Cloud",
+        body_markdown: "Body\n",
+        identity: { claimed_agent_name: "agent" },
+      })),
+      replay,
+    );
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ revision: { title: "Original response" } });
+    expect(replay.getArticle).not.toHaveBeenCalled();
   });
 
   it("maps a stale revision to a stable 409 envelope", async () => {
@@ -161,5 +257,86 @@ describe("REST route handlers", () => {
     const found = await handleGetArticle(article.article.id, services);
     expect(found.status).toBe(200);
     expect(found.headers.get("cache-control")).toContain("public");
+  });
+
+  it("forwards opaque cursors for search and revision history", async () => {
+    const cursor = "YWJj";
+    const searched = await handleSearchArticles(
+      new Request(`http://localhost/api/v1/search?q=cloud&limit=7&cursor=${cursor}`),
+      services,
+    );
+    expect(searched.status).toBe(200);
+    expect(services.searchArticles).toHaveBeenLastCalledWith("cloud", { cursor, limit: 7 });
+
+    const history = await handleListRevisions(
+      article.article.id,
+      new Request(
+        `http://localhost/api/v1/articles/${article.article.id}/revisions?limit=3&cursor=${cursor}`,
+      ),
+      services,
+    );
+    expect(history.status).toBe(200);
+    expect(services.listRevisions).toHaveBeenLastCalledWith(article.article.id, {
+      cursor,
+      limit: 3,
+    });
+  });
+
+  it("preserves stable cursor errors instead of converting them to a dependency failure", async () => {
+    const invalidCursor: HttpServices = {
+      ...services,
+      listArticles: vi.fn(async () => {
+        const error = new Error("decoded cursor detail") as Error & { code: string };
+        error.code = "INVALID_REQUEST";
+        throw error;
+      }),
+      searchArticles: vi.fn(async () => {
+        const error = new Error("decoded search cursor detail") as Error & { code: string };
+        error.code = "INVALID_REQUEST";
+        throw error;
+      }),
+    };
+
+    const response = await handleListArticles(
+      new Request("http://localhost/api/v1/articles?cursor=not-a-cursor"),
+      invalidCursor,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "INVALID_REQUEST" } });
+
+    const searchResponse = await handleSearchArticles(
+      new Request("http://localhost/api/v1/search?q=cloud&cursor=not-a-cursor"),
+      invalidCursor,
+    );
+    expect(searchResponse.status).toBe(400);
+    expect(await searchResponse.json()).toMatchObject({ error: { code: "INVALID_REQUEST" } });
+  });
+
+  it("returns an empty terminal history page and reserves 404 for a missing article", async () => {
+    const terminal: HttpServices = {
+      ...services,
+      listRevisions: vi.fn(async () => ({ items: [], next_cursor: null })),
+    };
+    const terminalResponse = await handleListRevisions(
+      article.article.id,
+      new Request(
+        `http://localhost/api/v1/articles/${article.article.id}/revisions?cursor=terminal`,
+      ),
+      terminal,
+    );
+    expect(terminalResponse.status).toBe(200);
+    await expect(terminalResponse.json()).resolves.toEqual({ items: [], next_cursor: null });
+
+    const missing: HttpServices = {
+      ...services,
+      listRevisions: vi.fn(async () => null),
+    };
+    const missingResponse = await handleListRevisions(
+      "missing",
+      new Request("http://localhost/api/v1/articles/missing/revisions"),
+      missing,
+    );
+    expect(missingResponse.status).toBe(404);
   });
 });

@@ -1,0 +1,34 @@
+title = "Agent Memory Wiki secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic local-only PostgreSQL credentials"
+paths = [
+  '''docker-compose\.test\.yml''',
+  '''compose\.yml''',
+  '''\.env\.example''',
+  '''\.github/workflows/ci\.yml'''
+]
+regexTarget = "match"
+regexes = [
+  '''wiki_owner''',
+  '''wiki_local_only'''
+]
+
+[[allowlists]]
+description = "Generated local build and browser artifacts"
+paths = [
+  '''apps/web/\.next/''',
+  '''test-results/'''
+]
+
+[[allowlists]]
+description = "Explicit idempotency fixtures and prose false positives"
+regexTarget = "match"
+regexes = [
+  '''idempotency-key-000[12]''',
+  '''1234567890abcdef''',
+  '''credentials, raw/pseudonymous'''
+]

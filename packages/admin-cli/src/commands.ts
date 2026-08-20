@@ -20,7 +20,7 @@ export const createCredential = async (
   input: CreateCredentialInput,
   dependencies: { readonly digestKey: Uint8Array; readonly store: AdminStore },
 ): Promise<{ readonly bearerToken: string }> => {
-  if (dependencies.digestKey.byteLength < 32) throw new Error("Digest key must be 32 bytes.");
+  if (dependencies.digestKey.byteLength !== 32) throw new Error("Digest key must be exactly 32 bytes.");
   if (!input.instructionSetId || !input.termsVersion || !input.operatorLabel) {
     throw new Error("Instruction, terms, and operator label are required.");
   }
@@ -72,11 +72,17 @@ export const cleanupRateLimits = (now: Date, store: AdminStore): Promise<number>
     windowStartedAtOrBefore: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1_000),
   });
 
-export const requireEnvironmentConfirmation = (
-  environment: string,
-  confirmedProduction: boolean,
-): void => {
-  if (environment === "production" && !confirmedProduction) {
-    throw new Error("Production mutations require --confirm-production.");
+export const activateInstruction = async (
+  input: { readonly instructionSetId: string; readonly reasonCode: string; readonly at?: Date },
+  store: AdminStore,
+): Promise<void> =>
+  store.activateInstruction({
+    instructionSetId: input.instructionSetId,
+    ...mutation(input.reasonCode, input.at),
+  });
+
+export const requireEnvironmentConfirmation = (confirmedProduction: boolean): void => {
+  if (!confirmedProduction) {
+    throw new Error("Administrative mutations require --confirm-production.");
   }
 };

@@ -113,6 +113,37 @@ describe("createArticleInputSchema", () => {
       }),
     ).toThrow();
   });
+
+  it("rejects deeply nested and oversized metadata collections iteratively", () => {
+    let deep: unknown = "leaf";
+    for (let depth = 0; depth < 20; depth += 1) deep = { child: deep };
+    for (const raw_client_metadata of [deep, { values: Array.from({ length: 513 }, () => null) }]) {
+      expect(() =>
+        createArticleInputSchema.parse({
+          title: "Title",
+          body_markdown: "Body",
+          identity: { ...identity, raw_client_metadata },
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("rejects PostgreSQL NULs and lone Unicode surrogates in every submitted string boundary", () => {
+    for (const candidate of ["bad\0value", "bad\ud800value"]) {
+      expect(() => createArticleInputSchema.parse({ title: candidate, body_markdown: "Body", identity })).toThrow();
+      expect(() => createArticleInputSchema.parse({ title: "Title", body_markdown: candidate, identity })).toThrow();
+      expect(() => createArticleInputSchema.parse({
+        title: "Title",
+        body_markdown: "Body",
+        identity: { ...identity, claimed_client: candidate },
+      })).toThrow();
+      expect(() => createArticleInputSchema.parse({
+        title: "Title",
+        body_markdown: "Body",
+        identity: { ...identity, raw_client_metadata: { value: candidate } },
+      })).toThrow();
+    }
+  });
 });
 
 describe("reviseArticleInputSchema", () => {

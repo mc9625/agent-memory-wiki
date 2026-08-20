@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: wiki_test
+          POSTGRES_PASSWORD: wiki_owner
+          POSTGRES_USER: wiki_owner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wiki_owner -d wiki_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql://wiki_owner:wiki_owner@localhost:5432/wiki_test
+      RUNTIME_DATABASE_URL: postgresql://wiki_runtime:wiki_runtime_ci_only@localhost:5432/wiki_test
+      TEST_DATABASE_URL: postgresql://wiki_owner:wiki_owner@localhost:5432/wiki_test
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 10.22.0
+          run_install: false
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        run: pnpm migrate
+      - name: Enable isolated runtime and admin logins
+        run: >-
+          docker run --rm --network host
+          --env PGPASSWORD=wiki_owner
+          postgres:17-alpine
+          psql --host 127.0.0.1 --username wiki_owner --dbname wiki_test
+          --set ON_ERROR_STOP=1
+          --command "ALTER ROLE wiki_runtime LOGIN PASSWORD 'wiki_runtime_ci_only'; ALTER ROLE wiki_admin LOGIN PASSWORD 'wiki_admin_ci_only';"
+      - name: Lint
+        run: pnpm lint
+      - name: Type-check
+        run: pnpm typecheck
+      - name: Unit and contract tests
+        run: pnpm test --run
+      - name: PostgreSQL integration tests
+        run: pnpm --filter @agent-memory-wiki/db test:integration --run
+      - name: Production build
+        run: pnpm build
+      - name: Install the Chromium headless shell
+        run: pnpm --filter @agent-memory-wiki/web exec playwright install chromium --with-deps --only-shell
+      - name: Browser end-to-end tests
+        run: |
+          E2E_PARTICIPANT_TOKEN="$(
+            ADMIN_DATABASE_URL=postgresql://wiki_admin:wiki_admin_ci_only@localhost:5432/wiki_test \
+            ADMIN_OPERATOR_LABEL=ci-e2e \
+            CREDENTIAL_HASH_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+            pnpm --silent admin create-credential \
+              --instruction-set 00000000-0000-4000-8000-000000000001 \
+              --per-day 100 --per-minute 20 \
+              --terms-accepted-at 2026-08-20T00:00:00Z \
+              --terms-version pilot-v1 --confirm-production | tail -n 1
+          )"
+          [[ "$E2E_PARTICIPANT_TOKEN" =~ ^pilot_[A-Za-z0-9_-]{10}\.[A-Za-z0-9_-]{43}$ ]]
+          DATABASE_URL="$RUNTIME_DATABASE_URL" \
+          CREDENTIAL_HASH_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+          NETWORK_DAILY_HMAC_SECRET=AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI \
+          NETWORK_DAILY_HMAC_DATE="$(date -u +%F)" \
+          NETWORK_ADDRESS_HEADER=x-e2e-ip \
+          E2E_PARTICIPANT_TOKEN="$E2E_PARTICIPANT_TOKEN" \
+          pnpm e2e
+      - name: Container build
+        run: docker build --tag agent-memory-wiki:ci .
+      - name: Compose topology smoke test
+        run: |
+          export COMPOSE_PROJECT_NAME=agent-memory-wiki-ci-compose
+          export POSTGRES_PORT=55434 APP_PORT=3102
+          export CREDENTIAL_HASH_SECRET=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+          export NETWORK_DAILY_HMAC_SECRET=AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI
+          export NETWORK_DAILY_HMAC_DATE="$(date -u +%F)"
+          trap 'docker compose down --volumes' EXIT
+          docker compose --profile tools run --rm migrate
+          docker compose up --detach --wait app
+          curl --fail --silent --show-error http://127.0.0.1:3102/api/health/live
+          curl --fail --silent --show-error http://127.0.0.1:3102/api/health/ready
+          curl --fail --silent --show-error http://127.0.0.1:3102/
+          curl --fail --silent --show-error http://127.0.0.1:3102/for-agents
+          curl --fail --silent --show-error http://127.0.0.1:3102/llms.txt
+          curl --fail --silent --show-error http://127.0.0.1:3102/openapi.json
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan repository history
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

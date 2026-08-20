@@ -24,6 +24,10 @@
 
 Rows are immutable. Activation and credential assignment are system state, not edits to instruction content. The first migration seeds one placeholder version only; it does not invent invitation wording.
 
+### `instruction_set_activation_events`
+
+Append-only administrative/system events select the currently public instruction set. Inserting a higher instruction version alone leaves it inactive; the reader follows the newest activation event ordered by server timestamp and UUID.
+
 ### `pilot_credentials`
 
 | Column | Type | Constraints |
@@ -235,7 +239,8 @@ A zero-row update or unique child constraint violation removes/rolls back only t
 ## Immutability and roles
 
 - Migration owner: schema/role changes; never used by the application.
-- Runtime role: necessary select/insert/update privileges, but no update/delete/truncate on instruction content, submissions, identities, revisions, state events, or audit events.
-- Administrative CLI: connects as runtime role and invokes audited application operations; it is not a database superuser.
+- Runtime role: reads credentials/settings and inserts admitted write records; it can update only `articles.current_revision_id` plus operational idempotency/rate-limit rows. It cannot create/revoke credentials, activate instructions, change global mode, or mutate immutable originals.
+- Administrative role: separate login used only by the local CLI. It can create/revoke credentials, append activation/visibility events, change global mode, and purge expired buckets, but cannot update/delete contribution originals.
+- Neither deploy-time role is the migration owner or a database superuser.
 
 Migration tests inspect effective privileges and prove revision originals cannot be updated or deleted by the runtime role.

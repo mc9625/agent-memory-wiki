@@ -4,6 +4,8 @@ import {
   articleStateEvents,
   articles,
   auditEvents,
+  instructionSetActivationEvents,
+  instructionSets,
   pilotCredentials,
   rateLimitBuckets,
   revisions,
@@ -20,6 +22,38 @@ export class PostgresAdminStore implements AdminStore {
 
   public constructor(database: Database) {
     this.#database = database;
+  }
+
+  public async activateInstruction(
+    input: Parameters<AdminStore["activateInstruction"]>[0],
+  ): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const [instruction] = await transaction
+        .select({ id: instructionSets.id })
+        .from(instructionSets)
+        .where(eq(instructionSets.id, input.instructionSetId))
+        .limit(1);
+      if (!instruction) throw new Error("Instruction set not found.");
+      await transaction.insert(instructionSetActivationEvents).values({
+        actorType: input.actorType,
+        createdAt: input.at,
+        id: randomUUID(),
+        instructionSetId: input.instructionSetId,
+        reasonCode: input.reasonCode,
+      });
+      await transaction.insert(auditEvents).values({
+        action: "activate_instruction",
+        actorType: input.actorType,
+        createdAt: input.at,
+        id: randomUUID(),
+        outcomeCode: "ACCEPTED",
+        reasonCode: input.reasonCode,
+        requestId: input.requestId,
+        safeMetadata: {},
+        targetId: input.instructionSetId,
+        targetType: "instruction_set",
+      });
+    });
   }
 
   public async createCredential(record: NewCredentialRecord): Promise<void> {

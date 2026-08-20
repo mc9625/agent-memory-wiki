@@ -23,7 +23,7 @@ export const mcpServices = (): HttpServices => ({
   getArticle: vi.fn(async () => view),
   getRevision: vi.fn(async () => view),
   listArticles: vi.fn(async () => ({ items: [], next_cursor: null })),
-  listRevisions: vi.fn(async () => [view]),
+  listRevisions: vi.fn(async () => ({ items: [view], next_cursor: null })),
   reviseArticle: vi.fn(async () => ({ articleId: view.article.id, replayed: false, revisionId: view.revision.id, submissionId: "05a00a54-937e-4499-bcd2-57c391b49347" })),
   searchArticles: vi.fn(async () => ({ items: [], next_cursor: null })),
 });

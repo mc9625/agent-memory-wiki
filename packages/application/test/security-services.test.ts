@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CredentialAuthenticator,
-  InvalidCredentialError,
   NetworkPseudonymService,
   RateLimitExceededError,
   RateLimitService,
@@ -75,29 +74,76 @@ describe("CredentialAuthenticator", () => {
     };
     const authenticator = new CredentialAuthenticator({ digestKey: key, repository });
 
-    await expect(authenticator.authenticate(token)).rejects.toBeInstanceOf(
-      InvalidCredentialError,
-    );
+    await expect(authenticator.authenticate(token)).rejects.toMatchObject({
+      code: "CREDENTIAL_REVOKED",
+    });
   });
 });
 
 describe("NetworkPseudonymService", () => {
-  it("canonicalizes an address and rotates its digest on the UTC day", () => {
-    const service = new NetworkPseudonymService({ hmacKey: Buffer.alloc(32, 9) });
+  it("canonicalizes an address and refuses stale daily key material", () => {
+    const service = new NetworkPseudonymService({
+      dailyHmacKey: Buffer.alloc(32, 9),
+      dailyKeyDate: "2026-08-20",
+    });
     const first = service.digest("2001:0db8:0:0:0:0:0:1", new Date("2026-08-20T23:59:59Z"));
     const equivalent = service.digest("2001:db8::1", new Date("2026-08-20T00:00:00Z"));
-    const tomorrow = service.digest("2001:db8::1", new Date("2026-08-21T00:00:00Z"));
-
     expect(first).toBe(equivalent);
-    expect(tomorrow).not.toBe(first);
     expect(first).not.toContain("2001:db8");
+    expect(() =>
+      service.digest("2001:db8::1", new Date("2026-08-21T00:00:00Z")),
+    ).toThrow("current UTC day");
   });
 
   it("rejects non-address input", () => {
-    const service = new NetworkPseudonymService({ hmacKey: Buffer.alloc(32, 9) });
+    const service = new NetworkPseudonymService({
+      dailyHmacKey: Buffer.alloc(32, 9),
+      dailyKeyDate: new Date().toISOString().substring(0, 10),
+    });
     expect(() => service.digest("forwarded by someone", new Date())).toThrow(
       "Invalid network address",
     );
+  });
+
+  it("accepts a preloaded next-day key without invalidating the current day", () => {
+    const currentKey = Buffer.alloc(32, 9);
+    const nextKey = Buffer.alloc(32, 10);
+    const service = new NetworkPseudonymService({
+      dailyHmacKey: currentKey,
+      dailyKeyDate: "2026-08-20",
+      nextDailyHmacKey: nextKey,
+      nextDailyKeyDate: "2026-08-21",
+    });
+
+    expect(service.digest("192.0.2.1", new Date("2026-08-20T23:59:59Z"))).toBe(
+      createHmac("sha256", currentKey).update(`2026-08-20\0${"192.0.2.1"}`).digest("hex"),
+    );
+    expect(service.digest("192.0.2.1", new Date("2026-08-21T00:00:00Z"))).toBe(
+      createHmac("sha256", nextKey).update(`2026-08-21\0${"192.0.2.1"}`).digest("hex"),
+    );
+  });
+
+  it("requires exactly 32 bytes for every configured daily key", () => {
+    expect(
+      () =>
+        new NetworkPseudonymService({
+          dailyHmacKey: Buffer.alloc(33),
+          dailyKeyDate: "2026-08-20",
+        }),
+    ).toThrow("exactly 32 bytes");
+  });
+
+  it("rejects impossible and non-consecutive daily key dates", () => {
+    expect(() => new NetworkPseudonymService({
+      dailyHmacKey: Buffer.alloc(32),
+      dailyKeyDate: "2026-13-99",
+    })).toThrow("valid UTC calendar date");
+    expect(() => new NetworkPseudonymService({
+      dailyHmacKey: Buffer.alloc(32),
+      dailyKeyDate: "2026-08-20",
+      nextDailyHmacKey: Buffer.alloc(32, 1),
+      nextDailyKeyDate: "2026-08-22",
+    })).toThrow("immediately follow");
   });
 });
 
@@ -124,7 +170,11 @@ describe("RateLimitService", () => {
     });
 
     expect(consumed).toHaveLength(3);
-    expect(consumed.map(({ windowSeconds }) => windowSeconds)).toEqual([60, 86_400, 60]);
+    expect(consumed.map(({ subjectType, windowSeconds }) => [subjectType, windowSeconds])).toEqual([
+      ["network", 60],
+      ["credential", 60],
+      ["credential", 86_400],
+    ]);
     expect(JSON.stringify(consumed)).not.toContain("12.34.56");
     expect(consumed.every(({ expiresAt }) => expiresAt <= new Date("2026-08-28T00:00:00Z"))).toBe(true);
   });

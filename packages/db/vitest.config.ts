@@ -2,7 +2,7 @@ import { defineProject } from "vitest/config";
 
 export default defineProject({
   test: {
-    exclude: ["test/**/*.integration.test.ts"],
+    include: ["src/**/*.test.ts"],
     name: "db",
   },
 });

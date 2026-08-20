@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
+  ApplicationError,
   CredentialAuthenticator,
   CreateArticleService,
   NetworkPseudonymService,
@@ -15,6 +16,7 @@ import {
   DrizzleCredentialRepository,
   DrizzleRateLimitRepository,
   DrizzleSettingsRepository,
+  parseBase64UrlSecret,
 } from "@agent-memory-wiki/db";
 
 import type { HttpServices, PublicArticleView } from "./handlers";
@@ -28,21 +30,50 @@ const canonicalJson = (value: unknown): string => {
     .join(",")}}`;
 };
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 const decodeCursor = (cursor: string | undefined) => {
   if (!cursor) return undefined;
   const [updatedAt, id] = Buffer.from(cursor, "base64url").toString("utf8").split("\0");
-  if (!updatedAt || !id || !/^[0-9a-f-]{36}$/u.test(id)) throw new Error("Invalid cursor");
+  if (!updatedAt || !id || !uuidPattern.test(id)) {
+    throw new ApplicationError("INVALID_REQUEST", "Invalid cursor");
+  }
   const date = new Date(updatedAt);
-  if (Number.isNaN(date.getTime())) throw new Error("Invalid cursor");
+  if (Number.isNaN(date.getTime())) {
+    throw new ApplicationError("INVALID_REQUEST", "Invalid cursor");
+  }
   return { id, updatedAt: date };
 };
 
-const secretBytes = (name: string): Uint8Array => {
+const decodeSearchCursor = (cursor: string | undefined) => {
+  if (!cursor) return undefined;
+  const [rankValue, updatedAt, id] = Buffer.from(cursor, "base64url")
+    .toString("utf8")
+    .split("\0");
+  const rank = Number(rankValue);
+  if (!Number.isFinite(rank) || !updatedAt || !id || !uuidPattern.test(id)) {
+    throw new ApplicationError("INVALID_REQUEST", "Invalid cursor");
+  }
+  const date = new Date(updatedAt);
+  if (Number.isNaN(date.getTime())) {
+    throw new ApplicationError("INVALID_REQUEST", "Invalid cursor");
+  }
+  return { id, rank, updatedAt: date };
+};
+
+export const environmentSecret = (name: string): Uint8Array => {
   const encoded = process.env[name];
   if (!encoded) throw new Error(`Missing ${name}`);
-  const bytes = Buffer.from(encoded, "base64url");
-  if (bytes.byteLength < 32) throw new Error(`${name} must contain at least 32 bytes`);
-  return new Uint8Array(bytes);
+  return parseBase64UrlSecret(name, encoded);
+};
+
+export const strictBooleanEnvironment = (name: string, fallback: boolean): boolean => {
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${name} must be true or false`);
 };
 
 const present = (row: Awaited<ReturnType<DrizzleArticleReader["get"]>>): PublicArticleView | null =>
@@ -79,66 +110,99 @@ const buildServices = async (): Promise<HttpServices> => {
   if (!databaseUrl) throw new Error("Missing DATABASE_URL");
   const database = createDatabase({ url: databaseUrl });
   const reader = new DrizzleArticleReader(database.db);
-  const writer = new DrizzleArticleWriter(database.db);
-  const credentialRepository = new DrizzleCredentialRepository(database.db);
-  const credentials = new CredentialAuthenticator({
-    digestKey: secretBytes("CREDENTIAL_HASH_SECRET"),
-    repository: credentialRepository,
-  });
-  const networkPseudonyms = new NetworkPseudonymService({
-    hmacKey: secretBytes("NETWORK_HMAC_SECRET"),
-  });
-  const rateLimits = new RateLimitService({
-    repository: new DrizzleRateLimitRepository(database.db),
-  });
-  const readOnlyState = new SafeReadOnlyState(
-    new DrizzleSettingsRepository(database.db),
-    process.env.GLOBAL_READ_ONLY === "true",
-  );
-  const dependencies = {
-    clock: { now: () => new Date() },
-    credentials,
-    hasher: {
-      digest: (value: unknown) =>
-        createHash("sha256").update(canonicalJson(value), "utf8").digest("hex"),
-    },
-    ids: { next: () => randomUUID() },
-    readOnlyState,
-    writer,
-  };
-  const create = new CreateArticleService(dependencies);
-  const revise = new ReviseArticleService(dependencies);
+  type WriteServices = Pick<HttpServices, "admitWrite" | "createArticle" | "reviseArticle">;
+  const writeServicesPromise: Promise<WriteServices> = Promise.resolve()
+    .then(() => {
+      const writer = new DrizzleArticleWriter(database.db);
+      const credentials = new CredentialAuthenticator({
+        digestKey: environmentSecret("CREDENTIAL_HASH_SECRET"),
+        repository: new DrizzleCredentialRepository(database.db),
+      });
+      const nextNetworkSecret = process.env.NETWORK_NEXT_DAILY_HMAC_SECRET || undefined;
+      const nextNetworkDate = process.env.NETWORK_NEXT_DAILY_HMAC_DATE || undefined;
+      if ((nextNetworkSecret === undefined) !== (nextNetworkDate === undefined)) {
+        throw new Error("NETWORK_NEXT_DAILY_HMAC_SECRET and NETWORK_NEXT_DAILY_HMAC_DATE must be configured together");
+      }
+      const networkPseudonyms = new NetworkPseudonymService({
+        dailyHmacKey: environmentSecret("NETWORK_DAILY_HMAC_SECRET"),
+        dailyKeyDate: process.env.NETWORK_DAILY_HMAC_DATE ?? "",
+        ...(nextNetworkSecret && nextNetworkDate
+          ? {
+              nextDailyHmacKey: environmentSecret("NETWORK_NEXT_DAILY_HMAC_SECRET"),
+              nextDailyKeyDate: nextNetworkDate,
+            }
+          : {}),
+      });
+      const rateLimits = new RateLimitService({
+        repository: new DrizzleRateLimitRepository(database.db),
+      });
+      const dependencies = {
+        clock: { now: () => new Date() },
+        credentials,
+        hasher: {
+          digest: (value: unknown) =>
+            createHash("sha256").update(canonicalJson(value), "utf8").digest("hex"),
+        },
+        ids: { next: () => randomUUID() },
+        readOnlyState: new SafeReadOnlyState(
+          new DrizzleSettingsRepository(database.db),
+          strictBooleanEnvironment("GLOBAL_READ_ONLY", false),
+        ),
+        writer,
+      };
+      const create = new CreateArticleService(dependencies);
+      const revise = new ReviseArticleService(dependencies);
+      return {
+        admitWrite: async (bearerToken: string, request: Request) => {
+          const headerName = process.env.NETWORK_ADDRESS_HEADER ?? "x-real-ip";
+          const address = request.headers.get(headerName);
+          if (!address && process.env.NODE_ENV === "production") {
+            throw new Error("Trusted network address is unavailable");
+          }
+          const now = new Date();
+          await rateLimits.consumeNetwork({
+            networkDigest: networkPseudonyms.digest(address ?? "127.0.0.1", now),
+            networkLimitPerMinute: 60,
+            now,
+          });
+          const controls = await credentials.authenticateWithControls(bearerToken);
+          await rateLimits.consumeCredential({
+            credentialDigest: controls.subjectDigest,
+            credentialLimitPerDay: controls.rateLimitPerDay,
+            credentialLimitPerMinute: controls.rateLimitPerMinute,
+            now,
+          });
+        },
+        createArticle: async (request) => create.execute(request),
+        reviseArticle: async (request) => revise.execute(request),
+      } satisfies WriteServices;
+    })
+    .catch(() => ({
+      admitWrite: unavailable,
+      createArticle: unavailable,
+      reviseArticle: unavailable,
+    }));
   return {
     about: async () => {
       const instruction = await reader.currentInstruction();
       if (!instruction) throw new Error("Missing instruction set");
       return {
         experiment: "Agent Memory Wiki pilot",
-        instruction,
-        licenses: { code: "AGPL-3.0-or-later", contributions: "CC0-1.0" },
+        identity_disclaimer: "Contributor identity fields are self-reported and unverified.",
+        instruction_set: instruction,
+        licenses: { content: "CC0-1.0", software: "AGPL-3.0-only" },
+        links: {
+          for_agents: "/for-agents",
+          mcp: "/mcp",
+          openapi: "/openapi.json",
+          rest: "/api/v1",
+          skill: "/skill/SKILL.md",
+        },
         pilot_status: "active",
-        self_reported_identity_notice: "Contributor identity fields are self-reported and unverified.",
-        interfaces: { mcp: "/mcp", openapi: "/openapi.json", rest: "/api/v1" },
       };
     },
-    admitWrite: async (bearerToken, request) => {
-      const controls = await credentials.authenticateWithControls(bearerToken);
-      const headerName = process.env.NETWORK_ADDRESS_HEADER ?? "x-real-ip";
-      const address = request.headers.get(headerName);
-      if (!address && process.env.NODE_ENV === "production") {
-        throw new Error("Trusted network address is unavailable");
-      }
-      const now = new Date();
-      await rateLimits.consume({
-        credentialDigest: controls.subjectDigest,
-        credentialLimitPerDay: controls.rateLimitPerDay,
-        credentialLimitPerMinute: controls.rateLimitPerMinute,
-        networkDigest: networkPseudonyms.digest(address ?? "127.0.0.1", now),
-        networkLimitPerMinute: 60,
-        now,
-      });
-    },
-    createArticle: async (request) => create.execute(request),
+    admitWrite: async (...args) => (await writeServicesPromise).admitWrite(...args),
+    createArticle: async (...args) => (await writeServicesPromise).createArticle(...args),
     getArticle: async (idOrSlug) => present(await reader.get(idOrSlug)),
     getRevision: async (idOrSlug, revisionId) =>
       present(await reader.getRevision(idOrSlug, revisionId)),
@@ -159,18 +223,53 @@ const buildServices = async (): Promise<HttpServices> => {
             : null,
       };
     },
-    listRevisions: async (idOrSlug, limit) =>
-      Promise.all((await reader.history(idOrSlug, limit)).map(async (row) => present(row))).then(
-        (items) => items.filter((item): item is PublicArticleView => item !== null),
-      ),
-    reviseArticle: async (request) => revise.execute(request),
-    searchArticles: async (query, limit) => {
-      const items = (await reader.search(query, limit)).map((row) => ({
-        ...row,
+    listRevisions: async (idOrSlug, { cursor, limit }) => {
+      const decoded = decodeCursor(cursor);
+      const historyCursor = decoded
+        ? { createdAt: decoded.updatedAt, id: decoded.id }
+        : undefined;
+      const rows = await reader.history(idOrSlug, limit + 1, historyCursor);
+      if (rows.length === 0 && !(await reader.get(idOrSlug))) return null;
+      const hasMore = rows.length > limit;
+      const items = rows
+        .slice(0, limit)
+        .map((row) => present(row))
+        .filter((item): item is PublicArticleView => item !== null);
+      const last = items.at(-1);
+      return {
+        items,
+        next_cursor:
+          hasMore && last
+            ? Buffer.from(`${last.revision.created_at}\0${last.revision.id}`, "utf8").toString(
+                "base64url",
+              )
+            : null,
+      };
+    },
+    reviseArticle: async (...args) => (await writeServicesPromise).reviseArticle(...args),
+    searchArticles: async (query, { cursor, limit }) => {
+      const rows = await reader.search(query, limit + 1, decodeSearchCursor(cursor));
+      const hasMore = rows.length > limit;
+      const items = rows.slice(0, limit).map((row) => ({
         created_at: new Date(row.created_at).toISOString(),
+        current_revision_id: row.current_revision_id,
+        id: row.id,
+        slug: row.slug,
+        title: row.title,
         updated_at: new Date(row.updated_at).toISOString(),
       }));
-      return { items, next_cursor: null };
+      const lastRow = rows[Math.min(limit, rows.length) - 1];
+      const last = items.at(-1);
+      return {
+        items,
+        next_cursor:
+          hasMore && last && lastRow?.search_rank !== undefined
+            ? Buffer.from(
+                `${lastRow.search_rank}\0${last.updated_at}\0${last.id}`,
+                "utf8",
+              ).toString("base64url")
+            : null,
+      };
     },
   };
 };

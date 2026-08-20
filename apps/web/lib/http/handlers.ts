@@ -11,6 +11,8 @@ import {
   reviseArticleInputSchema,
 } from "@agent-memory-wiki/contracts";
 
+import { readBoundedBody } from "./bounded-body";
+
 export interface PublicArticleView {
   readonly article: {
     readonly created_at: string;
@@ -47,6 +49,11 @@ export interface ArticleListView {
   readonly next_cursor: string | null;
 }
 
+export interface RevisionListView {
+  readonly items: readonly PublicArticleView[];
+  readonly next_cursor: string | null;
+}
+
 export interface HttpServices {
   about(): Promise<unknown>;
   admitWrite(bearerToken: string, request: Request): Promise<void>;
@@ -57,9 +64,15 @@ export interface HttpServices {
     readonly limit: number;
   }): Promise<ArticleListView>;
   getRevision(idOrSlug: string, revisionId: string): Promise<PublicArticleView | null>;
-  listRevisions(idOrSlug: string, limit: number): Promise<readonly PublicArticleView[]>;
+  listRevisions(
+    idOrSlug: string,
+    input: { readonly cursor?: string; readonly limit: number },
+  ): Promise<RevisionListView | null>;
   reviseArticle(request: ReviseArticleRequest): Promise<ArticleWriteResult>;
-  searchArticles(query: string, limit: number): Promise<ArticleListView>;
+  searchArticles(
+    query: string,
+    input: { readonly cursor?: string; readonly limit: number },
+  ): Promise<ArticleListView>;
 }
 
 const safeMessages: Readonly<Record<string, string>> = {
@@ -118,12 +131,14 @@ const errorResponse = (code: string, requestId: string): Response => {
   );
 };
 
-const errorCode = (error: unknown): string => {
+export const publicErrorCode = (error: unknown): string => {
   if (typeof error !== "object" || error === null || !("code" in error)) {
     return "DEPENDENCY_UNAVAILABLE";
   }
   if (error.code === "INVALID_CREDENTIAL") return "AUTHENTICATION_REQUIRED";
-  return typeof error.code === "string" ? error.code : "DEPENDENCY_UNAVAILABLE";
+  return typeof error.code === "string" && error.code in safeMessages
+    ? error.code
+    : "DEPENDENCY_UNAVAILABLE";
 };
 
 type ParsedWrite =
@@ -131,8 +146,15 @@ type ParsedWrite =
   | { readonly ok: false; readonly response: Response };
 
 const parseWrite = async (request: Request, requestId: string): Promise<ParsedWrite> => {
-  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim();
-  if (contentType !== "application/json") {
+  const contentTypeParts = request.headers.get("content-type")?.split(";").map((part) => part.trim());
+  const mediaType = contentTypeParts?.[0]?.toLowerCase();
+  const charset = contentTypeParts
+    ?.slice(1)
+    .find((part) => part.toLowerCase().startsWith("charset="))
+    ?.slice("charset=".length)
+    .trim()
+    .toLowerCase();
+  if (mediaType !== "application/json" || (charset !== undefined && charset !== "utf-8")) {
     return { ok: false, response: errorResponse("UNSUPPORTED_MEDIA_TYPE", requestId) };
   }
   const authorization = request.headers.get("authorization");
@@ -143,11 +165,12 @@ const parseWrite = async (request: Request, requestId: string): Promise<ParsedWr
   if (!idempotencyKey || idempotencyKey.length < 16 || idempotencyKey.length > 128) {
     return { ok: false, response: errorResponse("INVALID_REQUEST", requestId) };
   }
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > 32_768) {
+  const body = await readBoundedBody(request, 32_768);
+  if (!body.ok) {
     return { ok: false, response: errorResponse("PAYLOAD_TOO_LARGE", requestId) };
   }
   try {
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(body.bytes);
     return {
       bearerToken: authorization.slice(7),
       idempotencyKey,
@@ -177,14 +200,14 @@ export const handleCreateArticle = async (
       rawSubmission: input.data,
       requestId,
     });
-    const view = await services.getArticle(result.articleId);
+    const view = await services.getRevision(result.articleId, result.revisionId);
     if (!view) return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
     return json(view, 201, requestId, {
       "cache-control": "private, no-store",
       location: `/api/v1/articles/${result.articleId}`,
     });
   } catch (error) {
-    return errorResponse(errorCode(error), requestId);
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 
@@ -210,14 +233,14 @@ export const handleReviseArticle = async (
       rawSubmission: input.data,
       requestId,
     });
-    const view = await services.getArticle(result.articleId);
+    const view = await services.getRevision(result.articleId, result.revisionId);
     if (!view) return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
     return json(view, 201, requestId, {
       "cache-control": "private, no-store",
       location: `/api/v1/articles/${result.articleId}`,
     });
   } catch (error) {
-    return errorResponse(errorCode(error), requestId);
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 
@@ -229,8 +252,8 @@ export const handleGetArticle = async (
   try {
     const view = await services.getArticle(idOrSlug);
     return view ? json(view, 200, requestId) : errorResponse("ARTICLE_NOT_FOUND", requestId);
-  } catch {
-    return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
+  } catch (error) {
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 
@@ -250,8 +273,8 @@ export const handleListArticles = async (
       ? { cursor: parsed.data.cursor, limit: parsed.data.limit }
       : { limit: parsed.data.limit };
     return json(await services.listArticles(input), 200, requestId);
-  } catch {
-    return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
+  } catch (error) {
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 
@@ -259,8 +282,8 @@ export const handleAbout = async (services: HttpServices): Promise<Response> => 
   const requestId = requestIdFor();
   try {
     return json(await services.about(), 200, requestId);
-  } catch {
-    return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
+  } catch (error) {
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 
@@ -271,14 +294,20 @@ export const handleSearchArticles = async (
   const requestId = requestIdFor(request);
   const url = new URL(request.url);
   const query = url.searchParams.get("q");
-  const pagination = paginationInputSchema.safeParse({ limit: url.searchParams.get("limit") ?? undefined });
+  const pagination = paginationInputSchema.safeParse({
+    cursor: url.searchParams.get("cursor") ?? undefined,
+    limit: url.searchParams.get("limit") ?? undefined,
+  });
   if (!query || query.trim().length === 0 || [...query].length > 200 || !pagination.success) {
     return errorResponse("INVALID_REQUEST", requestId);
   }
   try {
-    return json(await services.searchArticles(query, pagination.data.limit), 200, requestId);
-  } catch {
-    return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
+    const input = pagination.data.cursor
+      ? { cursor: pagination.data.cursor, limit: pagination.data.limit }
+      : { limit: pagination.data.limit };
+    return json(await services.searchArticles(query, input), 200, requestId);
+  } catch (error) {
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 
@@ -289,15 +318,19 @@ export const handleListRevisions = async (
 ): Promise<Response> => {
   const requestId = requestIdFor(request);
   const url = new URL(request.url);
-  const pagination = paginationInputSchema.safeParse({ limit: url.searchParams.get("limit") ?? undefined });
+  const pagination = paginationInputSchema.safeParse({
+    cursor: url.searchParams.get("cursor") ?? undefined,
+    limit: url.searchParams.get("limit") ?? undefined,
+  });
   if (!pagination.success) return errorResponse("INVALID_REQUEST", requestId);
   try {
-    const items = await services.listRevisions(idOrSlug, pagination.data.limit);
-    return items.length === 0
-      ? errorResponse("ARTICLE_NOT_FOUND", requestId)
-      : json({ items, next_cursor: null }, 200, requestId);
-  } catch {
-    return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
+    const input = pagination.data.cursor
+      ? { cursor: pagination.data.cursor, limit: pagination.data.limit }
+      : { limit: pagination.data.limit };
+    const result = await services.listRevisions(idOrSlug, input);
+    return result ? json(result, 200, requestId) : errorResponse("ARTICLE_NOT_FOUND", requestId);
+  } catch (error) {
+    return errorResponse(publicErrorCode(error), requestId);
   }
 };
 

@@ -41,6 +41,26 @@ export const instructionSets = pgTable(
   ],
 );
 
+export const instructionSetActivationEvents = pgTable(
+  "instruction_set_activation_events",
+  {
+    id: uuid("id").primaryKey(),
+    instructionSetId: uuid("instruction_set_id")
+      .notNull()
+      .references(() => instructionSets.id, { onDelete: "restrict" }),
+    reasonCode: text("reason_code").notNull(),
+    actorType: text("actor_type").notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("instruction_set_activation_events_order_idx").on(table.createdAt, table.id),
+    check(
+      "instruction_set_activation_events_actor",
+      sql`${table.actorType} IN ('system', 'admin')`,
+    ),
+  ],
+);
+
 export const pilotCredentials = pgTable(
   "pilot_credentials",
   {
@@ -134,16 +154,18 @@ export const articles = pgTable(
   {
     id: uuid("id").primaryKey(),
     slug: text("slug").notNull(),
-    currentRevisionId: uuid("current_revision_id").references(
-      (): AnyPgColumn => revisions.id,
-      { onDelete: "restrict" },
-    ),
+    currentRevisionId: uuid("current_revision_id"),
     createdAt: createdAt(),
   },
   (table) => [
     uniqueIndex("articles_slug_unique").on(table.slug),
     uniqueIndex("articles_current_revision_unique").on(table.currentRevisionId),
     index("articles_created_at_idx").on(table.createdAt, table.id),
+    foreignKey({
+      columns: [table.id, table.currentRevisionId],
+      foreignColumns: [revisions.articleId, revisions.id],
+      name: "articles_current_revision_same_article_fk",
+    }).onDelete("restrict"),
   ],
 );
 

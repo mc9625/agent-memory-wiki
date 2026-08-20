@@ -1,5 +1,15 @@
+import { eq, sql as drizzleSql } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
+
+import {
+  createDatabase,
+  DrizzleArticleReader,
+  instructionSetActivationEvents,
+  instructionSets,
+  probeDatabaseReadiness,
+  systemSettings,
+} from "../src/index";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ??
@@ -12,6 +22,28 @@ afterAll(async () => {
 });
 
 describe("initial PostgreSQL schema", () => {
+  it("applies bounded statement, lock, and idle transaction timeouts", async () => {
+    const database = createDatabase({ maxConnections: 1, url: databaseUrl });
+    try {
+      const rows = await database.db.execute<{
+        idle_timeout: string;
+        lock_timeout: string;
+        statement_timeout: string;
+      }>(drizzleSql`
+        SELECT current_setting('statement_timeout') AS statement_timeout,
+               current_setting('lock_timeout') AS lock_timeout,
+               current_setting('idle_in_transaction_session_timeout') AS idle_timeout
+      `);
+      expect(rows[0]).toMatchObject({
+        idle_timeout: "10s",
+        lock_timeout: "2s",
+        statement_timeout: "5s",
+      });
+    } finally {
+      await database.close();
+    }
+  });
+
   it("creates every approved public table", async () => {
     const rows = await sql<{ table_name: string }[]>`
       SELECT table_name
@@ -27,6 +59,7 @@ describe("initial PostgreSQL schema", () => {
         "articles",
         "audit_events",
         "idempotency_records",
+        "instruction_set_activation_events",
         "instruction_sets",
         "pilot_credentials",
         "rate_limit_buckets",
@@ -75,7 +108,7 @@ describe("initial PostgreSQL schema", () => {
 
     expect(rows.map(({ constraint_name }) => constraint_name)).toEqual(
       expect.arrayContaining([
-        "articles_current_revision_id_revisions_id_fk",
+        "articles_current_revision_same_article_fk",
         "revisions_parent_revision_id_revisions_id_fk",
         "revisions_parent_same_article_fk",
       ]),
@@ -121,5 +154,128 @@ describe("initial PostgreSQL schema", () => {
     expect(privileges).not.toContain("UPDATE");
     expect(privileges).not.toContain("DELETE");
     expect(privileges).not.toContain("TRUNCATE");
+  });
+
+  it("separates runtime and administrative database capabilities", async () => {
+    const [permissions] = await sql<{
+      admin_can_activate: boolean;
+      admin_can_update_revisions: boolean;
+      runtime_can_insert_credentials: boolean;
+      runtime_can_delete_idempotency: boolean;
+      runtime_can_delete_rate_limits: boolean;
+      runtime_can_read_migrations: boolean;
+      runtime_can_update_idempotency: boolean;
+      runtime_can_update_rate_limits: boolean;
+      runtime_can_update_current_revision: boolean;
+      runtime_can_update_slug: boolean;
+    }[]>`
+      SELECT
+        has_table_privilege(
+          'wiki_runtime',
+          'drizzle.__drizzle_migrations',
+          'SELECT'
+        ) AS runtime_can_read_migrations,
+        has_table_privilege(
+          'wiki_runtime',
+          'public.pilot_credentials',
+          'INSERT'
+        ) AS runtime_can_insert_credentials,
+        has_table_privilege('wiki_runtime', 'public.idempotency_records', 'DELETE')
+          AS runtime_can_delete_idempotency,
+        has_table_privilege('wiki_runtime', 'public.rate_limit_buckets', 'DELETE')
+          AS runtime_can_delete_rate_limits,
+        has_table_privilege('wiki_runtime', 'public.idempotency_records', 'UPDATE')
+          AS runtime_can_update_idempotency,
+        has_column_privilege('wiki_runtime', 'public.rate_limit_buckets', 'request_count', 'UPDATE')
+          AS runtime_can_update_rate_limits,
+        has_column_privilege(
+          'wiki_runtime',
+          'public.articles',
+          'current_revision_id',
+          'UPDATE'
+        ) AS runtime_can_update_current_revision,
+        has_column_privilege(
+          'wiki_runtime',
+          'public.articles',
+          'slug',
+          'UPDATE'
+        ) AS runtime_can_update_slug,
+        has_table_privilege(
+          'wiki_admin',
+          'public.instruction_set_activation_events',
+          'INSERT'
+        ) AS admin_can_activate,
+        has_table_privilege(
+          'wiki_admin',
+          'public.revisions',
+          'UPDATE'
+        ) AS admin_can_update_revisions
+    `;
+    expect(permissions).toEqual({
+      admin_can_activate: true,
+      admin_can_update_revisions: false,
+      runtime_can_insert_credentials: false,
+      runtime_can_delete_idempotency: false,
+      runtime_can_delete_rate_limits: false,
+      runtime_can_read_migrations: true,
+      runtime_can_update_idempotency: false,
+      runtime_can_update_rate_limits: true,
+      runtime_can_update_current_revision: true,
+      runtime_can_update_slug: false,
+    });
+  });
+
+  it("keeps a draft instruction private until an explicit activation event", async () => {
+    const database = createDatabase({ maxConnections: 1, url: databaseUrl });
+    const instructionId = "e9c53c7f-9063-411e-bc23-cc0cf9a2a063";
+    const activationId = "80cb7e78-4ec0-41f6-890d-0fe87f787d17";
+    try {
+      await database.db.insert(instructionSets).values({
+        content: "Synthetic inactive instruction",
+        contentSha256: Buffer.alloc(32, 12),
+        createdAt: new Date("2026-08-20T01:00:00Z"),
+        id: instructionId,
+        version: 2,
+      });
+      const reader = new DrizzleArticleReader(database.db);
+      await expect(reader.currentInstruction()).resolves.toMatchObject({ version: 1 });
+
+      await database.db.insert(instructionSetActivationEvents).values({
+        actorType: "admin",
+        createdAt: new Date("2026-08-20T02:00:00Z"),
+        id: activationId,
+        instructionSetId: instructionId,
+        reasonCode: "TEST_ACTIVATION",
+      });
+      await expect(reader.currentInstruction()).resolves.toEqual({
+        content: "Synthetic inactive instruction",
+        version: 2,
+      });
+    } finally {
+      await database.db
+        .delete(instructionSetActivationEvents)
+        .where(eq(instructionSetActivationEvents.id, activationId));
+      await database.db.delete(instructionSets).where(eq(instructionSets.id, instructionId));
+      await database.close();
+    }
+  });
+
+  it("recognizes the exact applied migration as release-compatible", async () => {
+    const database = createDatabase({ maxConnections: 1, url: databaseUrl });
+    try {
+      await database.db
+        .insert(systemSettings)
+        .values({ singleton: true, readOnly: false, settingsVersion: 1 })
+        .onConflictDoUpdate({
+          target: systemSettings.singleton,
+          set: { readOnly: false, settingsVersion: 1 },
+        });
+      await expect(probeDatabaseReadiness(database.db)).resolves.toEqual({
+        migrationsCompatible: true,
+        readOnly: false,
+      });
+    } finally {
+      await database.close();
+    }
   });
 });

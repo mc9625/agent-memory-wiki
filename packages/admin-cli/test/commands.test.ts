@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  activateInstruction,
   cleanupRateLimits,
   createCredential,
   hideArticle,
@@ -10,8 +11,10 @@ import {
   setReadOnly,
 } from "../src/commands";
 import type { AdminStore } from "../src/ports";
+import { parseOnOff } from "../src/index";
 
 const store = (): AdminStore => ({
+  activateInstruction: vi.fn(async () => undefined),
   createCredential: vi.fn(async () => undefined),
   deleteExpiredRateLimits: vi.fn(async () => 2),
   hideArticle: vi.fn(async () => undefined),
@@ -42,6 +45,22 @@ describe("admin commands", () => {
     expect(JSON.stringify(persisted)).not.toContain(result.bearerToken);
   });
 
+  it("rejects non-32-byte credential digest keys", async () => {
+    await expect(
+      createCredential(
+        {
+          instructionSetId: "00000000-0000-4000-8000-000000000001",
+          operatorLabel: "participant-01",
+          rateLimitPerDay: 500,
+          rateLimitPerMinute: 30,
+          termsAcceptedAt: new Date("2026-08-20T00:00:00Z"),
+          termsVersion: "pilot-v1",
+        },
+        { digestKey: Buffer.alloc(33), store: store() },
+      ),
+    ).rejects.toThrow("exactly 32 bytes");
+  });
+
   it("requires reasons for every moderation/state mutation", async () => {
     const target = store();
     await expect(revokeCredential({ credentialId: "id", reasonCode: "" }, target)).rejects.toThrow("reason");
@@ -57,7 +76,14 @@ describe("admin commands", () => {
     await setReadOnly({ enabled: true, reasonCode: "INCIDENT", at }, target);
     await quarantineRevision({ revisionId: "revision", reasonCode: "MALFORMED", at }, target);
     await hideArticle({ articleId: "article", reasonCode: "OPERATOR_REQUEST", at }, target);
+    await activateInstruction(
+      { instructionSetId: "instruction", reasonCode: "PILOT_UPDATE", at },
+      target,
+    );
     expect(target.setReadOnly).toHaveBeenCalledWith(expect.objectContaining({ actorType: "admin", reasonCode: "INCIDENT" }));
+    expect(target.activateInstruction).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: "admin", instructionSetId: "instruction" }),
+    );
   });
 
   it("delegates cleanup with a seven-day safety boundary", async () => {
@@ -70,9 +96,14 @@ describe("admin commands", () => {
     });
   });
 
-  it("refuses production mutation without the explicit confirmation flag", () => {
-    expect(() => requireEnvironmentConfirmation("production", false)).toThrow("--confirm-production");
-    expect(() => requireEnvironmentConfirmation("production", true)).not.toThrow();
-    expect(() => requireEnvironmentConfirmation("development", false)).not.toThrow();
+  it("requires the explicit production-strength confirmation for every target", () => {
+    expect(() => requireEnvironmentConfirmation(false)).toThrow("--confirm-production");
+    expect(() => requireEnvironmentConfirmation(true)).not.toThrow();
+  });
+
+  it("rejects ambiguous read-only values", () => {
+    expect(parseOnOff("on")).toBe(true);
+    expect(parseOnOff("off")).toBe(false);
+    expect(() => parseOnOff("onn")).toThrow("on or off");
   });
 });

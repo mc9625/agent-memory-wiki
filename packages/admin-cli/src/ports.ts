@@ -18,6 +18,9 @@ export interface AdminMutation {
 }
 
 export interface AdminStore {
+  activateInstruction(
+    input: AdminMutation & { readonly instructionSetId: string },
+  ): Promise<void>;
   createCredential(record: NewCredentialRecord): Promise<void>;
   revokeCredential(input: AdminMutation & { readonly credentialId: string }): Promise<void>;
   setReadOnly(input: AdminMutation & { readonly enabled: boolean }): Promise<void>;

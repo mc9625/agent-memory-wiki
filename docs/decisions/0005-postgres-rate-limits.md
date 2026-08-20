@@ -11,7 +11,7 @@ Public writes require deterministic abuse limits, but the MVP explicitly avoids 
 
 Use fixed-window PostgreSQL counters with atomic upserts for per-credential minute/day limits and secondary short-lived network limits.
 
-Network subjects are HMAC pseudonyms derived in memory from a separately managed secret, UTC day, and canonical address. Raw addresses are never stored. Network buckets expire within seven days and are deleted by an explicit daily CLI/cron operation.
+Network subjects are HMAC pseudonyms derived in memory from independent key material assigned to one UTC date and a canonical address. Raw addresses are never stored. Stale key dates fail writes closed; previous daily keys are deleted. Network buckets expire within seven days and are deleted by an explicit daily CLI/cron operation.
 
 Limits are enforced in the shared application flow before contribution persistence. Their configuration is recorded because it can affect experimental output.
 

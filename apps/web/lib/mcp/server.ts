@@ -10,7 +10,7 @@ import {
 } from "@agent-memory-wiki/contracts";
 import { z } from "zod";
 
-import type { HttpServices } from "../http/handlers";
+import { publicErrorCode, type HttpServices } from "../http/handlers";
 
 const emptyInput = z.strictObject({});
 const searchInput = z.strictObject({
@@ -47,11 +47,7 @@ const success = (value: unknown): CallToolResult => {
 };
 
 const toolError = (error: unknown, requestId: string): CallToolResult => {
-  let code = "DEPENDENCY_UNAVAILABLE";
-  if (typeof error === "object" && error !== null && "code" in error) {
-    if (error.code === "INVALID_CREDENTIAL") code = "AUTHENTICATION_REQUIRED";
-    else if (typeof error.code === "string") code = error.code;
-  }
+  const code = publicErrorCode(error);
   return {
     content: [{ type: "text", text: JSON.stringify({ error: { code, request_id: requestId } }) }],
     isError: true,
@@ -59,8 +55,21 @@ const toolError = (error: unknown, requestId: string): CallToolResult => {
   };
 };
 
-const requestIdFor = (request?: Request): string =>
-  request?.headers.get("x-request-id") ?? randomUUID();
+const safeTool = async (
+  requestId: string,
+  operation: () => Promise<CallToolResult>,
+): Promise<CallToolResult> => {
+  try {
+    return await operation();
+  } catch (error) {
+    return toolError(error, requestId);
+  }
+};
+
+const requestIdFor = (request?: Request): string => {
+  const supplied = request?.headers.get("x-request-id");
+  return supplied && /^[A-Za-z0-9._:-]{1,128}$/u.test(supplied) ? supplied : randomUUID();
+};
 
 const bearerFor = (request?: Request): string | null => {
   const authorization = request?.headers.get("authorization");
@@ -83,29 +92,40 @@ export const createAgentMemoryWikiMcpServer = (
   server.registerTool(
     "about",
     { description: "Describe the experiment and its public interfaces.", inputSchema: emptyInput, annotations: { readOnlyHint: true, openWorldHint: false } },
-    async () => success(await services.about()),
+    async () => safeTool(requestIdFor(request), async () => success(await services.about())),
   );
   server.registerTool(
     "list_articles",
     { description: "List latest visible articles without qualitative ranking.", inputSchema: paginationInputSchema, annotations: { readOnlyHint: true, openWorldHint: false } },
     async ({ cursor, limit }) =>
-      success(await services.listArticles(cursor ? { cursor, limit } : { limit })),
+      safeTool(requestIdFor(request), async () =>
+        success(await services.listArticles(cursor ? { cursor, limit } : { limit })),
+      ),
   );
   server.registerTool(
     "search_articles",
     { description: "Search visible source text for an explicit query.", inputSchema: searchInput, annotations: { readOnlyHint: true, openWorldHint: false } },
-    async ({ query, limit }) => success(await services.searchArticles(query, limit)),
+    async ({ query, cursor, limit }) =>
+      safeTool(requestIdFor(request), async () =>
+        success(await services.searchArticles(query, cursor ? { cursor, limit } : { limit })),
+      ),
   );
   server.registerTool(
     "read_article",
     { description: "Read one visible article and optionally its bounded public history.", inputSchema: readInput, annotations: { readOnlyHint: true, openWorldHint: false } },
-    async ({ id_or_slug, include_history, history_limit }) => {
+    async ({ id_or_slug, include_history, history_cursor, history_limit }) => safeTool(requestIdFor(request), async () => {
       const article = await services.getArticle(id_or_slug);
       if (!article) return toolError({ code: "ARTICLE_NOT_FOUND" }, requestIdFor(request));
       if (!include_history) return success(article);
-      const history = await services.listRevisions(id_or_slug, history_limit);
-      return success({ ...article, history: { items: history, next_cursor: null } });
-    },
+      const history = await services.listRevisions(
+        id_or_slug,
+        history_cursor
+          ? { cursor: history_cursor, limit: history_limit }
+          : { limit: history_limit },
+      );
+      if (!history) return toolError({ code: "ARTICLE_NOT_FOUND" }, requestIdFor(request));
+      return success({ ...article, history });
+    }),
   );
   server.registerTool(
     "create_article",
@@ -123,7 +143,7 @@ export const createAgentMemoryWikiMcpServer = (
           rawSubmission: { title, body_markdown, identity },
           requestId,
         });
-        const article = await services.getArticle(result.articleId);
+        const article = await services.getRevision(result.articleId, result.revisionId);
         if (!article) throw new Error("Created article is unavailable");
         return success({ ...article, outcome_code: "ACCEPTED", request_id: requestId });
       } catch (error) {
@@ -150,7 +170,7 @@ export const createAgentMemoryWikiMcpServer = (
           rawSubmission: { title, body_markdown, identity, parent_revision_id },
           requestId,
         });
-        const article = await services.getArticle(result.articleId);
+        const article = await services.getRevision(result.articleId, result.revisionId);
         if (!article) throw new Error("Revised article is unavailable");
         return success({ ...article, outcome_code: "ACCEPTED", request_id: requestId });
       } catch (error) {

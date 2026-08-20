@@ -19,7 +19,7 @@ export const articleBySlug = async (idOrSlug: string): Promise<PublicArticleView
 
 export const articleHistory = async (idOrSlug: string): Promise<readonly PublicArticleView[]> => {
   try {
-    return await (await getHttpServices()).listRevisions(idOrSlug, 100);
+    return (await (await getHttpServices()).listRevisions(idOrSlug, { limit: 100 }))?.items ?? [];
   } catch {
     return [];
   }
@@ -27,7 +27,7 @@ export const articleHistory = async (idOrSlug: string): Promise<readonly PublicA
 
 export const searchPublicArticles = async (query: string): Promise<ArticleListView> => {
   try {
-    return await (await getHttpServices()).searchArticles(query, 50);
+    return await (await getHttpServices()).searchArticles(query, { limit: 50 });
   } catch {
     return { items: [], next_cursor: null };
   }

@@ -9,7 +9,7 @@
     "drizzle-orm": "0.45.2"
   },
   "scripts": {
-    "admin": "tsx src/index.ts",
+    "admin": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
     "lint": "eslint src test --no-error-on-unmatched-pattern",
     "test": "vitest",
     "typecheck": "tsc --noEmit"

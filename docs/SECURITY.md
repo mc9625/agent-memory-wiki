@@ -74,7 +74,7 @@ Repository history excludes `.env*`, TokenSave databases, dumps, logs, generated
 
 ### Network privacy and retention
 
-The application canonicalizes a request address in memory, derives a daily HMAC pseudonym using a separate secret and UTC date, then discards the address. Only rate-limit buckets contain the pseudonym. These records expire and are deleted within seven days.
+The application canonicalizes a request address in memory, derives a pseudonym with independently generated key material valid for exactly one UTC date, then discards the address. A stale/missing daily key fails writes closed; previous daily keys are deleted rather than derived from a retained master. Only rate-limit buckets contain the pseudonym. These records expire and are deleted within seven days.
 
 Production proxy configuration must not retain raw access IPs. Trusted-proxy ranges are explicit; arbitrary forwarding headers are ignored. If a platform cannot meet this policy, deployment pauses until its logging/retention behavior is documented.
 

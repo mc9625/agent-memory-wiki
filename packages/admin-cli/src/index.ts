@@ -1,8 +1,9 @@
 import { pathToFileURL } from "node:url";
 
-import { createDatabase } from "@agent-memory-wiki/db";
+import { createDatabase, parseBase64UrlSecret } from "@agent-memory-wiki/db";
 
 import {
+  activateInstruction,
   cleanupRateLimits,
   createCredential,
   hideArticle,
@@ -36,17 +37,29 @@ const requiredEnvironment = (name: string): string => {
   return value;
 };
 
+export const parseOnOff = (value: string): boolean => {
+  if (value === "on") return true;
+  if (value === "off") return false;
+  throw new Error("--value must be on or off.");
+};
+
 export const runAdminCli = async (args: readonly string[]): Promise<void> => {
   const [command] = args;
   if (!command) throw new Error("An admin command is required.");
-  requireEnvironmentConfirmation(
-    process.env.ADMIN_ENVIRONMENT ?? "development",
-    args.includes("--confirm-production"),
-  );
-  const database = createDatabase({ url: requiredEnvironment("DATABASE_URL") });
+  requireEnvironmentConfirmation(args.includes("--confirm-production"));
+  const database = createDatabase({ url: requiredEnvironment("ADMIN_DATABASE_URL") });
   const store = new PostgresAdminStore(database.db);
   try {
     switch (command) {
+      case "activate-instruction":
+        await activateInstruction(
+          {
+            instructionSetId: option(args, "--instruction-set"),
+            reasonCode: option(args, "--reason"),
+          },
+          store,
+        );
+        break;
       case "create-credential": {
         const label = requiredEnvironment("ADMIN_OPERATOR_LABEL");
         const result = await createCredential(
@@ -59,8 +72,9 @@ export const runAdminCli = async (args: readonly string[]): Promise<void> => {
             termsVersion: option(args, "--terms-version"),
           },
           {
-            digestKey: new Uint8Array(
-              Buffer.from(requiredEnvironment("CREDENTIAL_HASH_SECRET"), "base64url"),
+            digestKey: parseBase64UrlSecret(
+              "CREDENTIAL_HASH_SECRET",
+              requiredEnvironment("CREDENTIAL_HASH_SECRET"),
             ),
             store,
           },
@@ -76,7 +90,7 @@ export const runAdminCli = async (args: readonly string[]): Promise<void> => {
         break;
       case "set-read-only":
         await setReadOnly(
-          { enabled: option(args, "--value") === "on", reasonCode: option(args, "--reason") },
+          { enabled: parseOnOff(option(args, "--value")), reasonCode: option(args, "--reason") },
           store,
         );
         break;

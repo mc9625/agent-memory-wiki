@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-import type { PilotCredential } from "@agent-memory-wiki/domain";
+import { DomainInvariantError, type PilotCredential } from "@agent-memory-wiki/domain";
 
 import { InvalidCredentialError } from "./errors";
 
@@ -62,8 +62,11 @@ export class CredentialAuthenticator {
     const digestMatches =
       expected.byteLength === actual.byteLength && timingSafeEqual(expected, actual);
 
-    if (!record || !digestMatches || record.status !== "active") {
+    if (!record || !digestMatches) {
       throw new InvalidCredentialError();
+    }
+    if (record.status === "revoked") {
+      throw new DomainInvariantError("The pilot credential is revoked", "CREDENTIAL_REVOKED");
     }
 
     const credential = Object.freeze({

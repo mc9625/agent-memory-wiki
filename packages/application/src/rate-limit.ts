@@ -24,6 +24,15 @@ export interface RateLimitRequest {
   readonly now: Date;
 }
 
+export type CredentialRateLimitRequest = Pick<
+  RateLimitRequest,
+  "credentialDigest" | "credentialLimitPerDay" | "credentialLimitPerMinute" | "now"
+>;
+export type NetworkRateLimitRequest = Pick<
+  RateLimitRequest,
+  "networkDigest" | "networkLimitPerMinute" | "now"
+>;
+
 interface RateLimitDependencies {
   readonly repository: RateLimitRepository;
 }
@@ -57,17 +66,27 @@ export class RateLimitService {
   }
 
   public async consume(request: RateLimitRequest): Promise<void> {
+    await this.consumeNetwork(request);
+    await this.consumeCredential(request);
+  }
+
+  public async consumeNetwork(request: NetworkRateLimitRequest): Promise<void> {
+    const count = await this.#repository.consume(
+      bucket("network", request.networkDigest, 60, request.now),
+    );
+    if (count > request.networkLimitPerMinute) throw new RateLimitExceededError();
+  }
+
+  public async consumeCredential(request: CredentialRateLimitRequest): Promise<void> {
     const counts = await Promise.all([
       this.#repository.consume(bucket("credential", request.credentialDigest, 60, request.now)),
       this.#repository.consume(
         bucket("credential", request.credentialDigest, 86_400, request.now),
       ),
-      this.#repository.consume(bucket("network", request.networkDigest, 60, request.now)),
     ]);
     const limits = [
       request.credentialLimitPerMinute,
       request.credentialLimitPerDay,
-      request.networkLimitPerMinute,
     ];
     if (counts.some((count, index) => count > (limits[index] ?? 0))) {
       throw new RateLimitExceededError();
