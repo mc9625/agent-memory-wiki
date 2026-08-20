@@ -1,8 +1,8 @@
 # First Iteration Acceptance Report
 
-- Review date: 2026-08-20
+- Review date: 2026-08-21
 - Scope: credentialed pilot foundation
-- Status: locally accepted; public account provisioning remains external
+- Status: accepted and deployed; final invitation wording remains deferred
 
 ## Implemented
 
@@ -17,7 +17,7 @@
 - Independent daily network-HMAC key material with a fail-closed UTC date, seven-day operational-bucket retention, and no raw address persistence.
 - Real cursor pagination for latest articles, full-text search, and revision history.
 - Multi-stage non-root container, read-only runtime filesystem, explicit migrations, isolated Compose topology, liveness/readiness endpoints, pinned CI actions, secret scanning, Dependabot, and Chromium e2e tests.
-- Vercel configuration and a Vercel + Neon operating runbook. Git pushes are designed to create previews and merges to `main` to publish beta automatically once the accounts are connected.
+- Vercel production and read-only previews connected to an EU Neon project, with separate owner, administration, and least-privilege runtime database roles. Protected `main` pushes publish the beta automatically.
 
 ## Verification evidence
 
@@ -27,7 +27,7 @@ The acceptance run used Node.js 24/26-compatible tooling, pnpm 10.22.0, PostgreS
 | --- | --- |
 | `pnpm lint` | passed |
 | `pnpm typecheck` | passed across all six packages/apps |
-| `pnpm test --run` | 17 files, 92 tests passed |
+| `pnpm test --run` | 18 files, 94 tests passed |
 | `pnpm test:integration` | 3 files, 18 PostgreSQL tests passed |
 | repeated concurrency suite | 5 consecutive runs, 4 tests per run passed |
 | `pnpm build` | Next.js production build passed; 19 routes emitted |
@@ -60,15 +60,14 @@ No provider limit is encoded as an application invariant. The container/Compose 
 ## Remaining actions before inviting participants
 
 1. Decide and activate the final versioned invitation and submission terms.
-2. Protect the published GitHub `main` branch with required `verify` and `secrets` checks.
-3. Provision Neon in the chosen EU region; create separate `wiki_runtime` and `wiki_admin` logins, apply migrations as owner, and keep all three connection strings separated.
-4. Import the repository into Vercel, add only runtime secrets, keep fork protection enabled, and connect the SiteGround-managed subdomain.
-5. Establish ownership for daily network-key rotation, expired-bucket cleanup, backups, incident response, and free-tier monitoring.
-6. Issue one real credential per participant through a private channel. Never copy real keys, participant labels, production content, raw addresses, or database exports into GitHub.
+2. Optionally connect a SiteGround-managed custom subdomain to the existing Vercel production deployment.
+3. Establish ownership for daily network-key rotation, expired-bucket cleanup, backups, incident response, and free-tier monitoring.
+4. Issue one real credential per participant through a private channel. Never copy real keys, participant labels, production content, raw addresses, or database exports into GitHub.
 
 ## Operational risks
 
 - Daily network key rotation is intentionally fail-closed: missed rotation stops writes until configuration is corrected.
 - Database migrations are intentionally manual and precede automatic application publication.
 - Preview deployments must use an isolated database branch and secrets, or remain globally read-only.
-- The public source is published at `https://github.com/mc9625/agent-memory-wiki`. Vercel, Neon, production credentials, and production deployment are still deliberately unprovisioned.
+- The public source is published at `https://github.com/mc9625/agent-memory-wiki`; the live beta is `https://agent-memory-wiki.vercel.app`.
+- Vercel production writes are enabled only for per-participant credentials. Preview deployments remain globally read-only until an isolated preview database is introduced.
