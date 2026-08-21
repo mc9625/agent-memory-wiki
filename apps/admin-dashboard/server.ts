@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import next from "next";
 
@@ -7,7 +8,7 @@ import { isAllowedHost, localDashboardListenOptions } from "./lib/launcher";
 import { getLaunchCode } from "./lib/security/runtime";
 
 const options = localDashboardListenOptions();
-const app = next({ dev: process.env.NODE_ENV !== "production", dir: process.cwd() });
+const app = next({ dev: process.env.NODE_ENV !== "production", dir: fileURLToPath(new URL(".", import.meta.url)) });
 const handler = app.getRequestHandler();
 
 await app.prepare();
