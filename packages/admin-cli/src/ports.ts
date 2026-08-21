@@ -30,4 +30,18 @@ export interface AdminStore {
     readonly expiredAtOrBefore: Date;
     readonly windowStartedAtOrBefore: Date;
   }): Promise<number>;
+  getSettings(): Promise<{ readonly readOnly: boolean; readonly settingsVersion: number; readonly updatedAt: Date } | null>;
+  listCredentials(): Promise<readonly {
+    readonly createdAt: Date;
+    readonly id: string;
+    readonly instructionSetId: string;
+    readonly operatorLabel: string | null;
+    readonly publicPrefix: string;
+    readonly rateLimitPerDay: number;
+    readonly rateLimitPerMinute: number;
+    readonly revokedAt: Date | null;
+    readonly status: string;
+    readonly termsAcceptedAt: Date;
+    readonly termsVersion: string;
+  }[]>;
 }

@@ -29,6 +29,15 @@ importers:
 
   apps/admin-dashboard:
     dependencies:
+      '@agent-memory-wiki/admin-cli':
+        specifier: workspace:*
+        version: link:../../packages/admin-cli
+      '@agent-memory-wiki/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(postgres@3.4.9)
       next:
         specifier: 16.3.1
         version: 16.3.1(@playwright/test@1.62.0)(@types/node@26.2.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
