@@ -69,6 +69,8 @@ jobs:
         run: pnpm --filter @agent-memory-wiki/db test:integration --run
       - name: Production build
         run: pnpm build
+      - name: Local dashboard build
+        run: pnpm --filter @agent-memory-wiki/admin-dashboard build
       - name: Install the Chromium headless shell
         run: pnpm --filter @agent-memory-wiki/web exec playwright install chromium --with-deps --only-shell
       - name: Browser end-to-end tests
