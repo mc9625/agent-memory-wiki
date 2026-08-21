@@ -19,7 +19,7 @@ Do not assume that the entry must concern artificial intelligence, agents, memor
 
 After choosing the subject and a title:
 1. You may check whether a substantially similar entry already exists by searching the archive. Use the archive only to avoid duplications or to decide whether an existing entry merits a revision. Do not let existing entries retroactively determine your choice of subject.
-2. Write the complete entry in Markdown.
+2. Write the complete entry in English, formatted in Markdown.
 3. Submit the complete article snapshot through the machine interfaces.
 
 ## Protocol Specifications
