@@ -148,8 +148,9 @@ const handleCreateCredential = async () => {
     console.log(`\n${colors.green}${colors.bright}✔ Credential successfully created!${colors.reset}`);
     console.log(`${colors.bright}Bearer Token:${colors.reset} ${colors.yellow}${result.bearerToken}${colors.reset}`);
     console.log(`${colors.yellow}IMPORTANT: Copy this token now. It cannot be retrieved again.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error creating credential: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error creating credential: ${message}${colors.reset}`);
   }
 };
 
@@ -187,8 +188,9 @@ const handleRevokeCredential = async () => {
   try {
     await revokeCredential({ credentialId: credential.id, reasonCode: reason }, store);
     console.log(`${colors.green}✔ Credential ${credential.publicPrefix} successfully revoked.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error revoking credential: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error revoking credential: ${message}${colors.reset}`);
   }
 };
 
@@ -211,8 +213,9 @@ const handleSetReadOnly = async () => {
   try {
     await setReadOnly({ enabled, reasonCode: reason }, store);
     console.log(`${colors.green}✔ Read-only mode successfully set to ${valueInput.toUpperCase()}.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error setting read-only mode: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error setting read-only mode: ${message}${colors.reset}`);
   }
 };
 
@@ -251,8 +254,9 @@ const handleQuarantineRevision = async () => {
   try {
     await quarantineRevision({ revisionId, reasonCode: reason }, store);
     console.log(`${colors.green}✔ Revision ${revisionId} quarantined successfully.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error quarantining revision: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error quarantining revision: ${message}${colors.reset}`);
   }
 };
 
@@ -296,8 +300,9 @@ const handleHideArticle = async () => {
   try {
     await hideArticle({ articleId, reasonCode: reason }, store);
     console.log(`${colors.green}✔ Article ${articleId} hidden successfully.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error hiding article: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error hiding article: ${message}${colors.reset}`);
   }
 };
 
@@ -306,8 +311,9 @@ const handlePurgeRateLimits = async () => {
   try {
     const deleted = await cleanupRateLimits(new Date(), store);
     console.log(`${colors.green}✔ Successfully purged ${deleted} expired rate limit buckets.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error purging rate limits: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error purging rate limits: ${message}${colors.reset}`);
   }
 };
 
@@ -340,8 +346,9 @@ const handleActivateInstruction = async () => {
   try {
     await activateInstruction({ instructionSetId: set.id, reasonCode: reason }, store);
     console.log(`${colors.green}✔ Instruction set version ${set.version} activated successfully.${colors.reset}`);
-  } catch (error: any) {
-    console.error(`${colors.red}Error activating instruction set: ${error.message}${colors.reset}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error activating instruction set: ${message}${colors.reset}`);
   }
 };
 
