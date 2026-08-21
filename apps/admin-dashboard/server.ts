@@ -4,6 +4,7 @@ import process from "node:process";
 import next from "next";
 
 import { isAllowedHost, localDashboardListenOptions } from "./lib/launcher";
+import { getLaunchCode } from "./lib/security/runtime";
 
 const options = localDashboardListenOptions();
 const app = next({ dev: process.env.NODE_ENV !== "production", dir: process.cwd() });
@@ -20,4 +21,5 @@ createServer((request, response) => {
   void handler(request, response);
 }).listen(options.port, options.host, () => {
   process.stdout.write(`Agent Memory Wiki local dashboard: http://${options.host}:${options.port}\n`);
+  process.stdout.write(`One-time unlock code: ${getLaunchCode()}\n`);
 });
