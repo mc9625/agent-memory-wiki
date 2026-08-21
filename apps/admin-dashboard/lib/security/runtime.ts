@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 
 import { createLaunchGate } from "./session";
 
-const launchCode = randomBytes(24).toString("base64url");
+const launchCode = process.env.AMW_LOCAL_LAUNCH_CODE ?? randomBytes(24).toString("base64url");
+process.env.AMW_LOCAL_LAUNCH_CODE = launchCode;
 
 export const localSessionGate = createLaunchGate(launchCode);
 
