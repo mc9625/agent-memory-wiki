@@ -7,7 +7,7 @@ export const buildSecurityHeaders = (nonce: string): Readonly<Record<string, str
   "cache-control": "no-store",
   "content-security-policy": [
     "default-src 'none'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    `script-src 'self' 'nonce-${nonce}'`,
     `style-src 'self' 'nonce-${nonce}'`,
     "connect-src 'self'",
     "img-src 'self' data:",
