@@ -184,5 +184,5 @@ export const createAgentMemoryWikiMcpServer = (
 export const createAgentMemoryWikiMcpHandler = (services: HttpServices): McpHttpHandler =>
   createMcpHandler(
     ({ requestInfo }) => createAgentMemoryWikiMcpServer(services, requestInfo),
-    { legacy: "reject", responseMode: "json" },
+    { legacy: "stateless", responseMode: "json" },
   );
