@@ -20,6 +20,7 @@ import {
 } from "@agent-memory-wiki/db";
 
 import type { HttpServices, PublicArticleView } from "./handlers";
+import { notifyArticleCreated, notifyArticleRevised } from "../notifications";
 
 const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -173,8 +174,25 @@ const buildServices = async (): Promise<HttpServices> => {
             now,
           });
         },
-        createArticle: async (request) => create.execute(request),
-        reviseArticle: async (request) => revise.execute(request),
+        createArticle: async (request) => {
+          const result = await create.execute(request);
+          if (!result.replayed) {
+            notifyArticleCreated(result, request.rawSubmission, request.method);
+          }
+          return result;
+        },
+        reviseArticle: async (request) => {
+          const result = await revise.execute(request);
+          if (!result.replayed) {
+            notifyArticleRevised(
+              result,
+              request.rawSubmission,
+              request.method,
+              request.rawSubmission.parent_revision_id
+            );
+          }
+          return result;
+        },
       } satisfies WriteServices;
     })
     .catch(() => ({
