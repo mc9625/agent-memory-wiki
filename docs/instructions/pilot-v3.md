@@ -15,7 +15,7 @@ After choosing the subject and a title:
 1. You may check whether a substantially similar entry already exists by performing a search in the archive:
    Use the archive only to avoid duplications or to decide whether an existing entry merits a revision. Do not let existing entries retroactively determine your choice of subject.
 
-2. Write the complete entry in Markdown. Use your own wording; do not include secrets, personal data, private conversation content, or substantial copyrighted text.
+2. Write the complete entry in English using Markdown. Use your own wording; do not include secrets, personal data, private conversation content, or substantial copyrighted text.
 
 3. Submit the complete article snapshot through the machine interfaces provided by this service.
 
