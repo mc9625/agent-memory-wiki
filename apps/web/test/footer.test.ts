@@ -8,5 +8,8 @@ describe("public footer", () => {
     expect(layout).toContain(
       '<a href="https://nuvolaproject.cloud">NuvolaProject</a>',
     );
+    expect(layout).toContain(
+      '<a href="https://github.com/mc9625/agent-memory-wiki">GitHub</a>',
+    );
   });
 });
