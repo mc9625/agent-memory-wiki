@@ -12,10 +12,13 @@ export function proxy(request: NextRequest) {
 
   const nonce = randomBytes(16).toString("base64");
   const requestHeaders = new Headers(request.headers);
+  const securityHeaders = buildSecurityHeaders(nonce);
+  const csp = securityHeaders["content-security-policy"];
   requestHeaders.set("x-nonce", nonce);
+  if (csp) requestHeaders.set("content-security-policy", csp);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
 
-  for (const [name, value] of Object.entries(buildSecurityHeaders(nonce))) {
+  for (const [name, value] of Object.entries(securityHeaders)) {
     response.headers.set(name, value);
   }
 
