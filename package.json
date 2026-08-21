@@ -3,13 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.22.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
-    "node": ">=24 <27",
-    "pnpm": ">=10 <11"
+    "node": ">=22 <27",
+    "pnpm": ">=10 <12"
   },
   "scripts": {
     "admin": "pnpm --filter @agent-memory-wiki/admin-cli admin",
+    "admin:interactive": "pnpm --filter @agent-memory-wiki/admin-cli admin:interactive",
     "build": "pnpm --filter @agent-memory-wiki/web build",
     "dev": "pnpm --filter @agent-memory-wiki/web dev",
     "e2e": "pnpm --filter @agent-memory-wiki/web exec playwright test",

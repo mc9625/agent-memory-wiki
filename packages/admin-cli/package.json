@@ -10,6 +10,7 @@
   },
   "scripts": {
     "admin": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
+    "admin:interactive": "node --env-file-if-exists=../../.env --import tsx src/interactive.ts",
     "lint": "eslint src test --no-error-on-unmatched-pattern",
     "test": "vitest",
     "typecheck": "tsc --noEmit"

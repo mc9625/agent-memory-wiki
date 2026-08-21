@@ -19,7 +19,7 @@ export interface CreateCredentialInput {
 export const createCredential = async (
   input: CreateCredentialInput,
   dependencies: { readonly digestKey: Uint8Array; readonly store: AdminStore },
-): Promise<{ readonly bearerToken: string }> => {
+): Promise<{ readonly bearerToken: string; readonly credentialId: string }> => {
   if (dependencies.digestKey.byteLength !== 32) throw new Error("Digest key must be exactly 32 bytes.");
   if (!input.instructionSetId || !input.termsVersion || !input.operatorLabel) {
     throw new Error("Instruction, terms, and operator label are required.");
@@ -30,8 +30,9 @@ export const createCredential = async (
   const secret = randomBytes(32).toString("base64url");
   const publicPrefix = `pilot_${secret.slice(0, 10)}`;
   const bearerToken = `${publicPrefix}.${secret}`;
+  const credentialId = randomUUID();
   await dependencies.store.createCredential({
-    id: randomUUID(),
+    id: credentialId,
     instructionSetId: input.instructionSetId,
     operatorLabel: input.operatorLabel,
     publicPrefix,
@@ -43,7 +44,7 @@ export const createCredential = async (
     termsAcceptedAt: input.termsAcceptedAt,
     termsVersion: input.termsVersion,
   });
-  return { bearerToken };
+  return { bearerToken, credentialId };
 };
 
 export const revokeCredential = async (

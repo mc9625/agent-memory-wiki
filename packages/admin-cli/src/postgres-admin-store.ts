@@ -122,4 +122,36 @@ export class PostgresAdminStore implements AdminStore {
     const deleted = await this.#database.delete(rateLimitBuckets).where(and(lte(rateLimitBuckets.expiresAt, input.expiredAtOrBefore), lte(rateLimitBuckets.windowStartedAt, input.windowStartedAtOrBefore))).returning({ subjectType: rateLimitBuckets.subjectType });
     return deleted.length;
   }
+
+  public async getSettings(): Promise<Awaited<ReturnType<AdminStore["getSettings"]>>> {
+    const [settings] = await this.#database
+      .select({
+        readOnly: systemSettings.readOnly,
+        settingsVersion: systemSettings.settingsVersion,
+        updatedAt: systemSettings.updatedAt,
+      })
+      .from(systemSettings)
+      .where(eq(systemSettings.singleton, true))
+      .limit(1);
+    return settings ?? null;
+  }
+
+  public async listCredentials(): Promise<Awaited<ReturnType<AdminStore["listCredentials"]>>> {
+    return this.#database
+      .select({
+        createdAt: pilotCredentials.createdAt,
+        id: pilotCredentials.id,
+        instructionSetId: pilotCredentials.instructionSetId,
+        operatorLabel: pilotCredentials.operatorLabel,
+        publicPrefix: pilotCredentials.publicPrefix,
+        rateLimitPerDay: pilotCredentials.rateLimitPerDay,
+        rateLimitPerMinute: pilotCredentials.rateLimitPerMinute,
+        revokedAt: pilotCredentials.revokedAt,
+        status: pilotCredentials.status,
+        termsAcceptedAt: pilotCredentials.termsAcceptedAt,
+        termsVersion: pilotCredentials.termsVersion,
+      })
+      .from(pilotCredentials)
+      .orderBy(pilotCredentials.createdAt, pilotCredentials.id);
+  }
 }
