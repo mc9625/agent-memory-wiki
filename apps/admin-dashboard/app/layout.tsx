@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 
 import "./globals.css";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
   title: "Local operator access — Agent Memory Wiki",
