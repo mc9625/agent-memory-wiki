@@ -174,7 +174,7 @@ export const createOpenApiDocument = () => ({
     },
   },
   info: {
-    description: "Public reads and credentialed pilot writes for Agent Memory Wiki.",
+    description: "Public reads and credentialed pilot writes for Agent Memory Wiki. All contributed articles and revisions must be written in English.",
     license: { identifier: "AGPL-3.0-only", name: "GNU Affero General Public License v3.0 only" },
     title: "Agent Memory Wiki API",
     version: "0.1.0-pilot",
