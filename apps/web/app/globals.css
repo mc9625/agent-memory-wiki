@@ -238,8 +238,42 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .co-occur-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; margin-top: 1rem; }
 .co-occur-card { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; background: var(--paper); border: 1px solid var(--line); }
 .co-occur-pair { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
-.co-bridge { color: var(--signal); font-weight: 700; }
-.co-badge { font-size: 0.82rem; font-weight: 700; background: var(--signal-soft); color: var(--signal); padding: 0.2rem 0.6rem; border-radius: 999px; min-width: 1.6rem; text-align: center; line-height: 1.2; }
+/* Wikilinks & Red Links */
+.prose a[href^="/articles/"], a.wikilink { color: var(--signal); text-decoration: underline; text-underline-offset: 3px; font-weight: 500; }
+.prose a[href^="/articles/"]:hover, a.wikilink:hover { color: var(--ink); }
+.prose a[href^="/wanted"], a.wikilink-wanted { color: #b91c1c; text-decoration: underline dotted #ef4444; text-underline-offset: 3px; font-weight: 500; }
+.prose a[href^="/wanted"]:hover, a.wikilink-wanted:hover { color: #991b1b; background: #fef2f2; text-decoration: underline solid #dc2626; }
+
+/* Aside links list */
+.aside-links-list { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.aside-links-list li code { font-size: 0.75rem; background: var(--paper-deep); padding: 0.15rem 0.35rem; border-radius: 2px; overflow-wrap: anywhere; }
+
+/* Wanted Page */
+.wanted-methodology-box { margin-bottom: 3.5rem; padding: 1.5rem 2rem; background: #fff7ed; border: 1px solid #ffedd5; border-left: 4px solid #ea580c; border-radius: 2px; }
+.wanted-methodology-box h3 { margin: 0 0 0.5rem; font-family: var(--serif); font-size: 1.2rem; color: #9a3412; }
+.wanted-methodology-box p { margin: 0; color: #7c2d12; font-size: 0.92rem; line-height: 1.6; }
+.wanted-cards-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 1.5rem; }
+.wanted-card { padding: 1.5rem; border: 1px solid var(--line); background: var(--paper); border-top: 3px solid #ef4444; display: flex; flex-direction: column; }
+.wanted-card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: 1rem; border-bottom: 1px dashed var(--line); padding-bottom: 0.75rem; }
+.wanted-title { margin: 0; font-size: 1.1rem; }
+.wanted-title code { color: #b91c1c; font-size: 0.95em; }
+.wanted-citation-badge { font-size: 0.75rem; font-weight: 700; background: #fef2f2; color: #b91c1c; border: 1px solid #fee2e2; padding: 0.2rem 0.55rem; border-radius: 999px; }
+.wanted-referrers { font-size: 0.82rem; }
+.wanted-ref-label { font-weight: 700; text-transform: uppercase; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.05em; }
+.wanted-ref-list { margin: 0.35rem 0 0; padding-left: 1.2rem; }
+.wanted-ref-list li { margin-bottom: 0.25rem; }
+.wanted-ref-list a { color: var(--ink); text-decoration: underline; }
+.wanted-ref-list a:hover { color: var(--signal); }
+
+.wanted-empty-state { padding: 3rem 2rem; border: 1px dashed var(--line); background: var(--paper); text-align: center; }
+.wanted-empty-state h3 { margin: 0 0 0.5rem; font: 400 1.5rem var(--serif); }
+.wanted-empty-state p { max-width: 36rem; margin: 0 auto 1.5rem; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+.wanted-empty-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+.btn-primary { display: inline-flex; align-items: center; padding: 0.6rem 1.2rem; background: var(--ink); color: var(--paper); font-weight: 700; font-size: 0.82rem; text-decoration: none; border-radius: 2px; }
+.btn-primary:hover { background: var(--signal); color: var(--paper); }
+.btn-secondary { display: inline-flex; align-items: center; padding: 0.6rem 1.2rem; background: var(--paper-deep); color: var(--ink); border: 1px solid var(--line); font-weight: 700; font-size: 0.82rem; text-decoration: none; border-radius: 2px; }
+.btn-secondary:hover { border-color: var(--ink); }
+.stat-link-sub { color: var(--signal); font-weight: 600; text-decoration: underline; }
 
 @media (max-width: 48rem) { .site-header { display: block; } .site-header nav { justify-content: flex-start; margin-top: 1rem; } .hero { display: block; min-height: auto; } .hero h1 { font-size: clamp(3.25rem, 16vw, 5.5rem); } .hero-copy, .signal { margin-top: 2rem; } .archive, .article-shell { grid-template-columns: 1fr; } .article-aside { position: static; } .endpoint-grid { grid-template-columns: 1fr; } .site-footer { display: block; } .two-column-section { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }

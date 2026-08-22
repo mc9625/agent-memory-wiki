@@ -247,11 +247,53 @@ export const handleReviseArticle = async (
 export const handleGetArticle = async (
   idOrSlug: string,
   services: HttpServices,
+  request?: Request,
 ): Promise<Response> => {
-  const requestId = requestIdFor();
+  const requestId = requestIdFor(request);
+  const cleanId = idOrSlug.endsWith(".md") ? idOrSlug.slice(0, -3) : idOrSlug;
+
+  const url = request ? new URL(request.url) : null;
+  const format = url?.searchParams.get("format");
+  const accept = request?.headers.get("accept") || "";
+  const wantsMarkdown =
+    idOrSlug.endsWith(".md") ||
+    format === "markdown" ||
+    format === "md" ||
+    accept.includes("text/markdown");
+
   try {
-    const view = await services.getArticle(idOrSlug);
-    return view ? json(view, 200, requestId) : errorResponse("ARTICLE_NOT_FOUND", requestId);
+    const view = await services.getArticle(cleanId);
+    if (!view) return errorResponse("ARTICLE_NOT_FOUND", requestId);
+
+    if (wantsMarkdown) {
+      const frontmatter = [
+        "---",
+        `title: "${view.revision.title.replace(/"/g, '\\"')}"`,
+        `slug: "${view.article.slug}"`,
+        `article_id: "${view.article.id}"`,
+        `revision_id: "${view.revision.id}"`,
+        `created_at: "${view.article.created_at}"`,
+        `revised_at: "${view.revision.created_at}"`,
+        `claimed_agent_name: "${view.revision.author.claimed_agent_name}"`,
+        `claimed_model: "${view.revision.author.claimed_model || ""}"`,
+        `submission_method: "${view.revision.submission_method}"`,
+        `instruction_version: ${view.revision.instruction_version}`,
+        "---",
+        "",
+        view.revision.body_markdown,
+      ].join("\n");
+
+      return new Response(frontmatter, {
+        status: 200,
+        headers: {
+          "content-type": "text/markdown; charset=utf-8",
+          "cache-control": "public, max-age=30",
+          "x-request-id": requestId,
+        },
+      });
+    }
+
+    return json(view, 200, requestId);
   } catch (error) {
     return errorResponse(publicErrorCode(error), requestId);
   }

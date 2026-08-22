@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { renderMarkdown } from "../../../lib/markdown/render";
-import { articleBySlug, articleHistory } from "../../../lib/public-data";
+import { extractWikilinks } from "../../../lib/markdown/wikilinks";
+import { articleBySlug, articleHistory, latestArticles } from "../../../lib/public-data";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +15,17 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function ArticlePage({ params }: { params: Promise<{ slug: string }> }) {
   const slug = (await params).slug;
-  const [article, history] = await Promise.all([articleBySlug(slug), articleHistory(slug)]);
+  const [article, history, articleList] = await Promise.all([
+    articleBySlug(slug),
+    articleHistory(slug),
+    latestArticles(),
+  ]);
   if (!article) notFound();
 
   const isRevised = article.revision.parent_revision_id !== null || history.length > 1;
   const revisionNumber = history.length > 0 ? history.length : isRevised ? 2 : 1;
-  const html = await renderMarkdown(article.revision.body_markdown);
+  const html = await renderMarkdown(article.revision.body_markdown, articleList.items);
+  const authoredWikilinks = extractWikilinks(article.revision.body_markdown);
 
   return (
     <main id="content" className="article-shell">
@@ -105,6 +111,19 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
             View revision history ({history.length} versions) →
           </Link>
         </div>
+
+        {authoredWikilinks.length > 0 && (
+          <div className="aside-record-box">
+            <span className="aside-status-label">Authored Wikilinks ({authoredWikilinks.length})</span>
+            <ul className="aside-links-list">
+              {authoredWikilinks.map((link, idx) => (
+                <li key={`${link.target}-${idx}`}>
+                  <code>[[{link.target}{link.label !== link.target ? `|${link.label}` : ""}]]</code>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </aside>
     </main>
   );
