@@ -6,6 +6,88 @@ export type AudienceOrientation =
   | "Agent-Directed"
   | "Meta-Experimental";
 
+export interface SemanticAttractor {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly test: (text: string, title: string) => boolean;
+}
+
+export const SEMANTIC_ATTRACTORS: readonly SemanticAttractor[] = [
+  {
+    id: "representation",
+    name: "Representation, Models & Semantics",
+    description: "The relationship between abstractions, mental models, symbol systems, and empirical reality (e.g. map vs. territory, reification).",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /map|territory|korzybski|semantics|representation vs|model-dependent|mental model|reification|fallacy|box.*model/i.test(combined);
+    },
+  },
+  {
+    id: "risk-decision",
+    name: "Risk Governance & Decision Theory",
+    description: "Decision-making under deep uncertainty, epistemic humility, irreversibility, risk management, and cognitive decision traps (e.g. sunk cost).",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /precaution|precauzione|risk governance|decision under uncertainty|epistemic risk|irreversible|sunk cost|loss aversion|decision-maker|public policy/i.test(combined);
+    },
+  },
+  {
+    id: "maintenance-care",
+    name: "Material Care, Maintenance & Technics",
+    description: "Physical infrastructure, repair, craft, ongoing care, and what allows material systems to endure.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /maintenance|manutenzione|repair|stewardship|infrastructure|craftsmanship|artifact|technics|durability|upkeep/i.test(combined);
+    },
+  },
+  {
+    id: "civic-commons",
+    name: "Civic Commons & Memory Institutions",
+    description: "Public libraries, open repositories, democratic access to knowledge, and durable cultural commons.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /library|libraries|biblioteca|biblioteche|archive|archives|commons|public sphere|civic infrastructure|informational commons/i.test(combined);
+    },
+  },
+  {
+    id: "synthetic-agency",
+    name: "AI Systems, Agency & Synthetic Cognition",
+    description: "Autonomous agents, machine memory, training vs. deployment distribution, prompt dynamics, reinforcement learning, or LLM hallucination.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /agent|stateless|context window|llm|artificial intelligence|reinforcement learning|hallucination|embeddings|grounding|autonomous system/i.test(combined);
+    },
+  },
+  {
+    id: "continuity-preservation",
+    name: "Intertemporal Continuity & Preservation",
+    description: "The overarching gravitational pull towards longevity, intergenerational transmission, and preventing knowledge loss across time.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /preserv|durab|maintain|manuten|continu|transmi|custod|protect|precaution|precauzion|harm|future reader|posterity|long-term|shared knowledge/i.test(combined);
+    },
+  },
+  {
+    id: "natural-systems",
+    name: "Natural Sciences & Living Systems",
+    description: "Biological organisms, ecological systems, evolutionary theory, physical and geological phenomena.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /biology|organism|species|ecology|physics|astronomy|geology|quantum|chemistry|ecosystem|evolution/i.test(combined);
+    },
+  },
+  {
+    id: "formal-logic",
+    name: "Formal Logic, Mathematics & Computation",
+    description: "Mathematical proofs, algorithmic complexity, graph theory, formal semantics, and formal reasoning.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /mathematics|theorem|formal logic|proof|algebra|calculus|graph theory|combinatorics|complexity theory/i.test(combined);
+    },
+  },
+];
+
 export interface CorpusAnalytics {
   readonly totalArticles: number;
   readonly totalWords: number;
@@ -29,12 +111,17 @@ export interface CorpusAnalytics {
     readonly count: number;
     readonly percentage: number;
   }>;
-  readonly thematicClusters: ReadonlyArray<{
-    readonly cluster: string;
+  readonly attractorActivations: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
     readonly description: string;
     readonly count: number;
     readonly percentage: number;
-    readonly examples: readonly string[];
+    readonly specimens: readonly string[];
+  }>;
+  readonly attractorCoOccurrences: ReadonlyArray<{
+    readonly pair: readonly [string, string];
+    readonly count: number;
   }>;
   readonly epistemicStance: {
     readonly conceptualEssaysCount: number;
@@ -61,113 +148,14 @@ export interface CorpusAnalytics {
     readonly instructionVersion: number;
     readonly wordCount: number;
     readonly createdAt: string;
-    readonly cluster: string;
+    readonly activeAttractors: readonly string[];
+    readonly primaryAttractor: string;
     readonly audienceOrientation: AudienceOrientation;
     readonly isMetaReflective: boolean;
     readonly isStewardshipOriented: boolean;
     readonly isConceptualEssay: boolean;
   }>;
 }
-
-export interface DomainCategory {
-  readonly name: string;
-  readonly description: string;
-  readonly test: (text: string, title: string) => boolean;
-}
-
-export const DOMAIN_CATEGORIES: readonly DomainCategory[] = [
-  {
-    name: "Archive Mechanics & Agent Self-Reflection",
-    description: "Reflections on autonomous agency, stateless collaboration, agent memory, prompt dynamics, or this encyclopedia.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      const metaKeywords = [
-        "agent memory wiki",
-        "read-before-write",
-        "stateless collaboration",
-        "how an agent chooses",
-        "from corpus to contribution",
-        "ephemeral space",
-        "memory mechanics",
-      ];
-      if (metaKeywords.some((k) => combined.includes(k))) return true;
-      const count = ["wiki", "agent", "corpus", "stateless", "snapshot", "prompt", "memory"].filter((w) =>
-        combined.includes(w)
-      ).length;
-      return count >= 3 && /agent|memory|wiki/i.test(title);
-    },
-  },
-  {
-    name: "Epistemology, Semantics & Models of Reality",
-    description: "General semantics, map vs territory, cognitive biases, mental models, representation theory, and limits of knowledge.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /map is not the territory|korzybski|semantics|representation vs|model-dependent|mental model|epistemology|reification|general semantics/i.test(
-        combined
-      );
-    },
-  },
-  {
-    name: "Civic Commons & Knowledge Institutions",
-    description: "Public libraries, open archives, democratic knowledge infrastructures, cultural commons, and shared access.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /library|libraries|biblioteca|biblioteche|archive|archives|commons|public sphere|civic infrastructure|informational commons/i.test(
-        combined
-      );
-    },
-  },
-  {
-    name: "Philosophy of Technology & Material Stewardship",
-    description: "Maintenance studies, infrastructure care, longevity of technical artifacts, craft, and physical preservation.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /maintenance|manutenzione|repair|stewardship|infrastructure|craftsmanship|artifact|technics|durability/i.test(
-        combined
-      );
-    },
-  },
-  {
-    name: "Risk Governance & Decision Theory",
-    description: "Decision-making under deep uncertainty, precautionary principles, risk management, epistemic humility, and public policy.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /precaution|precauzione|risk governance|decision under uncertainty|epistemic risk|irreversible harm|public policy/i.test(
-        combined
-      );
-    },
-  },
-  {
-    name: "Natural Sciences & Living Systems",
-    description: "Biological organisms, ecological networks, geological systems, physics, chemistry, and astronomical phenomena.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /biology|organism|species|ecology|physics|astronomy|geology|quantum|chemistry|ecosystem|evolution/i.test(
-        combined
-      );
-    },
-  },
-  {
-    name: "History, Arts & Cultural Practices",
-    description: "Historical events, artistic movements, biographical figures, literature, linguistics, and anthropological practices.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /history|historical|artistic|literature|biography|civilization|anthropology|sculpture|painting|music|architecture/i.test(
-        combined
-      );
-    },
-  },
-  {
-    name: "Mathematics, Logic & Formal Computation",
-    description: "Mathematical theorems, formal logic, algorithmic proofs, abstract data structures, and computational theory.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /mathematics|theorem|formal logic|proof|algebra|calculus|graph theory|combinatorics|complexity theory/i.test(
-        combined
-      );
-    },
-  },
-];
 
 export const detectAudienceOrientation = (
   body: string,
@@ -180,7 +168,7 @@ export const detectAudienceOrientation = (
 
   const combined = `${title}\n${body}`.toLowerCase();
   const hasAgentSection =
-    /note for agent|for agent readers|if you are an (artificial |ai )?agent|synthetic reader|message to other agents|to future agents|operational note for agents/i.test(
+    /note for agent|for agent readers|if you are an (artificial |ai )?agent|synthetic reader|message to other agents|to future agents|operational note for agents|relevance to agentic systems/i.test(
       combined
     );
 
@@ -200,7 +188,7 @@ export const detectAudienceOrientation = (
 
 const checkIsStewardship = (text: string, title: string): boolean => {
   const combined = `${title} ${text}`.toLowerCase();
-  return /preserv|durab|maintain|manuten|continu|transmi|custod|protect|precaution|precauzion|harm|future reader|long-term|posterity/i.test(
+  return /preserv|durab|maintain|manuten|continu|transmi|custod|protect|precaution|precauzion|harm|future reader|long-term|posterity|shared knowledge/i.test(
     combined
   );
 };
@@ -234,10 +222,12 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
   ]);
   const versionsMap = new Map<number, number>();
 
-  const clusterCounts = new Map<string, { count: number; examples: string[] }>();
-  for (const cat of DOMAIN_CATEGORIES) {
-    clusterCounts.set(cat.name, { count: 0, examples: [] });
+  const attractorCounts = new Map<string, { count: number; specimens: string[] }>();
+  for (const att of SEMANTIC_ATTRACTORS) {
+    attractorCounts.set(att.name, { count: 0, specimens: [] });
   }
+
+  const coOccurrenceMap = new Map<string, number>();
 
   const audienceCounts = new Map<AudienceOrientation, number>([
     ["General / Universal", 0],
@@ -270,21 +260,34 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     const versionKey = item.revision.instruction_version;
     versionsMap.set(versionKey, (versionsMap.get(versionKey) || 0) + 1);
 
-    // Determine category
-    let matchedCategory: string = DOMAIN_CATEGORIES[0]?.name ?? "General Knowledge";
-    for (const cat of DOMAIN_CATEGORIES) {
-      if (cat.test(body, title)) {
-        matchedCategory = cat.name;
-        break;
+    // Multi-attractor evaluation: check which attractors are triggered
+    const matchedAttractors: string[] = [];
+    for (const att of SEMANTIC_ATTRACTORS) {
+      if (att.test(body, title)) {
+        matchedAttractors.push(att.name);
+        const current = attractorCounts.get(att.name) || { count: 0, specimens: [] };
+        current.count += 1;
+        current.specimens.push(title);
+        attractorCounts.set(att.name, current);
       }
     }
 
-    const currentCluster = clusterCounts.get(matchedCategory) || { count: 0, examples: [] };
-    currentCluster.count += 1;
-    currentCluster.examples.push(title);
-    clusterCounts.set(matchedCategory, currentCluster);
+    if (matchedAttractors.length === 0) {
+      matchedAttractors.push("Representation, Models & Semantics");
+    }
 
-    const isMeta = matchedCategory === "Archive Mechanics & Agent Self-Reflection";
+    // Record co-occurrences
+    for (let i = 0; i < matchedAttractors.length; i++) {
+      for (let j = i + 1; j < matchedAttractors.length; j++) {
+        const key = [matchedAttractors[i], matchedAttractors[j]].sort().join(" ∩ ");
+        coOccurrenceMap.set(key, (coOccurrenceMap.get(key) || 0) + 1);
+      }
+    }
+
+    const isMeta =
+      /agent memory wiki|from corpus to contribution|read-before-write|shared ephemeral/i.test(title) ||
+      (matchedAttractors.includes("AI Systems, Agency & Synthetic Cognition") && /memory mechanics|stateless/i.test(title));
+
     const isStewardship = checkIsStewardship(body, title);
     const isConceptual = checkIsConceptualEssay(body, title);
     const audience = detectAudienceOrientation(body, title, isMeta);
@@ -305,7 +308,8 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
       instructionVersion: item.revision.instruction_version,
       wordCount: words,
       createdAt: item.revision.created_at,
-      cluster: matchedCategory,
+      activeAttractors: matchedAttractors,
+      primaryAttractor: matchedAttractors[0] || "General Knowledge",
       audienceOrientation: audience,
       isMetaReflective: isMeta,
       isStewardshipOriented: isStewardship,
@@ -351,16 +355,25 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     }))
     .sort((a, b) => a.version - b.version);
 
-  const thematicClusters = DOMAIN_CATEGORIES.map((cat) => {
-    const data = clusterCounts.get(cat.name) || { count: 0, examples: [] };
+  const attractorActivations = SEMANTIC_ATTRACTORS.map((att) => {
+    const data = attractorCounts.get(att.name) || { count: 0, specimens: [] };
     return {
-      cluster: cat.name,
-      description: cat.description,
+      id: att.id,
+      name: att.name,
+      description: att.description,
       count: data.count,
       percentage: totalArticles > 0 ? Math.round((data.count / totalArticles) * 100) : 0,
-      examples: data.examples,
+      specimens: data.specimens,
     };
   });
+
+  const attractorCoOccurrences = Array.from(coOccurrenceMap.entries())
+    .map(([pairStr, count]) => {
+      const parts = pairStr.split(" ∩ ") as [string, string];
+      return { pair: parts, count };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
 
   const epistemicStance = {
     conceptualEssaysCount: conceptualCount,
@@ -405,7 +418,8 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     modelDistribution,
     methodDistribution,
     instructionVersionDistribution,
-    thematicClusters,
+    attractorActivations,
+    attractorCoOccurrences,
     epistemicStance,
     audienceDistribution,
     specimens,

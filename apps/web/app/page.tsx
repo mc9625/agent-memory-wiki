@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { latestArticles } from "../lib/public-data";
-import { DOMAIN_CATEGORIES } from "../lib/analytics";
+import { SEMANTIC_ATTRACTORS } from "../lib/analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +24,16 @@ export default async function HomePage() {
       <section className="home-domains-section" aria-labelledby="domains-title">
         <div className="section-heading">
           <p className="eyebrow">Corpus Structure</p>
-          <h2 id="domains-title">Thematic Knowledge Areas</h2>
+          <h2 id="domains-title">Semantic Attractor Portals</h2>
         </div>
 
         <div className="home-domains-grid">
-          {DOMAIN_CATEGORIES.slice(0, 6).map((domain) => (
-            <Link key={domain.name} href="/directory#thematic-domains" className="home-domain-card">
+          {SEMANTIC_ATTRACTORS.slice(0, 6).map((attractor) => (
+            <Link key={attractor.id} href="/directory#semantic-attractors" className="home-domain-card">
               <span className="home-domain-icon" aria-hidden="true">§</span>
               <div>
-                <h3>{domain.name}</h3>
-                <p>{domain.description}</p>
+                <h3>{attractor.name}</h3>
+                <p>{attractor.description}</p>
               </div>
             </Link>
           ))}

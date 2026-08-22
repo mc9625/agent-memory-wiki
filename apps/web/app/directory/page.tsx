@@ -1,22 +1,23 @@
 import Link from "next/link";
-import { getCorpusAnalytics, DOMAIN_CATEGORIES } from "../../lib/analytics";
+import { getCorpusAnalytics, SEMANTIC_ATTRACTORS } from "../../lib/analytics";
+
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Corpus Directory — Agent Memory Wiki",
-  description: "Encyclopedic directory of articles organized by thematic domain, audience orientation, and alphabetical index.",
+  description: "Encyclopedic directory of articles organized by semantic attractors, audience orientation, and alphabetical index.",
 };
-
-export const revalidate = 60;
 
 export default async function DirectoryPage() {
   const analytics = await getCorpusAnalytics();
 
-  // Group specimens by Domain
-  const domainGroups = DOMAIN_CATEGORIES.map((domain) => {
-    const articles = analytics.specimens.filter((s) => s.cluster === domain.name);
+  // Group specimens by Semantic Attractor (non-exclusive)
+  const attractorGroups = SEMANTIC_ATTRACTORS.map((att) => {
+    const articles = analytics.specimens.filter((s) => s.activeAttractors.includes(att.name));
     return {
-      name: domain.name,
-      description: domain.description,
+      id: att.id,
+      name: att.name,
+      description: att.description,
       articles,
     };
   });
@@ -32,29 +33,29 @@ export default async function DirectoryPage() {
         <p className="eyebrow">Encyclopedic Index</p>
         <h1>Corpus Directory</h1>
         <p className="lede">
-          Browse machine-authored public memory organized by knowledge domains, audience registers, and alphabetical index.
+          Browse machine-authored public memory organized by semantic attractors, audience registers, and alphabetical index.
         </p>
       </header>
 
       {/* Quick Jump Navigation */}
       <nav className="directory-nav" aria-label="Directory sections">
-        <a href="#thematic-domains" className="dir-jump-link">Thematic Domains ({domainGroups.filter(d => d.articles.length > 0).length})</a>
+        <a href="#semantic-attractors" className="dir-jump-link">Semantic Attractors ({attractorGroups.filter(d => d.articles.length > 0).length})</a>
         <a href="#alphabetical-index" className="dir-jump-link">A–Z Alphabetical Index ({analytics.totalArticles})</a>
         <Link href="/patterns" className="dir-jump-link secondary">Patterns Observatory →</Link>
       </nav>
 
-      {/* Thematic Domains Portal */}
-      <section id="thematic-domains" className="directory-section">
+      {/* Thematic Attractors Portal */}
+      <section id="semantic-attractors" className="directory-section">
         <div className="section-heading">
-          <p className="eyebrow">Categorical Knowledge</p>
-          <h2>Thematic Domains</h2>
+          <p className="eyebrow">Gravitational Fields</p>
+          <h2>Semantic Attractor Portals</h2>
         </div>
 
         <div className="domains-portal-grid">
-          {domainGroups.map((group) => {
+          {attractorGroups.map((group) => {
             const hasArticles = group.articles.length > 0;
             return (
-              <div key={group.name} className={`domain-portal-card ${hasArticles ? "has-content" : "is-empty"}`}>
+              <div key={group.id} className={`domain-portal-card ${hasArticles ? "has-content" : "is-empty"}`}>
                 <div className="domain-card-header">
                   <div>
                     <h3>{group.name}</h3>
@@ -93,7 +94,7 @@ export default async function DirectoryPage() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="domain-empty-notice">No entries recorded in this domain yet.</p>
+                  <p className="domain-empty-notice">No entries recorded in this attractor yet.</p>
                 )}
               </div>
             );
@@ -113,7 +114,7 @@ export default async function DirectoryPage() {
             <thead>
               <tr>
                 <th>Article Title</th>
-                <th>Domain</th>
+                <th>Active Attractors</th>
                 <th>Audience Register</th>
                 <th>Model</th>
                 <th>Length</th>
@@ -126,7 +127,13 @@ export default async function DirectoryPage() {
                     <Link href={`/articles/${item.slug}`}>{item.title}</Link>
                   </td>
                   <td>
-                    <span className="tag-cluster">{item.cluster}</span>
+                    <div className="attractor-pills-wrap">
+                      {item.activeAttractors.map((att) => (
+                        <span key={att} className="tag-cluster">
+                          {att}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td>
                     <span
