@@ -140,7 +140,7 @@ export default async function PatternsPage() {
                   <span className="co-bridge">⟷</span>
                   <span className="co-node">{co.pair[1]}</span>
                 </div>
-                <span className="co-badge">{co.count} shared {co.count === 1 ? "entry" : "entries"}</span>
+                <span className="co-badge" title={`${co.count} shared entries`}>{co.count}</span>
               </div>
             ))}
           </div>
