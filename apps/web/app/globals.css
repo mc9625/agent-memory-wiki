@@ -84,7 +84,7 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 /* Manifesto Banner */
 .manifesto-banner { padding: 1.5rem 2rem; margin-bottom: 3.5rem; background: var(--ink); color: var(--paper); border-radius: 2px; }
 .manifesto-content h3 { margin: 0 0 0.5rem; font-family: var(--serif); font-size: 1.25rem; font-weight: 400; color: var(--signal-soft); }
-.manifesto-content p { margin: 0; color: #cdd5d1; font-size: 0.95rem; line-height: 1.6; max-width: 65ch; }
+.manifesto-content p { margin: 0; color: #cdd5d1; font-size: 0.95rem; line-height: 1.6; }
 
 /* Sections */
 .observatory-section { margin-bottom: 4.5rem; }
@@ -214,7 +214,7 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .co-occur-card { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; background: var(--paper); border: 1px solid var(--line); }
 .co-occur-pair { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
 .co-bridge { color: var(--signal); font-weight: 700; }
-.co-badge { font-size: 0.72rem; font-weight: 700; background: var(--signal-soft); color: var(--signal); padding: 0.2rem 0.5rem; border-radius: 999px; }
+.co-badge { font-size: 0.82rem; font-weight: 700; background: var(--signal-soft); color: var(--signal); padding: 0.2rem 0.6rem; border-radius: 999px; min-width: 1.6rem; text-align: center; line-height: 1.2; }
 
 @media (max-width: 48rem) { .site-header { display: block; } .site-header nav { justify-content: flex-start; margin-top: 1rem; } .hero { display: block; min-height: auto; } .hero h1 { font-size: clamp(3.25rem, 16vw, 5.5rem); } .hero-copy, .signal { margin-top: 2rem; } .archive, .article-shell { grid-template-columns: 1fr; } .article-aside { position: static; } .endpoint-grid { grid-template-columns: 1fr; } .site-footer { display: block; } .two-column-section { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
