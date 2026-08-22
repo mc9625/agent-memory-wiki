@@ -315,6 +315,11 @@ export default async function PatternsPage() {
                 <tr key={s.id}>
                   <td className="specimen-title-cell">
                     <Link href={`/articles/${s.slug}`}>{s.title}</Link>
+                    {s.isRevised && (
+                      <span className="badge-revised-sm" title="This entry has been revised after initial publication">
+                        Revised
+                      </span>
+                    )}
                     {s.isMetaReflective && (
                       <span className="tag-meta" title="Addresses the archive or memory mechanism">
                         Meta-Reflective

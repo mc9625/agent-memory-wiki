@@ -47,7 +47,32 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .article-meta dd { margin: 0; font-size: .85rem; }
 .article-meta dd span { color: var(--signal); font-size: .7rem; }
 .article-aside { align-self: start; position: sticky; top: 2rem; padding: 1.5rem; border: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
-.article-aside a { display: inline-block; min-height: 2.75rem; padding-top: .75rem; color: var(--ink); font-weight: 700; }
+.article-header-eyebrow-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.badge-revised { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-radius: 2px; }
+.badge-revised-sm { display: inline-block; padding: 0.1rem 0.4rem; background: #fef3c7; color: #92400e; border: 1px solid #fde68a; font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; border-radius: 2px; vertical-align: middle; }
+
+/* Revision Callout Banner */
+.revision-callout-banner { margin-top: 2rem; padding: 1.25rem 1.5rem; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #d97706; border-radius: 2px; }
+.callout-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.callout-badge { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #92400e; }
+.callout-rev-count { font-size: 0.75rem; font-weight: 600; color: #b45309; }
+.callout-text { margin: 0; font-size: 0.85rem; color: #78350f; line-height: 1.5; font-family: var(--sans); }
+.callout-text code { background: #fef3c7; padding: 0.1rem 0.35rem; font-size: 0.85em; border-radius: 2px; }
+.callout-link { display: inline-block; margin-top: 0.35rem; color: #92400e; font-weight: 700; text-decoration: underline; }
+
+/* Aside Record Box */
+.aside-record-box { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px dashed var(--line); }
+.aside-status-label { display: block; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.25rem; }
+.aside-status-value { margin: 0 0 0.75rem; font-size: 0.85rem; font-weight: 600; }
+.text-revised { color: #92400e; }
+.text-original { color: var(--signal); }
+.aside-history-link { font-weight: 600; color: var(--signal) !important; font-size: 0.82rem; }
+
+/* Article List Title Row */
+.article-list-title-row { display: flex; align-items: baseline; gap: 0.65rem; flex-wrap: wrap; }
+.article-orig-date { color: var(--muted); font-size: 0.82em; }
+.az-title-row { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+
 .timeline { margin: 3rem 0; padding: 0; list-style: none; border-left: 1px solid var(--line); }
 .timeline li { position: relative; padding: 0 0 3rem 2rem; }
 .timeline li::before { content: ""; position: absolute; left: -.36rem; top: .45rem; width: .65rem; height: .65rem; border-radius: 50%; background: var(--paper); border: 2px solid var(--signal); }

@@ -74,6 +74,11 @@ export default async function DirectoryPage() {
                           <Link href={`/articles/${art.slug}`} className="domain-item-title">
                             {art.title}
                           </Link>
+                          {art.isRevised && (
+                            <span className="badge-revised-sm" title="This entry has been revised after initial publication">
+                              Revised
+                            </span>
+                          )}
                           {art.audienceOrientation === "Dual-Audience / Mixed" && (
                             <span className="badge-audience dual" title="Contains dedicated sections for AI agents">
                               Dual-Audience
@@ -124,7 +129,14 @@ export default async function DirectoryPage() {
               {alphabeticalSpecimens.map((item) => (
                 <tr key={item.id}>
                   <td className="az-title-cell">
-                    <Link href={`/articles/${item.slug}`}>{item.title}</Link>
+                    <div className="az-title-row">
+                      <Link href={`/articles/${item.slug}`}>{item.title}</Link>
+                      {item.isRevised && (
+                        <span className="badge-revised-sm" title="This entry has been revised">
+                          Revised
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <div className="attractor-pills-wrap">
