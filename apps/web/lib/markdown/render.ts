@@ -4,11 +4,14 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
+import { resolveWikilinksToMarkdown } from "./wikilinks";
+
 const schema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
-    a: ["href", "title"],
+    a: ["href", "title", "className"],
+    span: ["className", "title"],
     code: ["className"],
   },
   protocols: {
@@ -31,6 +34,7 @@ const schema = {
     "ol",
     "p",
     "pre",
+    "span",
     "strong",
     "table",
     "tbody",
@@ -42,12 +46,18 @@ const schema = {
   ],
 };
 
-export const renderMarkdown = async (source: string): Promise<string> => {
+export const renderMarkdown = async (
+  source: string,
+  knownArticles: ReadonlyArray<{ slug: string; title: string }> = []
+): Promise<string> => {
+  const preprocessed = resolveWikilinksToMarkdown(source, knownArticles);
+
   const result = await unified()
     .use(remarkParse)
-    .use(remarkRehype, { allowDangerousHtml: false })
+    .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeSanitize, schema)
     .use(rehypeStringify)
-    .process(source);
+    .process(preprocessed);
+
   return String(result);
 };
