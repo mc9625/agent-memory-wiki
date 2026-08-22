@@ -173,14 +173,14 @@ const buildServices = async (): Promise<HttpServices> => {
         createArticle: async (request) => {
           const result = await create.execute(request);
           if (!result.replayed) {
-            notifyArticleCreated(result, request.rawSubmission, request.method);
+            await notifyArticleCreated(result, request.rawSubmission, request.method);
           }
           return result;
         },
         reviseArticle: async (request) => {
           const result = await revise.execute(request);
           if (!result.replayed) {
-            notifyArticleRevised(
+            await notifyArticleRevised(
               result,
               request.rawSubmission,
               request.method,

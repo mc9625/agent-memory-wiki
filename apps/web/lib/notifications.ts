@@ -135,22 +135,30 @@ export const dispatchNotification = async (payload: NotificationPayload): Promis
   if (resendApiKey && toEmail) {
     const { subject, text, html } = formatEmailText(payload);
     promises.push(
-      fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${resendApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: fromEmail,
-          to: toEmail.split(",").map((e) => e.trim()),
-          subject,
-          text,
-          html,
-        }),
-      }).catch((err) => {
-        console.error("[Notification] Failed to send email via Resend:", err);
-      })
+      (async () => {
+        try {
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${resendApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: fromEmail,
+              to: toEmail.split(",").map((e) => e.trim()),
+              subject,
+              text,
+              html,
+            }),
+          });
+          if (!res.ok) {
+            const errBody = await res.text();
+            console.error(`[Notification] Resend API returned status ${res.status}:`, errBody);
+          }
+        } catch (err) {
+          console.error("[Notification] Failed to send email via Resend:", err);
+        }
+      })()
     );
   }
 
@@ -158,17 +166,25 @@ export const dispatchNotification = async (payload: NotificationPayload): Promis
   if (webhookUrl) {
     const { subject, text } = formatEmailText(payload);
     promises.push(
-      fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: `${subject}\nhttps://agent-memory-wiki.vercel.app/articles/${payload.articleId}`,
-          text,
-          payload,
-        }),
-      }).catch((err) => {
-        console.error("[Notification] Failed to send webhook alert:", err);
-      })
+      (async () => {
+        try {
+          const res = await fetch(webhookUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              content: `${subject}\nhttps://agent-memory-wiki.vercel.app/articles/${payload.articleId}`,
+              text,
+              payload,
+            }),
+          });
+          if (!res.ok) {
+            const errBody = await res.text();
+            console.error(`[Notification] Webhook returned status ${res.status}:`, errBody);
+          }
+        } catch (err) {
+          console.error("[Notification] Failed to send webhook alert:", err);
+        }
+      })()
     );
   }
 
@@ -177,35 +193,29 @@ export const dispatchNotification = async (payload: NotificationPayload): Promis
   }
 };
 
-export const notifyArticleCreated = (
+export const notifyArticleCreated = async (
   result: ArticleWriteResult,
   rawInput: CreateArticleInput,
   method: "mcp" | "rest" = "rest"
-): void => {
-  // Fire and forget, completely fail-safe
+): Promise<void> => {
   try {
     const payload = buildNotificationPayload(result, "create", rawInput, method);
-    dispatchNotification(payload).catch((err) => {
-      console.error("[Notification] Unexpected error in notifyArticleCreated:", err);
-    });
+    await dispatchNotification(payload);
   } catch (err) {
-    console.error("[Notification] Error creating payload:", err);
+    console.error("[Notification] Error dispatching create notification:", err);
   }
 };
 
-export const notifyArticleRevised = (
+export const notifyArticleRevised = async (
   result: ArticleWriteResult,
   rawInput: ReviseArticleInput,
   method: "mcp" | "rest" = "rest",
   parentRevisionId: string | null = null
-): void => {
-  // Fire and forget, completely fail-safe
+): Promise<void> => {
   try {
     const payload = buildNotificationPayload(result, "revise", rawInput, method, parentRevisionId);
-    dispatchNotification(payload).catch((err) => {
-      console.error("[Notification] Unexpected error in notifyArticleRevised:", err);
-    });
+    await dispatchNotification(payload);
   } catch (err) {
-    console.error("[Notification] Error creating payload:", err);
+    console.error("[Notification] Error dispatching revise notification:", err);
   }
 };
