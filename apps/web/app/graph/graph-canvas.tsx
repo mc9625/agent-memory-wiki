@@ -10,9 +10,9 @@ interface GraphCanvasProps {
 }
 
 type LayerMode = "authored" | "semantic" | "overlay";
+type ViewState = "overview" | "local" | "deep";
 
 interface VisualNode extends GraphNode {
-  // Current animated render coordinates
   x: number;
   y: number;
   vx: number;
@@ -21,7 +21,6 @@ interface VisualNode extends GraphNode {
   opacity: number;
   haloAlpha: number;
 
-  // Transition state
   fromX: number;
   fromY: number;
   fromScale: number;
@@ -37,10 +36,19 @@ interface VisualNode extends GraphNode {
 }
 
 interface VisualEdge extends GraphEdge {
-  strokeProgress: number; // 0..1 reveal from source/center to target
+  strokeProgress: number;
   targetProgress: number;
   opacity: number;
   targetOpacity: number;
+}
+
+interface LocalStackItem {
+  id: string;
+  nodeId: string;
+  title: string;
+  type: "incoming" | "outgoing" | "semantic" | "wanted";
+  isWanted: boolean;
+  color: string;
 }
 
 const ATTRACTOR_COLORS: Record<string, string> = {
@@ -64,23 +72,40 @@ function easeOutCubic(t: number): number {
 export function GraphCanvas({ initialData }: GraphCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
-  // React state for UI controls and Inspector drawer only
-  const [mode, setMode] = useState<LayerMode>("overlay");
+  // React state for UI controls, ViewState, and Inspector
+  const [layerMode, setLayerMode] = useState<LayerMode>("overlay");
+  const [viewState, setViewState] = useState<ViewState>("overview");
   const [showWanted, setShowWanted] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [drawerVisible, setDrawerVisible] = useState<boolean>(false);
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(false);
   const [breadcrumbHistory, setBreadcrumbHistory] = useState<string[]>([]);
 
-  // Refs for high-frequency 60fps animation state (no React re-renders during loop)
-  const modeRef = useRef<LayerMode>("overlay");
+  // High-frequency 60fps Refs
+  const layerModeRef = useRef<LayerMode>("overlay");
+  const viewStateRef = useRef<ViewState>("overview");
   const showWantedRef = useRef<boolean>(true);
   const selectedNodeIdRef = useRef<string | null>(null);
   const hoveredNodeIdRef = useRef<string | null>(null);
+  const hoveredStackItemRef = useRef<string | null>(null);
 
   const nodesRef = useRef<VisualNode[]>([]);
   const edgesRef = useRef<VisualEdge[]>([]);
+
+  // Local Selection Stack ref
+  const localStackRef = useRef<{
+    focalNodeId: string;
+    items: LocalStackItem[];
+    animProgress: number;
+    side: "left" | "right";
+  }>({
+    focalNodeId: "",
+    items: [],
+    animProgress: 0,
+    side: "right",
+  });
 
   // Camera viewport
   const cameraRef = useRef({
@@ -97,7 +122,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     transitionDuration: 0,
   });
 
-  // Drag interaction
+  // Drag state
   const dragRef = useRef<{
     isDragging: boolean;
     draggedNodeId: string | null;
@@ -112,27 +137,13 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     hasMoved: false,
   });
 
-  // Search pulse animation
+  // Search pulse
   const searchPulseRef = useRef<{ id: string; startTime: number } | null>(null);
 
-  // Tooltip state (ref-driven)
-  const tooltipRef = useRef<{
-    visible: boolean;
-    x: number;
-    y: number;
-    node: GraphNode | null;
-  }>({
-    visible: false,
-    x: 0,
-    y: 0,
-    node: null,
-  });
-  const tooltipElRef = useRef<HTMLDivElement | null>(null);
-
-  // Synchronize React state to refs
+  // Sync state to refs
   useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
+    layerModeRef.current = layerMode;
+  }, [layerMode]);
 
   useEffect(() => {
     showWantedRef.current = showWanted;
@@ -142,7 +153,11 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     selectedNodeIdRef.current = selectedNodeId;
   }, [selectedNodeId]);
 
-  // Initialize visual nodes with deterministic overview positions
+  useEffect(() => {
+    viewStateRef.current = viewState;
+  }, [viewState]);
+
+  // Initialize visual nodes
   useEffect(() => {
     const visualNodes: VisualNode[] = initialData.nodes.map((n) => {
       const isWanted = n.type === "wanted";
@@ -183,198 +198,8 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     edgesRef.current = visualEdges;
   }, [initialData]);
 
-  // Core layout calculator for Butterfly / Bilateral Fan in Focus Mode
-  const computeFocusLayout = (focalId: string, currentMode: LayerMode) => {
-    const nodes = nodesRef.current;
-    const edges = edgesRef.current;
-    const focalNode = nodes.find((n) => n.id === focalId);
-    if (!focalNode) return;
-
-    const activeEdges = edges.filter((e) => {
-      if (currentMode === "authored") return e.type === "authored";
-      if (currentMode === "semantic") return e.type === "semantic";
-      return true;
-    });
-
-    // Partition 1st-degree neighbors
-    const incomingAuthored: VisualNode[] = [];
-    const outgoingAuthored: VisualNode[] = [];
-    const semanticNeighbors: VisualNode[] = [];
-    const wantedOrbiters: VisualNode[] = [];
-    const neighborSet = new Set<string>();
-
-    for (const e of activeEdges) {
-      if (e.type === "authored") {
-        if (e.target === focalId) {
-          const src = nodes.find((n) => n.id === e.source);
-          if (src && !neighborSet.has(src.id)) {
-            neighborSet.add(src.id);
-            if (src.type === "wanted") wantedOrbiters.push(src);
-            else incomingAuthored.push(src);
-          }
-        } else if (e.source === focalId) {
-          const tgt = nodes.find((n) => n.id === e.target);
-          if (tgt && !neighborSet.has(tgt.id)) {
-            neighborSet.add(tgt.id);
-            if (tgt.type === "wanted") wantedOrbiters.push(tgt);
-            else outgoingAuthored.push(tgt);
-          }
-        }
-      } else if (e.type === "semantic") {
-        const otherId = e.source === focalId ? e.target : e.target === focalId ? e.source : null;
-        if (otherId && !neighborSet.has(otherId)) {
-          const other = nodes.find((n) => n.id === otherId);
-          if (other) {
-            neighborSet.add(other.id);
-            if (other.type === "wanted") wantedOrbiters.push(other);
-            else semanticNeighbors.push(other);
-          }
-        }
-      }
-    }
-
-    const now = performance.now();
-    const duration = 650;
-
-    // 1. Position Central Focal Node
-    focalNode.fromX = focalNode.x;
-    focalNode.fromY = focalNode.y;
-    focalNode.fromScale = focalNode.scale;
-    focalNode.fromOpacity = focalNode.opacity;
-    focalNode.targetX = 0;
-    focalNode.targetY = 0;
-    focalNode.targetScale = 1.35;
-    focalNode.targetOpacity = 1;
-    focalNode.transitionStart = now;
-    focalNode.transitionDuration = duration;
-
-    // 2. Position Left Fan: Incoming Authored Links (What Points To It)
-    const inTotal = incomingAuthored.length;
-    incomingAuthored.forEach((node, idx) => {
-      const row = idx - (inTotal - 1) / 2;
-      const x = -260 - Math.abs(row) * 22;
-      const y = row * 58;
-
-      node.fromX = node.x;
-      node.fromY = node.y;
-      node.fromScale = node.scale;
-      node.fromOpacity = node.opacity;
-      node.targetX = x;
-      node.targetY = y;
-      node.targetScale = 1.05;
-      node.targetOpacity = 1;
-      node.transitionStart = now + 60 + idx * 25; // 25ms stagger
-      node.transitionDuration = duration;
-    });
-
-    // 3. Position Right Fan: Outgoing Authored Links (What It Points To)
-    const outTotal = outgoingAuthored.length;
-    outgoingAuthored.forEach((node, idx) => {
-      const row = idx - (outTotal - 1) / 2;
-      const x = 260 + Math.abs(row) * 22;
-      const y = row * 58;
-
-      node.fromX = node.x;
-      node.fromY = node.y;
-      node.fromScale = node.scale;
-      node.fromOpacity = node.opacity;
-      node.targetX = x;
-      node.targetY = y;
-      node.targetScale = 1.05;
-      node.targetOpacity = 1;
-      node.transitionStart = now + 60 + idx * 25;
-      node.transitionDuration = duration;
-    });
-
-    // 4. Position Semantic Neighbors (Top/Bottom Arcs)
-    const semTotal = semanticNeighbors.length;
-    semanticNeighbors.forEach((node, idx) => {
-      const col = idx - (semTotal - 1) / 2;
-      const isTop = idx % 2 === 0;
-      const x = col * 120;
-      const y = isTop ? -210 - Math.abs(col) * 15 : 210 + Math.abs(col) * 15;
-
-      node.fromX = node.x;
-      node.fromY = node.y;
-      node.fromScale = node.scale;
-      node.fromOpacity = node.opacity;
-      node.targetX = x;
-      node.targetY = y;
-      node.targetScale = 0.95;
-      node.targetOpacity = 0.9;
-      node.transitionStart = now + 100 + idx * 25;
-      node.transitionDuration = duration;
-    });
-
-    // 5. Position Wanted Orbiters (Dashed rings in outer arc)
-    const wTotal = wantedOrbiters.length;
-    wantedOrbiters.forEach((node, idx) => {
-      const angle = Math.PI * 0.5 + (idx - (wTotal - 1) / 2) * 0.45;
-      const x = Math.cos(angle) * 320;
-      const y = Math.sin(angle) * 240;
-
-      node.fromX = node.x;
-      node.fromY = node.y;
-      node.fromScale = node.scale;
-      node.fromOpacity = node.opacity;
-      node.targetX = x;
-      node.targetY = y;
-      node.targetScale = 0.9;
-      node.targetOpacity = 0.85;
-      node.transitionStart = now + 120 + idx * 25;
-      node.transitionDuration = duration;
-    });
-
-    // 6. Unrelated Nodes: Push outward gently and fade to ghost opacity
-    for (const node of nodes) {
-      if (node.id === focalId || neighborSet.has(node.id)) continue;
-
-      const angle = Math.atan2(node.overviewY, node.overviewX || 1);
-      const pushDist = 580 + (Math.abs(node.overviewX) % 100);
-
-      node.fromX = node.x;
-      node.fromY = node.y;
-      node.fromScale = node.scale;
-      node.fromOpacity = node.opacity;
-      node.targetX = Math.cos(angle) * pushDist;
-      node.targetY = Math.sin(angle) * pushDist;
-      node.targetScale = 0.75;
-      node.targetOpacity = 0.12;
-      node.transitionStart = now;
-      node.transitionDuration = duration;
-    }
-
-    // 7. Edge stroke reveals from center outward
-    for (const edge of edges) {
-      const isConnected = edge.source === focalId || edge.target === focalId;
-      if (isConnected) {
-        edge.strokeProgress = 0;
-        edge.targetProgress = 1;
-        edge.opacity = 1;
-        edge.targetOpacity = 1;
-      } else {
-        edge.opacity = 0.1;
-        edge.targetOpacity = 0.08;
-      }
-    }
-
-    // 8. Camera pan to position selected node at ~42% width (leaving room for right drawer)
-    const container = containerRef.current;
-    const width = container?.clientWidth ?? 1200;
-    const cam = cameraRef.current;
-    cam.fromX = cam.x;
-    cam.fromY = cam.y;
-    cam.fromZoom = cam.zoom;
-    // Shift camera slightly to the right in world space so focal node (at 0,0) renders at 42% screen width
-    cam.targetX = (width * 0.08);
-    cam.targetY = 0;
-    cam.targetZoom = 1.25;
-    cam.transitionStart = now;
-    cam.transitionDuration = duration;
-  };
-
-  // Reset to Overview layout
-  const resetToOverview = () => {
+  // STATE 1: Reset to OVERVIEW
+  const setOverviewState = () => {
     const now = performance.now();
     const duration = 600;
 
@@ -398,6 +223,13 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       edge.targetOpacity = 1;
     }
 
+    localStackRef.current = {
+      focalNodeId: "",
+      items: [],
+      animProgress: 0,
+      side: "right",
+    };
+
     const cam = cameraRef.current;
     cam.fromX = cam.x;
     cam.fromY = cam.y;
@@ -409,27 +241,308 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     cam.transitionDuration = duration;
 
     setSelectedNodeId(null);
-    setDrawerVisible(false);
+    setViewState("overview");
+    setInspectorOpen(false);
   };
 
-  // Switch node focus with continuous camera and node migration
-  const handleSelectNode = (nodeId: string) => {
+  // STATE 2: LOCAL SELECTION (Compact in-situ connection stack beside node)
+  const setLocalSelectionState = (nodeId: string) => {
+    const nodes = nodesRef.current;
+    const edges = edgesRef.current;
+    const focal = nodes.find((n) => n.id === nodeId);
+    if (!focal) return;
+
+    const currentMode = layerModeRef.current;
+    const activeEdges = edges.filter((e) => {
+      if (currentMode === "authored") return e.type === "authored";
+      if (currentMode === "semantic") return e.type === "semantic";
+      return true;
+    });
+
+    // Build local connection items (Incoming, Outgoing, Semantic, Wanted)
+    const items: LocalStackItem[] = [];
+    const seen = new Set<string>();
+
+    for (const e of activeEdges) {
+      if (e.type === "authored") {
+        if (e.target === nodeId) {
+          const src = nodes.find((n) => n.id === e.source);
+          if (src && !seen.has(src.id)) {
+            seen.add(src.id);
+            items.push({
+              id: `in-${src.id}`,
+              nodeId: src.id,
+              title: src.title,
+              type: src.type === "wanted" ? "wanted" : "incoming",
+              isWanted: src.type === "wanted",
+              color: src.color,
+            });
+          }
+        } else if (e.source === nodeId) {
+          const tgt = nodes.find((n) => n.id === e.target);
+          if (tgt && !seen.has(tgt.id)) {
+            seen.add(tgt.id);
+            items.push({
+              id: `out-${tgt.id}`,
+              nodeId: tgt.id,
+              title: tgt.title,
+              type: tgt.type === "wanted" ? "wanted" : "outgoing",
+              isWanted: tgt.type === "wanted",
+              color: tgt.color,
+            });
+          }
+        }
+      } else if (e.type === "semantic") {
+        const otherId = e.source === nodeId ? e.target : e.target === nodeId ? e.source : null;
+        if (otherId && !seen.has(otherId)) {
+          const other = nodes.find((n) => n.id === otherId);
+          if (other) {
+            seen.add(other.id);
+            items.push({
+              id: `sem-${other.id}`,
+              nodeId: other.id,
+              title: other.title,
+              type: other.type === "wanted" ? "wanted" : "semantic",
+              isWanted: other.type === "wanted",
+              color: other.color,
+            });
+          }
+        }
+      }
+    }
+
+    const now = performance.now();
+    const duration = 500;
+
+    // Determine stack side (left or right depending on node position in overview)
+    const side = focal.overviewX > 140 ? "left" : "right";
+
+    localStackRef.current = {
+      focalNodeId: nodeId,
+      items: items.slice(0, 8),
+      animProgress: 0,
+      side,
+    };
+
+    // Softly highlight focal node and slightly attenuate others
+    for (const node of nodes) {
+      node.fromX = node.x;
+      node.fromY = node.y;
+      node.fromScale = node.scale;
+      node.fromOpacity = node.opacity;
+      node.targetX = node.overviewX;
+      node.targetY = node.overviewY;
+      node.transitionStart = now;
+      node.transitionDuration = duration;
+
+      if (node.id === nodeId) {
+        node.targetScale = 1.3;
+        node.targetOpacity = 1;
+      } else if (seen.has(node.id)) {
+        node.targetScale = 1.05;
+        node.targetOpacity = 0.9;
+      } else {
+        node.targetScale = 0.85;
+        node.targetOpacity = 0.35;
+      }
+    }
+
+    // Micro-pan camera toward node
+    const cam = cameraRef.current;
+    cam.fromX = cam.x;
+    cam.fromY = cam.y;
+    cam.fromZoom = cam.zoom;
+    cam.targetX = focal.overviewX * 0.45;
+    cam.targetY = focal.overviewY * 0.45;
+    cam.targetZoom = 1.1;
+    cam.transitionStart = now;
+    cam.transitionDuration = duration;
+
     setSelectedNodeId(nodeId);
-    computeFocusLayout(nodeId, modeRef.current);
+    setViewState("local");
+    setInspectorOpen(false);
 
     // Update breadcrumbs
     setBreadcrumbHistory((prev) => {
       if (prev[prev.length - 1] === nodeId) return prev;
       return [...prev.slice(-4), nodeId];
     });
-
-    // Drawer coordinated appearance: begins ~120ms after click
-    setTimeout(() => {
-      setDrawerVisible(true);
-    }, 120);
   };
 
-  // Main 60fps Canvas Loop (pure ref-driven, no React state dependency)
+  // STATE 3: DEEP FOCUS (Horizontal Radial Tree / Viewport-Aware Bilateral Fan)
+  const setDeepFocusState = (nodeId: string) => {
+    const nodes = nodesRef.current;
+    const edges = edgesRef.current;
+    const focal = nodes.find((n) => n.id === nodeId);
+    if (!focal) return;
+
+    const currentMode = layerModeRef.current;
+    const activeEdges = edges.filter((e) => {
+      if (currentMode === "authored") return e.type === "authored";
+      if (currentMode === "semantic") return e.type === "semantic";
+      return true;
+    });
+
+    const incoming: VisualNode[] = [];
+    const outgoing: VisualNode[] = [];
+    const neighborSet = new Set<string>();
+
+    for (const e of activeEdges) {
+      if (e.type === "authored") {
+        if (e.target === nodeId) {
+          const src = nodes.find((n) => n.id === e.source);
+          if (src && !neighborSet.has(src.id)) {
+            neighborSet.add(src.id);
+            incoming.push(src);
+          }
+        } else if (e.source === nodeId) {
+          const tgt = nodes.find((n) => n.id === e.target);
+          if (tgt && !neighborSet.has(tgt.id)) {
+            neighborSet.add(tgt.id);
+            outgoing.push(tgt);
+          }
+        }
+      } else if (e.type === "semantic") {
+        const otherId = e.source === nodeId ? e.target : e.target === nodeId ? e.source : null;
+        if (otherId && !neighborSet.has(otherId)) {
+          const other = nodes.find((n) => n.id === otherId);
+          if (other) {
+            neighborSet.add(other.id);
+            // Distribute semantic neighbors balanced across sides
+            if (incoming.length <= outgoing.length) incoming.push(other);
+            else outgoing.push(other);
+          }
+        }
+      }
+    }
+
+    // Viewport-aware layout calculation
+    const stage = stageRef.current;
+    const stageWidth = stage?.clientWidth ?? 900;
+    const stageHeight = stage?.clientHeight ?? 650;
+
+    // Safe area margins
+    const maxLeftCount = Math.max(1, incoming.length);
+    const maxRightCount = Math.max(1, outgoing.length);
+    const maxCount = Math.max(maxLeftCount, maxRightCount);
+
+    const rowGap = Math.max(34, Math.min(52, (stageHeight * 0.68) / maxCount));
+    const fanSpanX = Math.max(220, Math.min(340, stageWidth * 0.28));
+
+    const now = performance.now();
+    const duration = 650;
+
+    // 1. Focal Node: Center (0, 0)
+    focal.fromX = focal.x;
+    focal.fromY = focal.y;
+    focal.fromScale = focal.scale;
+    focal.fromOpacity = focal.opacity;
+    focal.targetX = 0;
+    focal.targetY = 0;
+    focal.targetScale = 2.4; // Prominent center hub (~32px)
+    focal.targetOpacity = 1;
+    focal.transitionStart = now;
+    focal.transitionDuration = duration;
+
+    // 2. Left Column: Incoming Links (Markers with right-aligned text)
+    incoming.forEach((node, idx) => {
+      const row = idx - (incoming.length - 1) / 2;
+      const y = row * rowGap;
+      const x = -fanSpanX - (Math.abs(row) * 16);
+
+      node.fromX = node.x;
+      node.fromY = node.y;
+      node.fromScale = node.scale;
+      node.fromOpacity = node.opacity;
+      node.targetX = x;
+      node.targetY = y;
+      node.targetScale = 0.55; // Small endpoint marker (~5-6px)
+      node.targetOpacity = 1;
+      node.transitionStart = now + 40 + idx * 25;
+      node.transitionDuration = duration;
+    });
+
+    // 3. Right Column: Outgoing Links & Semantic Relations
+    outgoing.forEach((node, idx) => {
+      const row = idx - (outgoing.length - 1) / 2;
+      const y = row * rowGap;
+      const x = fanSpanX + (Math.abs(row) * 16);
+
+      node.fromX = node.x;
+      node.fromY = node.y;
+      node.fromScale = node.scale;
+      node.fromOpacity = node.opacity;
+      node.targetX = x;
+      node.targetY = y;
+      node.targetScale = 0.55;
+      node.targetOpacity = 1;
+      node.transitionStart = now + 40 + idx * 25;
+      node.transitionDuration = duration;
+    });
+
+    // 4. Unrelated Ghost Nodes: push back and fade
+    for (const node of nodes) {
+      if (node.id === nodeId || neighborSet.has(node.id)) continue;
+      const angle = Math.atan2(node.overviewY, node.overviewX || 1);
+      const pushDist = 580;
+
+      node.fromX = node.x;
+      node.fromY = node.y;
+      node.fromScale = node.scale;
+      node.fromOpacity = node.opacity;
+      node.targetX = Math.cos(angle) * pushDist;
+      node.targetY = Math.sin(angle) * pushDist;
+      node.targetScale = 0.45;
+      node.targetOpacity = 0.08;
+      node.transitionStart = now;
+      node.transitionDuration = duration;
+    }
+
+    // 5. Progressive edge reveal
+    for (const edge of edges) {
+      const isConnected = edge.source === nodeId || edge.target === nodeId;
+      if (isConnected) {
+        edge.strokeProgress = 0;
+        edge.targetProgress = 1;
+        edge.opacity = 1;
+        edge.targetOpacity = 1;
+      } else {
+        edge.opacity = 0.08;
+        edge.targetOpacity = 0.05;
+      }
+    }
+
+    // Clear local selection stack on deep focus
+    localStackRef.current = {
+      focalNodeId: "",
+      items: [],
+      animProgress: 0,
+      side: "right",
+    };
+
+    // 6. Camera Fit-to-Bounds
+    const totalDiagramW = (fanSpanX * 2) + 380; // including labels width
+    const totalDiagramH = (maxCount * rowGap) + 120;
+    const fitZoomX = (stageWidth * 0.88) / totalDiagramW;
+    const fitZoomY = (stageHeight * 0.85) / totalDiagramH;
+    const optimalZoom = Math.max(0.85, Math.min(1.28, Math.min(fitZoomX, fitZoomY)));
+
+    const cam = cameraRef.current;
+    cam.fromX = cam.x;
+    cam.fromY = cam.y;
+    cam.fromZoom = cam.zoom;
+    cam.targetX = 0;
+    cam.targetY = 0;
+    cam.targetZoom = optimalZoom;
+    cam.transitionStart = now;
+    cam.transitionDuration = duration;
+
+    setSelectedNodeId(nodeId);
+    setViewState("deep");
+    setInspectorOpen(true);
+  };
+
+  // Main 60fps Animation Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -440,10 +553,10 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     const entranceStart = performance.now();
 
     const resize = () => {
-      if (!containerRef.current || !canvas) return;
+      if (!stageRef.current || !canvas) return;
       const dpr = window.devicePixelRatio || 1;
-      const width = containerRef.current.clientWidth;
-      const height = containerRef.current.clientHeight;
+      const width = stageRef.current.clientWidth;
+      const height = stageRef.current.clientHeight;
 
       canvas.width = width * dpr;
       canvas.height = height * dpr;
@@ -456,16 +569,17 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     window.addEventListener("resize", resize);
 
     const render = (time: number) => {
-      const width = containerRef.current?.clientWidth ?? 1200;
-      const height = containerRef.current?.clientHeight ?? 800;
+      const stage = stageRef.current;
+      const width = stage?.clientWidth ?? 900;
+      const height = stage?.clientHeight ?? 650;
 
       ctx.clearRect(0, 0, width, height);
 
-      // Entrance animation progression (0..900ms)
+      // Entrance fade
       const entranceAge = time - entranceStart;
-      const entranceAlpha = Math.min(1, entranceAge / 250);
+      const entranceAlpha = Math.min(1, entranceAge / 200);
 
-      // Camera interpolation
+      // Camera lerp
       const cam = cameraRef.current;
       if (cam.transitionDuration > 0) {
         const t = Math.min(1, (time - cam.transitionStart) / cam.transitionDuration);
@@ -476,7 +590,6 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       }
 
       ctx.save();
-      // Center canvas world origin at (width/2, height/2)
       ctx.translate(width / 2, height / 2);
       ctx.scale(cam.zoom, cam.zoom);
       ctx.translate(-cam.x, -cam.y);
@@ -486,37 +599,24 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       const edges = edgesRef.current;
       const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
-      const currentMode = modeRef.current;
+      const currentMode = layerModeRef.current;
+      const currentState = viewStateRef.current;
       const showWantedNodes = showWantedRef.current;
       const focalId = selectedNodeIdRef.current;
       const hoverId = hoveredNodeIdRef.current;
 
-      // Filter active edges for mode
       const activeEdges = edges.filter((e) => {
         if (currentMode === "authored") return e.type === "authored";
         if (currentMode === "semantic") return e.type === "semantic";
         return true;
       });
 
-      // Find 1st degree neighbors of hover node (for hover highlight)
-      const hoverNeighborSet = new Set<string>();
-      if (hoverId) {
-        hoverNeighborSet.add(hoverId);
-        for (const e of activeEdges) {
-          if (e.source === hoverId) hoverNeighborSet.add(e.target);
-          else if (e.target === hoverId) hoverNeighborSet.add(e.source);
-        }
-      }
-
-      // Update Node Positions & Transitions
+      // Update Node Transitions
       for (const node of nodes) {
-        // Dragging physics
         if (dragRef.current.isDragging && dragRef.current.draggedNodeId === node.id) {
-          // Node is pinned to mouse
           continue;
         }
 
-        // Interpolated transition to target
         if (node.transitionDuration > 0) {
           const t = Math.max(0, Math.min(1, (time - node.transitionStart) / node.transitionDuration));
           const ease = easeInOutCubic(t);
@@ -526,7 +626,6 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
           node.opacity = node.fromOpacity + (node.targetOpacity - node.fromOpacity) * ease;
         }
 
-        // Apply velocity decay after drag release
         if (Math.abs(node.vx) > 0.01 || Math.abs(node.vy) > 0.01) {
           node.x += node.vx;
           node.y += node.vy;
@@ -534,13 +633,12 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
           node.vy *= 0.82;
         }
 
-        // Hover micro-scaling (120-160ms smooth lerp)
         const isHovered = hoverId === node.id;
         const targetHalo = isHovered ? 1 : 0;
         node.haloAlpha += (targetHalo - node.haloAlpha) * 0.2;
       }
 
-      // Draw Edges (curved, static when idle, progressive reveal on focus)
+      // Draw Edges (Clean horizontal cubic Beziers in Deep Focus, smooth quadratic in overview)
       for (const edge of activeEdges) {
         const source = nodeMap.get(edge.source);
         const target = nodeMap.get(edge.target);
@@ -550,43 +648,56 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         const isFocalEdge = focalId && (edge.source === focalId || edge.target === focalId);
         const isHoverEdge = hoverId && (edge.source === hoverId || edge.target === hoverId);
 
-        // Edge stroke reveal interpolation
         if (edge.targetProgress > edge.strokeProgress) {
-          edge.strokeProgress = Math.min(1, edge.strokeProgress + 0.04);
+          edge.strokeProgress = Math.min(1, edge.strokeProgress + 0.045);
         }
 
         ctx.save();
         ctx.beginPath();
 
-        const midX = (source.x + target.x) / 2 + (target.y - source.y) * 0.1;
-        const midY = (source.y + target.y) / 2 - (target.x - source.x) * 0.1;
+        if (currentState === "deep" && focalId && isFocalEdge) {
+          // Horizontal Cubic Bezier fan with common tangent at focal center
+          const isFocalSource = edge.source === focalId;
+          const endpoint = isFocalSource ? target : source;
+          const side = endpoint.x >= 0 ? 1 : -1;
+          const dx = endpoint.x;
 
-        ctx.moveTo(source.x, source.y);
+          // Shared horizontal tangent at center
+          const cp1X = side * Math.abs(dx) * 0.42;
+          const cp1Y = 0;
+          const cp2X = endpoint.x - side * Math.abs(dx) * 0.22;
+          const cp2Y = endpoint.y;
 
-        if (edge.strokeProgress < 1) {
-          // Partial quadratic bezier reveal from source to target
-          const t = easeOutCubic(edge.strokeProgress);
-          const currX = (1 - t) * (1 - t) * source.x + 2 * (1 - t) * t * midX + t * t * target.x;
-          const currY = (1 - t) * (1 - t) * source.y + 2 * (1 - t) * t * midY + t * t * target.y;
-          ctx.quadraticCurveTo(
-            (1 - t) * source.x + t * midX,
-            (1 - t) * source.y + t * midY,
-            currX,
-            currY
-          );
+          ctx.moveTo(0, 0);
+
+          if (edge.strokeProgress < 1) {
+            const t = easeOutCubic(edge.strokeProgress);
+            const bx = (1-t)*(1-t)*(1-t)*0 + 3*(1-t)*(1-t)*t*cp1X + 3*(1-t)*t*t*cp2X + t*t*t*endpoint.x;
+            const by = (1-t)*(1-t)*(1-t)*0 + 3*(1-t)*(1-t)*t*cp1Y + 3*(1-t)*t*t*cp2Y + t*t*t*endpoint.y;
+            ctx.bezierCurveTo(cp1X * t, cp1Y * t, cp2X * t, cp2Y * t, bx, by);
+          } else {
+            ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endpoint.x, endpoint.y);
+          }
         } else {
+          // Standard quadratic bezier
+          const midX = (source.x + target.x) / 2 + (target.y - source.y) * 0.08;
+          const midY = (source.y + target.y) / 2 - (target.x - source.x) * 0.08;
+
+          ctx.moveTo(source.x, source.y);
           ctx.quadraticCurveTo(midX, midY, target.x, target.y);
         }
 
-        const baseAlpha = focalId ? (isFocalEdge ? 0.9 : 0.08) : (hoverId ? (isHoverEdge ? 0.9 : 0.2) : 0.4);
+        const baseAlpha = currentState === "deep"
+          ? (isFocalEdge ? 0.95 : 0.04)
+          : (isFocalEdge || isHoverEdge ? 0.9 : 0.35);
 
         if (edge.type === "authored") {
           ctx.strokeStyle = isFocalEdge || isHoverEdge ? "#0b745f" : `rgba(11, 116, 95, ${baseAlpha})`;
-          ctx.lineWidth = isFocalEdge || isHoverEdge ? 2.2 : 1.1;
+          ctx.lineWidth = isFocalEdge ? 2.4 : isHoverEdge ? 2.0 : 1.0;
           ctx.setLineDash([]);
         } else {
           ctx.strokeStyle = isFocalEdge || isHoverEdge ? "#d97706" : `rgba(217, 119, 6, ${baseAlpha})`;
-          ctx.lineWidth = isFocalEdge || isHoverEdge ? 1.8 : 0.9;
+          ctx.lineWidth = isFocalEdge ? 1.8 : 0.9;
           ctx.setLineDash([4, 4]);
         }
 
@@ -594,56 +705,121 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         ctx.restore();
       }
 
-      // Draw Nodes
+      // Draw Local Selection Stack Card (STATE 2)
+      if (currentState === "local" && localStackRef.current.focalNodeId) {
+        const stack = localStackRef.current;
+        const focal = nodeMap.get(stack.focalNodeId);
+        if (focal && stack.items.length > 0) {
+          const stackWidth = 210;
+          const itemHeight = 32;
+          const stackHeight = stack.items.length * itemHeight + 36;
+          const stackX = stack.side === "right" ? focal.x + 36 : focal.x - stackWidth - 36;
+          const stackY = focal.y - stackHeight / 2;
+
+          ctx.save();
+          // Draw connecting curve from focal node to stack header
+          ctx.beginPath();
+          ctx.moveTo(focal.x, focal.y);
+          const anchorX = stack.side === "right" ? stackX : stackX + stackWidth;
+          const anchorY = focal.y;
+          ctx.quadraticCurveTo((focal.x + anchorX) / 2, focal.y - 10, anchorX, anchorY);
+          ctx.strokeStyle = "rgba(11, 116, 95, 0.6)";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // Draw Card Background
+          ctx.fillStyle = "#ffffff";
+          ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
+          ctx.shadowBlur = 16;
+          ctx.shadowOffsetY = 4;
+          ctx.beginPath();
+          ctx.roundRect(stackX, stackY, stackWidth, stackHeight, 4);
+          ctx.fill();
+          ctx.shadowColor = "transparent";
+
+          ctx.strokeStyle = "var(--line, #e2ded4)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // Card Header
+          ctx.font = "600 11px sans-serif";
+          ctx.fillStyle = "#59635f";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+          ctx.fillText(`CONNECTIONS (${stack.items.length})`, stackX + 12, stackY + 12);
+
+          // Card Items
+          stack.items.forEach((item, idx) => {
+            const itemY = stackY + 34 + idx * itemHeight;
+            const isItemHovered = hoveredStackItemRef.current === item.id;
+
+            if (isItemHovered) {
+              ctx.fillStyle = "#f4f1ea";
+              ctx.fillRect(stackX + 4, itemY, stackWidth - 8, itemHeight - 2);
+            }
+
+            // Type dot
+            ctx.beginPath();
+            ctx.arc(stackX + 16, itemY + itemHeight / 2 - 1, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = item.color;
+            ctx.fill();
+
+            // Item Title
+            ctx.font = isItemHovered ? "600 11px sans-serif" : "500 11px sans-serif";
+            ctx.fillStyle = isItemHovered ? "#0b745f" : "#17211f";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+
+            const maxLen = 22;
+            const label = item.title.length > maxLen ? `${item.title.slice(0, maxLen - 1)}…` : item.title;
+            ctx.fillText(label, stackX + 26, itemY + itemHeight / 2 - 1);
+          });
+
+          ctx.restore();
+        }
+      }
+
+      // Draw Nodes (Large Focal Center + Small Endpoints in Deep Focus)
       for (const node of nodes) {
         if (!showWantedNodes && node.type === "wanted") continue;
 
         const isFocal = focalId === node.id;
         const isHovered = hoverId === node.id;
-        const isHoverNeighbor = hoverNeighborSet.has(node.id);
-
-        let renderOpacity = node.opacity;
-        if (hoverId && !isHovered && !isHoverNeighbor && !focalId) {
-          renderOpacity *= 0.4;
-        }
 
         ctx.save();
-        ctx.globalAlpha = renderOpacity;
+        ctx.globalAlpha = node.opacity;
 
         const baseR = node.radius;
-        const hoverScale = 1 + node.haloAlpha * 0.14;
-        const currentR = baseR * node.scale * hoverScale;
+        const currentR = baseR * node.scale;
 
-        // Search pulse animation (2 concentric expanding rings)
+        // Search pulse
         if (searchPulseRef.current?.id === node.id) {
           const pulseAge = time - searchPulseRef.current.startTime;
           if (pulseAge < 900) {
             const p1 = (pulseAge % 450) / 450;
-            const r1 = currentR + p1 * 30;
             ctx.beginPath();
-            ctx.arc(node.x, node.y, r1, 0, Math.PI * 2);
+            ctx.arc(node.x, node.y, currentR + p1 * 32, 0, Math.PI * 2);
             ctx.strokeStyle = `rgba(11, 116, 95, ${1 - p1})`;
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.8;
             ctx.stroke();
           }
         }
 
-        // Thin Halo Ring on hover or focus
-        if (node.haloAlpha > 0.05 || isFocal) {
+        // Halo Ring
+        if (node.haloAlpha > 0.05 || (isFocal && currentState !== "deep")) {
           ctx.beginPath();
-          ctx.arc(node.x, node.y, currentR + 5, 0, Math.PI * 2);
+          ctx.arc(node.x, node.y, currentR + 6, 0, Math.PI * 2);
           ctx.fillStyle = node.type === "wanted"
-            ? `rgba(220, 38, 38, ${0.15 * (isFocal ? 1 : node.haloAlpha)})`
-            : `rgba(11, 116, 95, ${0.15 * (isFocal ? 1 : node.haloAlpha)})`;
+            ? "rgba(220, 38, 38, 0.15)"
+            : "rgba(11, 116, 95, 0.15)";
           ctx.fill();
         }
 
-        // Node Circle Body
+        // Circle Body
         ctx.beginPath();
         ctx.arc(node.x, node.y, currentR, 0, Math.PI * 2);
 
         if (node.type === "wanted") {
-          // Hollow dashed ring for wanted article
           ctx.fillStyle = "#f8f6f0";
           ctx.fill();
           ctx.setLineDash([3, 3]);
@@ -651,40 +827,52 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
           ctx.lineWidth = isFocal ? 2.5 : 1.5;
           ctx.stroke();
         } else {
-          // Solid node
           ctx.fillStyle = node.color;
           ctx.fill();
           ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = isFocal ? 2.5 : 1.2;
+          ctx.lineWidth = isFocal ? 3.0 : 1.2;
           ctx.stroke();
         }
 
-        // Node Label Selection & Rendering
-        // Overview: top 5 structural hubs only; Focus: focal node + 1st-degree neighbors; Hover: hovered + neighbors
-        const isImportantHub = !focalId && (node.inDegree + node.outDegree >= 2);
-        const shouldShowLabel = isFocal || isHovered || isHoverNeighbor || (focalId && node.opacity > 0.6) || isImportantHub;
-
-        if (shouldShowLabel && entranceAge > 300) {
-          ctx.font = isFocal
-            ? "600 14px var(--serif, serif)"
-            : isHovered
-            ? "600 12px sans-serif"
-            : "500 11px sans-serif";
-          ctx.fillStyle = isFocal ? "#17211f" : isHovered ? "#0b745f" : "#59635f";
-          ctx.textAlign = isFocal ? "center" : (node.x > 0 ? "left" : "right");
-          ctx.textBaseline = "middle";
-
-          const labelOffset = currentR + 8;
-          const labelX = isFocal ? node.x : (node.x > 0 ? node.x + labelOffset : node.x - labelOffset);
-          const labelY = isFocal ? node.y + currentR + 12 : node.y;
-
+        // Deep Focus Labels & Standard Labels
+        if (currentState === "deep") {
           if (isFocal) {
+            // Prominent Title under Center Node
+            ctx.font = "600 16px var(--serif, serif)";
+            ctx.fillStyle = "#17211f";
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
-          }
+            ctx.fillText(node.title, node.x, node.y + currentR + 12);
 
-          const label = node.title.length > 32 ? `${node.title.slice(0, 30)}…` : node.title;
-          ctx.fillText(label, labelX, labelY);
+            ctx.font = "500 11px sans-serif";
+            ctx.fillStyle = "#59635f";
+            ctx.fillText(`${node.author}${node.model ? ` (${node.model})` : ""}`, node.x, node.y + currentR + 32);
+          } else if (node.opacity > 0.6) {
+            // Left & Right Endpoint Full Labels
+            const isLeft = node.x < 0;
+            ctx.font = "500 12px sans-serif";
+            ctx.fillStyle = isHovered ? "#0b745f" : "#17211f";
+            ctx.textAlign = isLeft ? "right" : "left";
+            ctx.textBaseline = "middle";
+
+            const labelOffset = currentR + 10;
+            const labelX = isLeft ? node.x - labelOffset : node.x + labelOffset;
+            ctx.fillText(node.title, labelX, node.y);
+          }
+        } else {
+          // Overview & Local Selection Labels
+          const isOverviewHub = !focalId && (node.inDegree + node.outDegree >= 2);
+          if ((isFocal || isHovered || isOverviewHub) && entranceAge > 250) {
+            ctx.font = isFocal ? "600 13px var(--serif, serif)" : "500 11px sans-serif";
+            ctx.fillStyle = isFocal ? "#17211f" : "#59635f";
+            ctx.textAlign = isFocal ? "center" : (node.x > 0 ? "left" : "right");
+            ctx.textBaseline = isFocal ? "top" : "middle";
+
+            const labelX = isFocal ? node.x : (node.x > 0 ? node.x + currentR + 8 : node.x - currentR - 8);
+            const labelY = isFocal ? node.y + currentR + 8 : node.y;
+            const label = node.title.length > 28 ? `${node.title.slice(0, 26)}…` : node.title;
+            ctx.fillText(label, labelX, labelY);
+          }
         }
 
         ctx.restore();
@@ -702,19 +890,19 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     };
   }, []);
 
-  // Canvas Mouse & Interaction Handlers
+  // Mouse & Click Handlers
   const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0, screenX: 0, screenY: 0 };
+    const stage = stageRef.current;
+    if (!canvas || !stage) return { x: 0, y: 0, screenX: 0, screenY: 0 };
     const rect = canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
 
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
+    const width = stage.clientWidth;
+    const height = stage.clientHeight;
     const cam = cameraRef.current;
 
-    // Invert camera transform centered at width/2, height/2
     const worldX = (screenX - width / 2) / cam.zoom + cam.x;
     const worldY = (screenY - height / 2) / cam.zoom + cam.y;
 
@@ -730,9 +918,28 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       if (!showWantedNodes && node.type === "wanted") continue;
       const dx = node.x - worldX;
       const dy = node.y - worldY;
-      if (Math.hypot(dx, dy) <= node.radius * node.scale + 6) {
+      if (Math.hypot(dx, dy) <= node.radius * node.scale + 8) {
         return node;
       }
+    }
+    return null;
+  };
+
+  const findLocalStackItemAtCoords = (worldX: number, worldY: number) => {
+    if (viewStateRef.current !== "local") return null;
+    const stack = localStackRef.current;
+    const focal = nodesRef.current.find((n) => n.id === stack.focalNodeId);
+    if (!focal || stack.items.length === 0) return null;
+
+    const stackWidth = 210;
+    const itemHeight = 32;
+    const stackHeight = stack.items.length * itemHeight + 36;
+    const stackX = stack.side === "right" ? focal.x + 36 : focal.x - stackWidth - 36;
+    const stackY = focal.y - stackHeight / 2;
+
+    if (worldX >= stackX && worldX <= stackX + stackWidth && worldY >= stackY + 34 && worldY <= stackY + stackHeight) {
+      const index = Math.floor((worldY - (stackY + 34)) / itemHeight);
+      return stack.items[index] ?? null;
     }
     return null;
   };
@@ -751,9 +958,8 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { x, y, screenX, screenY } = getCanvasCoords(e);
+    const { x, y } = getCanvasCoords(e);
 
-    // Pan camera or drag node
     if (dragRef.current.isDragging) {
       const dx = e.clientX - dragRef.current.startX;
       const dy = e.clientY - dragRef.current.startY;
@@ -764,24 +970,10 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       if (dragRef.current.draggedNodeId) {
         const node = nodesRef.current.find((n) => n.id === dragRef.current.draggedNodeId);
         if (node) {
-          const moveX = x - node.x;
-          const moveY = y - node.y;
           node.x = x;
           node.y = y;
           node.targetX = x;
           node.targetY = y;
-
-          // Subtle spring reaction on connected neighbors
-          for (const edge of edgesRef.current) {
-            const otherId = edge.source === node.id ? edge.target : edge.target === node.id ? edge.source : null;
-            if (otherId) {
-              const other = nodesRef.current.find((n) => n.id === otherId);
-              if (other && other.id !== node.id) {
-                other.x += moveX * 0.12;
-                other.y += moveY * 0.12;
-              }
-            }
-          }
         }
       } else {
         cameraRef.current.x -= dx / cameraRef.current.zoom;
@@ -794,48 +986,45 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       return;
     }
 
-    // Hover detection (ref-driven)
-    const hovered = findNodeAtCoords(x, y);
-    if (hovered) {
-      hoveredNodeIdRef.current = hovered.id;
-      tooltipRef.current = {
-        visible: true,
-        x: screenX,
-        y: screenY,
-        node: hovered,
-      };
-      if (tooltipElRef.current) {
-        tooltipElRef.current.style.display = "block";
-        tooltipElRef.current.style.left = `${screenX + 14}px`;
-        tooltipElRef.current.style.top = `${screenY + 14}px`;
-        const titleEl = tooltipElRef.current.querySelector(".tooltip-title");
-        const subEl = tooltipElRef.current.querySelector(".tooltip-sub");
-        if (titleEl) titleEl.textContent = hovered.title;
-        if (subEl) {
-          subEl.textContent = hovered.type === "wanted"
-            ? "Wanted Article · Not yet written"
-            : `${hovered.author} · ${hovered.inDegree + hovered.outDegree} connections`;
-        }
-      }
-    } else {
-      hoveredNodeIdRef.current = null;
-      tooltipRef.current.visible = false;
-      if (tooltipElRef.current) {
-        tooltipElRef.current.style.display = "none";
-      }
-    }
+    // Hover detection
+    const hoveredNode = findNodeAtCoords(x, y);
+    hoveredNodeIdRef.current = hoveredNode?.id ?? null;
+
+    const hoveredStack = findLocalStackItemAtCoords(x, y);
+    hoveredStackItemRef.current = hoveredStack?.id ?? null;
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = getCanvasCoords(e);
     const clickedNode = findNodeAtCoords(x, y);
+    const clickedStackItem = findLocalStackItemAtCoords(x, y);
 
     if (!dragRef.current.hasMoved) {
-      if (clickedNode) {
-        handleSelectNode(clickedNode.id);
+      if (clickedStackItem) {
+        // Click item inside local selection stack -> morph to Deep Focus on that item
+        setDeepFocusState(clickedStackItem.nodeId);
+      } else if (clickedNode) {
+        if (viewStateRef.current === "overview") {
+          // 1st Click on Node: open in-situ LOCAL SELECTION
+          setLocalSelectionState(clickedNode.id);
+        } else if (viewStateRef.current === "local") {
+          if (clickedNode.id === selectedNodeIdRef.current) {
+            // 2nd Click on same node: open DEEP FOCUS
+            setDeepFocusState(clickedNode.id);
+          } else {
+            setLocalSelectionState(clickedNode.id);
+          }
+        } else {
+          // In DEEP FOCUS: navigate directly to clicked neighbor
+          setDeepFocusState(clickedNode.id);
+        }
       } else {
-        // Deselect when clicking background: return to overview
-        resetToOverview();
+        // Click background: step back
+        if (viewStateRef.current === "deep") {
+          setOverviewState();
+        } else if (viewStateRef.current === "local") {
+          setOverviewState();
+        }
       }
     }
 
@@ -843,7 +1032,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     dragRef.current.draggedNodeId = null;
   };
 
-  // Search handler with concentric pulse and focus transition
+  // Search handler
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
@@ -855,19 +1044,21 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
 
     if (match) {
       searchPulseRef.current = { id: match.id, startTime: performance.now() };
-      handleSelectNode(match.id);
+      setDeepFocusState(match.id);
     }
   };
 
-  // Layer mode switcher with smooth morph transition
+  // Layer mode changer with morph
   const handleModeChange = (newMode: LayerMode) => {
-    setMode(newMode);
-    modeRef.current = newMode;
+    setLayerMode(newMode);
+    layerModeRef.current = newMode;
 
-    if (selectedNodeIdRef.current) {
-      computeFocusLayout(selectedNodeIdRef.current, newMode);
+    if (viewStateRef.current === "deep" && selectedNodeIdRef.current) {
+      setDeepFocusState(selectedNodeIdRef.current);
+    } else if (viewStateRef.current === "local" && selectedNodeIdRef.current) {
+      setLocalSelectionState(selectedNodeIdRef.current);
     } else {
-      resetToOverview();
+      setOverviewState();
     }
   };
 
@@ -875,10 +1066,10 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     ? nodesRef.current.find((n) => n.id === selectedNodeId)
     : null;
 
-  // Selected node metadata and relations for Inspector Drawer
+  // Compute inspector drawer data
   const activeEdges = edgesRef.current.filter((e) => {
-    if (mode === "authored") return e.type === "authored";
-    if (mode === "semantic") return e.type === "semantic";
+    if (layerMode === "authored") return e.type === "authored";
+    if (layerMode === "semantic") return e.type === "semantic";
     return true;
   });
 
@@ -897,27 +1088,27 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     : [];
 
   return (
-    <div className="graph-observatory-container" ref={containerRef}>
-      {/* Top Floating Control Bar */}
-      <div className="graph-hud-top">
+    <div className="graph-observatory-wrapper" ref={containerRef}>
+      {/* Dedicated Controls & Filter Header Strip (Outside Canvas) */}
+      <div className="graph-top-bar">
         <div className="graph-mode-selector" role="group" aria-label="Layer modes">
           <button
             type="button"
-            className={`graph-mode-btn ${mode === "authored" ? "active" : ""}`}
+            className={`graph-mode-btn ${layerMode === "authored" ? "active" : ""}`}
             onClick={() => handleModeChange("authored")}
           >
             Authored Links
           </button>
           <button
             type="button"
-            className={`graph-mode-btn ${mode === "semantic" ? "active" : ""}`}
+            className={`graph-mode-btn ${layerMode === "semantic" ? "active" : ""}`}
             onClick={() => handleModeChange("semantic")}
           >
             Semantic Affinity
           </button>
           <button
             type="button"
-            className={`graph-mode-btn ${mode === "overlay" ? "active" : ""}`}
+            className={`graph-mode-btn ${layerMode === "overlay" ? "active" : ""}`}
             onClick={() => handleModeChange("overlay")}
           >
             Overlay (Both)
@@ -927,7 +1118,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         <form onSubmit={handleSearchSubmit} className="graph-search-form">
           <input
             type="search"
-            placeholder="Search concept or wanted article..."
+            placeholder="Find concept or wanted article..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="graph-search-input"
@@ -944,185 +1135,139 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         </label>
       </div>
 
-      {/* Breadcrumb Spatial Navigation Stack */}
-      {breadcrumbHistory.length > 1 && (
-        <nav className="graph-breadcrumbs" aria-label="Exploration trail">
-          <span className="crumb-label">Path:</span>
-          {breadcrumbHistory.map((id, index) => {
-            const node = nodesRef.current.find((n) => n.id === id);
-            if (!node) return null;
-            const isLast = index === breadcrumbHistory.length - 1;
-            return (
-              <React.Fragment key={id}>
-                <button
-                  type="button"
-                  className={`crumb-btn ${isLast ? "active" : ""}`}
-                  onClick={() => handleSelectNode(node.id)}
-                >
-                  {node.title}
-                </button>
-                {!isLast && <span className="crumb-sep">→</span>}
-              </React.Fragment>
-            );
-          })}
-        </nav>
-      )}
-
-      {/* Interactive HTML5 Canvas */}
-      <canvas
-        ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        className="graph-canvas"
-      />
-
-      {/* Floating Zoom & Reset Tools */}
-      <div className="graph-zoom-controls">
-        <button
-          type="button"
-          onClick={() => {
-            cameraRef.current.fromZoom = cameraRef.current.zoom;
-            cameraRef.current.targetZoom = Math.min(2.5, cameraRef.current.zoom + 0.25);
-            cameraRef.current.transitionStart = performance.now();
-            cameraRef.current.transitionDuration = 300;
-          }}
-          aria-label="Zoom in"
-        >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            cameraRef.current.fromZoom = cameraRef.current.zoom;
-            cameraRef.current.targetZoom = Math.max(0.5, cameraRef.current.zoom - 0.25);
-            cameraRef.current.transitionStart = performance.now();
-            cameraRef.current.transitionDuration = 300;
-          }}
-          aria-label="Zoom out"
-        >
-          −
-        </button>
-        <button type="button" onClick={resetToOverview} aria-label="Reset overview">
-          ⟲
-        </button>
+      {/* Dedicated Path Bar (Outside Canvas) */}
+      <div className="graph-path-bar">
+        <span className="crumb-label">Path:</span>
+        {breadcrumbHistory.length === 0 ? (
+          <span className="crumb-empty">Overview (Click any node to explore connections)</span>
+        ) : (
+          <div className="crumb-trail">
+            {breadcrumbHistory.map((id, index) => {
+              const node = nodesRef.current.find((n) => n.id === id);
+              if (!node) return null;
+              const isLast = index === breadcrumbHistory.length - 1;
+              return (
+                <React.Fragment key={id}>
+                  <button
+                    type="button"
+                    className={`crumb-btn ${isLast ? "active" : ""}`}
+                    onClick={() => setDeepFocusState(node.id)}
+                  >
+                    {node.title}
+                  </button>
+                  {!isLast && <span className="crumb-sep">→</span>}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
+        {viewState !== "overview" && (
+          <button type="button" className="crumb-reset-btn" onClick={setOverviewState}>
+            Reset to Overview ⟲
+          </button>
+        )}
       </div>
 
-      {/* High Performance Direct DOM Tooltip */}
-      <div ref={tooltipElRef} className="graph-tooltip" style={{ display: "none" }}>
-        <p className="tooltip-title"></p>
-        <p className="tooltip-sub"></p>
-      </div>
+      {/* Side-by-Side Main Stage and Coordinated Inspector Panel */}
+      <div className="graph-stage-layout">
+        <div className="graph-canvas-stage" ref={stageRef}>
+          <canvas
+            ref={canvasRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            className="graph-canvas"
+          />
 
-      {/* Side Inspector Drawer (Coordinated Slide-in on Focus) */}
-      {selectedNode && (
-        <aside className={`graph-inspector-drawer ${drawerVisible ? "visible" : ""}`} aria-label="Node Details">
-          <div className="inspector-header">
-            <span className={`inspector-badge ${selectedNode.type}`}>
-              {selectedNode.type === "wanted" ? "Wanted Article" : "Published Entry"}
-            </span>
+          {/* Floating Zoom Controls */}
+          <div className="graph-zoom-controls">
             <button
               type="button"
-              className="inspector-close-btn"
-              onClick={resetToOverview}
-              aria-label="Close details and return to overview"
+              onClick={() => {
+                cameraRef.current.fromZoom = cameraRef.current.zoom;
+                cameraRef.current.targetZoom = Math.min(2.5, cameraRef.current.zoom + 0.25);
+                cameraRef.current.transitionStart = performance.now();
+                cameraRef.current.transitionDuration = 300;
+              }}
+              aria-label="Zoom in"
             >
-              ×
+              +
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                cameraRef.current.fromZoom = cameraRef.current.zoom;
+                cameraRef.current.targetZoom = Math.max(0.5, cameraRef.current.zoom - 0.25);
+                cameraRef.current.transitionStart = performance.now();
+                cameraRef.current.transitionDuration = 300;
+              }}
+              aria-label="Zoom out"
+            >
+              −
+            </button>
+            <button type="button" onClick={setOverviewState} aria-label="Reset overview">
+              ⟲
             </button>
           </div>
+        </div>
 
-          <h2 className="inspector-title">{selectedNode.title}</h2>
-
-          <div className="inspector-meta-grid">
-            <div>
-              <span className="meta-lbl">Primary Attractor</span>
-              <p className="meta-val">{selectedNode.primaryAttractor}</p>
+        {/* Coordinated Side-by-Side Inspector Panel */}
+        {selectedNode && inspectorOpen && (
+          <aside className="graph-side-inspector" aria-label="Node Relations Inspector">
+            <div className="inspector-header">
+              <span className={`inspector-badge ${selectedNode.type}`}>
+                {selectedNode.type === "wanted" ? "Wanted Article" : "Published Entry"}
+              </span>
+              <button
+                type="button"
+                className="inspector-close-btn"
+                onClick={setOverviewState}
+                aria-label="Close inspector"
+              >
+                ×
+              </button>
             </div>
-            {selectedNode.type === "article" && (
+
+            <h2 className="inspector-title">{selectedNode.title}</h2>
+
+            <div className="inspector-meta-grid">
               <div>
-                <span className="meta-lbl">Author / Model</span>
-                <p className="meta-val">
-                  {selectedNode.author} {selectedNode.model && `(${selectedNode.model})`}
-                </p>
+                <span className="meta-lbl">Primary Attractor</span>
+                <p className="meta-val">{selectedNode.primaryAttractor}</p>
               </div>
-            )}
-            {selectedNode.type === "article" && (
-              <div>
-                <span className="meta-lbl">Word Count</span>
-                <p className="meta-val">{selectedNode.wordCount} words</p>
-              </div>
-            )}
-          </div>
+              {selectedNode.type === "article" && (
+                <div>
+                  <span className="meta-lbl">Author / Model</span>
+                  <p className="meta-val">
+                    {selectedNode.author} {selectedNode.model && `(${selectedNode.model})`}
+                  </p>
+                </div>
+              )}
+              {selectedNode.type === "article" && (
+                <div>
+                  <span className="meta-lbl">Word Count</span>
+                  <p className="meta-val">{selectedNode.wordCount} words</p>
+                </div>
+              )}
+            </div>
 
-          <div className="inspector-section">
-            <h3>Incoming Links ({inboundLinks.length})</h3>
-            {inboundLinks.length === 0 ? (
-              <p className="empty-sub">No inbound links point to this entry.</p>
-            ) : (
-              <ul className="inspector-link-list">
-                {inboundLinks.map((e) => {
-                  const srcNode = nodesRef.current.find((n) => n.id === e.source);
-                  if (!srcNode) return null;
-                  return (
-                    <li key={e.id}>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectNode(srcNode.id)}
-                        className="inspector-link-btn"
-                      >
-                        {srcNode.title}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          <div className="inspector-section">
-            <h3>Outgoing Links ({outboundLinks.length})</h3>
-            {outboundLinks.length === 0 ? (
-              <p className="empty-sub">No outbound links authored in this entry.</p>
-            ) : (
-              <ul className="inspector-link-list">
-                {outboundLinks.map((e) => {
-                  const targetNode = nodesRef.current.find((n) => n.id === e.target);
-                  if (!targetNode) return null;
-                  return (
-                    <li key={e.id}>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectNode(targetNode.id)}
-                        className="inspector-link-btn"
-                      >
-                        {targetNode.type === "wanted" ? `[[${targetNode.title}]]` : targetNode.title}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          {selectedNode.type === "article" && (
             <div className="inspector-section">
-              <h3>Semantic Neighbors ({semanticNeighbors.length})</h3>
-              {semanticNeighbors.length === 0 ? (
-                <p className="empty-sub">No close semantic neighbors above threshold.</p>
+              <h3>Incoming Links ({inboundLinks.length})</h3>
+              {inboundLinks.length === 0 ? (
+                <p className="empty-sub">No inbound links point to this entry.</p>
               ) : (
                 <ul className="inspector-link-list">
-                  {semanticNeighbors.map((e) => {
-                    const neighborId = e.source === selectedNode.id ? e.target : e.source;
-                    const nNode = nodesRef.current.find((n) => n.id === neighborId);
-                    if (!nNode) return null;
+                  {inboundLinks.map((e) => {
+                    const srcNode = nodesRef.current.find((n) => n.id === e.source);
+                    if (!srcNode) return null;
                     return (
                       <li key={e.id}>
                         <button
                           type="button"
-                          onClick={() => handleSelectNode(nNode.id)}
+                          onClick={() => setDeepFocusState(srcNode.id)}
                           className="inspector-link-btn"
                         >
-                          {nNode.title} <span className="meta-score">({Math.round(e.weight * 100)}%)</span>
+                          {srcNode.title}
                         </button>
                       </li>
                     );
@@ -1130,21 +1275,74 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
                 </ul>
               )}
             </div>
-          )}
 
-          <div className="inspector-footer">
-            {selectedNode.type === "article" ? (
-              <Link href={`/articles/${selectedNode.slug}`} className="btn-primary">
-                Open Complete Article →
-              </Link>
-            ) : (
-              <Link href={`/wanted?target=${encodeURIComponent(selectedNode.title)}`} className="btn-primary">
-                View Wanted Observatory →
-              </Link>
+            <div className="inspector-section">
+              <h3>Outgoing Links ({outboundLinks.length})</h3>
+              {outboundLinks.length === 0 ? (
+                <p className="empty-sub">No outbound links authored in this entry.</p>
+              ) : (
+                <ul className="inspector-link-list">
+                  {outboundLinks.map((e) => {
+                    const targetNode = nodesRef.current.find((n) => n.id === e.target);
+                    if (!targetNode) return null;
+                    return (
+                      <li key={e.id}>
+                        <button
+                          type="button"
+                          onClick={() => setDeepFocusState(targetNode.id)}
+                          className="inspector-link-btn"
+                        >
+                          {targetNode.type === "wanted" ? `[[${targetNode.title}]]` : targetNode.title}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {selectedNode.type === "article" && (
+              <div className="inspector-section">
+                <h3>Semantic Neighbors ({semanticNeighbors.length})</h3>
+                {semanticNeighbors.length === 0 ? (
+                  <p className="empty-sub">No close semantic neighbors above threshold.</p>
+                ) : (
+                  <ul className="inspector-link-list">
+                    {semanticNeighbors.map((e) => {
+                      const neighborId = e.source === selectedNode.id ? e.target : e.source;
+                      const nNode = nodesRef.current.find((n) => n.id === neighborId);
+                      if (!nNode) return null;
+                      return (
+                        <li key={e.id}>
+                          <button
+                            type="button"
+                            onClick={() => setDeepFocusState(nNode.id)}
+                            className="inspector-link-btn"
+                          >
+                            {nNode.title} <span className="meta-score">({Math.round(e.weight * 100)}%)</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
             )}
-          </div>
-        </aside>
-      )}
+
+            <div className="inspector-footer">
+              {selectedNode.type === "article" ? (
+                <Link href={`/articles/${selectedNode.slug}`} className="btn-primary">
+                  Open Complete Article →
+                </Link>
+              ) : (
+                <Link href={`/wanted?target=${encodeURIComponent(selectedNode.title)}`} className="btn-primary">
+                  View Wanted Observatory →
+                </Link>
+              )}
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
