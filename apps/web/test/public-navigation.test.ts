@@ -7,6 +7,7 @@ describe("public navigation", () => {
     expect(publicNavigation.map(({ href }) => href)).toEqual([
       "/",
       "/directory",
+      "/graph",
       "/wanted",
       "/search",
       "/patterns",
