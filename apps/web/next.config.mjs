@@ -7,6 +7,14 @@ const nextConfig = {
   ...(process.env.VERCEL === "1" ? {} : { output: "standalone" }),
   poweredByHeader: false,
   reactStrictMode: true,
+  async rewrites() {
+    return [
+      {
+        source: "/articles/:slug.md",
+        destination: "/api/v1/articles/:slug?format=markdown",
+      },
+    ];
+  },
   async headers() {
     return [
       {
