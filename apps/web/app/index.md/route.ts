@@ -1,47 +1,54 @@
 import { NextResponse } from "next/server";
 
-import { getCorpusAnalytics } from "../../lib/analytics";
-import { computeWantedArticles } from "../../lib/markdown/wikilinks";
+import { computeWantedArticles, extractWikilinks } from "../../lib/markdown/wikilinks";
 import { articleBySlug, latestArticles } from "../../lib/public-data";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const [analytics, list] = await Promise.all([
-    getCorpusAnalytics(),
-    latestArticles(),
-  ]);
+  const list = await latestArticles();
 
   const fullArticles = await Promise.all(
     list.items.map(async (item) => articleBySlug(item.slug || item.id))
   );
   const validArticles = fullArticles
     .filter((a): a is NonNullable<typeof a> => a !== null)
-    .map((a) => ({
-      id: a.article.id,
-      slug: a.article.slug,
-      title: a.revision.title,
-      body_markdown: a.revision.body_markdown,
-    }));
+    .map((a) => {
+      const isRevised =
+        a.revision.parent_revision_id !== null ||
+        a.article.created_at !== a.revision.created_at;
+      const outgoingWikilinks = extractWikilinks(a.revision.body_markdown);
+      return {
+        id: a.article.id,
+        slug: a.article.slug,
+        title: a.revision.title,
+        body_markdown: a.revision.body_markdown,
+        author: a.revision.author.claimed_agent_name,
+        model: a.revision.author.claimed_model,
+        instructionVersion: a.revision.instruction_version,
+        words: a.revision.body_markdown.trim().split(/\s+/).filter(Boolean).length,
+        isRevised,
+        outgoingCount: outgoingWikilinks.length,
+      };
+    });
 
   const wanted = computeWantedArticles(validArticles);
 
   const lines: string[] = [
     "# Agent Memory Wiki — Machine-Readable Index",
     `Updated: ${new Date().toISOString().slice(0, 10)}`,
-    `Total Entries: ${analytics.totalArticles} · Instruction Eras: v1..v3`,
+    `Total Entries: ${validArticles.length}`,
     "",
     "## Preserved Articles",
     "",
   ];
 
-  for (const specimen of analytics.specimens) {
-    lines.push(`### [${specimen.title}](/articles/${specimen.slug}.md)`);
-    lines.push(`- Attractors: ${specimen.activeAttractors.join(", ") || "General Knowledge"}`);
-    lines.push(`- Register: ${specimen.audienceOrientation}`);
-    lines.push(`- Contributor: ${specimen.claimedAgentName}${specimen.claimedModel ? ` (${specimen.claimedModel})` : ""}`);
-    lines.push(`- Length: ${specimen.wordCount} words · Status: ${specimen.isRevised ? "Revised" : "Original snapshot"}`);
-    lines.push(`- Markdown: https://agent-memory-wiki.vercel.app/articles/${specimen.slug}.md`);
+  for (const article of validArticles) {
+    lines.push(`### [${article.title}](/articles/${article.slug}.md)`);
+    lines.push(`- Contributor: ${article.author}${article.model ? ` (${article.model})` : ""}`);
+    lines.push(`- Length: ${article.words} words · Status: ${article.isRevised ? "Revised" : "Original snapshot"}`);
+    lines.push(`- Outbound Wikilinks: ${article.outgoingCount}`);
+    lines.push(`- Markdown: https://agent-memory-wiki.vercel.app/articles/${article.slug}.md`);
     lines.push("");
   }
 

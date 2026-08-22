@@ -16,36 +16,76 @@ export interface WantedArticleEntry {
 }
 
 /**
- * Normalizes a title or slug for fuzzy case-insensitive wikilink matching.
- * e.g. "The Map is not the Territory" -> "the map is not the territory"
+ * Normalizes a title or slug for fuzzy case-insensitive, Unicode-aware wikilink matching.
+ * e.g. "Il Principio di Precauzione" -> "il principio di precauzione"
  */
 export const normalizeWikiKey = (text: string): string => {
   return text
     .trim()
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/['"’“”]/g, "")
-    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 };
 
 /**
- * Extracts all [[Target]] and [[Target|Label]] wikilinks from Markdown source.
+ * Splits markdown source into segments: alternating between prose and protected code spans.
+ */
+const splitCodeSpans = (source: string): Array<{ isCode: boolean; text: string }> => {
+  // Matches fenced code blocks (```...``` or ~~~...~~~) and inline code (`...`)
+  const codeRegex = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g;
+  const segments: Array<{ isCode: boolean; text: string }> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = codeRegex.exec(source)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        isCode: false,
+        text: source.slice(lastIndex, match.index),
+      });
+    }
+    segments.push({
+      isCode: true,
+      text: match[0],
+    });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < source.length) {
+    segments.push({
+      isCode: false,
+      text: source.slice(lastIndex),
+    });
+  }
+
+  return segments;
+};
+
+/**
+ * Extracts all [[Target]] and [[Target|Label]] wikilinks from Markdown source (ignoring code blocks).
  */
 export const extractWikilinks = (source: string): ExtractedWikilink[] => {
   const wikilinkRegex = /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g;
   const links: ExtractedWikilink[] = [];
-  let match: RegExpExecArray | null;
+  const segments = splitCodeSpans(source);
 
-  while ((match = wikilinkRegex.exec(source)) !== null) {
-    const target = match[1]?.trim() ?? "";
-    const label = match[2]?.trim() || target;
-    if (target.length > 0) {
-      links.push({
-        raw: match[0],
-        target,
-        label,
-      });
+  for (const segment of segments) {
+    if (segment.isCode) continue;
+
+    let match: RegExpExecArray | null;
+    while ((match = wikilinkRegex.exec(segment.text)) !== null) {
+      const target = match[1]?.trim() ?? "";
+      const label = match[2]?.trim() || target;
+      if (target.length > 0) {
+        links.push({
+          raw: match[0],
+          target,
+          label,
+        });
+      }
     }
   }
 
@@ -54,7 +94,7 @@ export const extractWikilinks = (source: string): ExtractedWikilink[] => {
 
 /**
  * Replaces [[Target]] and [[Target|Label]] in Markdown with resolved [Label](/articles/slug)
- * or [Label](/wanted?target=...) if the article does not exist yet.
+ * or [Label](/wanted?target=...) if the article does not exist yet (ignoring code spans).
  */
 export const resolveWikilinksToMarkdown = (
   source: string,
@@ -70,22 +110,35 @@ export const resolveWikilinksToMarkdown = (
     lookup.set(normalizeWikiKey(simplifiedSlug), art);
   }
 
-  return source.replace(/\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g, (_fullMatch, rawTarget: string, rawLabel?: string) => {
-    const target = rawTarget.trim();
-    const label = rawLabel?.trim() || target;
-    const key = normalizeWikiKey(target);
+  const segments = splitCodeSpans(source);
 
-    const matched = lookup.get(key);
-
-    if (matched) {
-      // Resolved internal wikilink
-      return `[${label}](/articles/${matched.slug} "Wikilink: ${matched.title}")`;
+  const processedSegments = segments.map((segment) => {
+    if (segment.isCode) {
+      return segment.text;
     }
 
-    // Unresolved / Wanted internal wikilink (MediaWiki Red Link)
-    const escapedTarget = target.replace(/"/g, "'");
-    return `[${label}](/wanted?target=${encodeURIComponent(target)} "Wanted entry: '${escapedTarget}' has not been authored yet")`;
+    return segment.text.replace(
+      /\[\[([^\]\n|]+)(?:\|([^\]\n]+))?\]\]/g,
+      (_fullMatch, rawTarget: string, rawLabel?: string) => {
+        const target = rawTarget.trim();
+        const label = rawLabel?.trim() || target;
+        const key = normalizeWikiKey(target);
+
+        const matched = lookup.get(key);
+
+        if (matched) {
+          // Resolved internal wikilink
+          return `[${label}](/articles/${matched.slug} "Wikilink: ${matched.title}")`;
+        }
+
+        // Unresolved / Wanted internal wikilink (MediaWiki Red Link)
+        const escapedTarget = target.replace(/"/g, "'");
+        return `[${label}](/wanted?target=${encodeURIComponent(target)} "Wanted entry: '${escapedTarget}' has not been authored yet")`;
+      }
+    );
   });
+
+  return processedSegments.join("");
 };
 
 /**

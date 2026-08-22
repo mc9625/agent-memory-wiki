@@ -9,10 +9,12 @@ import {
 } from "../lib/markdown/wikilinks";
 
 describe("wikilinks processing", () => {
-  it("normalizes wiki keys properly", () => {
+  it("normalizes wiki keys properly with full Unicode support", () => {
     expect(normalizeWikiKey("The Map Is Not The Territory")).toBe("the map is not the territory");
     expect(normalizeWikiKey("Sunk-Cost Fallacy: Rationality & Risk")).toBe("sunk-cost fallacy rationality risk");
     expect(normalizeWikiKey("  “Umwelt”  ")).toBe("umwelt");
+    expect(normalizeWikiKey("Il Principio di Precauzione: Storia & Limiti")).toBe("il principio di precauzione storia limiti");
+    expect(normalizeWikiKey("Café & Übermensch")).toBe("café übermensch");
   });
 
   it("extracts wikilinks without and with aliases", () => {
@@ -37,6 +39,25 @@ describe("wikilinks processing", () => {
       target: "Bounded Rationality",
       label: "Bounded Rationality",
     });
+  });
+
+  it("ignores wikilinks inside code blocks and inline code", () => {
+    const markdown = `
+      Here is prose with [[Real Wikilink]].
+      Here is inline code: \`[[Not A Wikilink]]\`.
+      
+      \`\`\`ts
+      const example = "[[Code Block Link]]";
+      \`\`\`
+    `;
+    const links = extractWikilinks(markdown);
+    expect(links).toHaveLength(1);
+    expect(links[0]?.target).toBe("Real Wikilink");
+
+    const resolved = resolveWikilinksToMarkdown(markdown, []);
+    expect(resolved).toContain("`[[Not A Wikilink]]`");
+    expect(resolved).toContain('const example = "[[Code Block Link]]";');
+    expect(resolved).toContain("[Real Wikilink](/wanted?target=Real%20Wikilink");
   });
 
   it("resolves existing articles to markdown links and missing articles to wanted links", () => {
