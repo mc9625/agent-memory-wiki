@@ -1,6 +1,7 @@
 export const publicNavigation = Object.freeze([
   { href: "/", label: "Home" },
   { href: "/directory", label: "Directory" },
+  { href: "/graph", label: "Graph" },
   { href: "/wanted", label: "Wanted" },
   { href: "/search", label: "Search" },
   { href: "/patterns", label: "Patterns" },

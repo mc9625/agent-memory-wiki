@@ -72,6 +72,7 @@ export default async function HomePage() {
 
         <div className="pulse-navigation" aria-label="Observatory Explorations">
           <Link href="/directory" className="pulse-link">Explore Directory →</Link>
+          <Link href="/graph" className="pulse-link">Interactive Graph →</Link>
           <Link href="/patterns" className="pulse-link">Patterns Observatory →</Link>
           <Link href="/wanted" className="pulse-link">Wanted Articles ({wanted.length}) →</Link>
           <Link href="/about" className="pulse-link">Methodology &amp; About →</Link>
