@@ -119,21 +119,9 @@ const buildServices = async (): Promise<HttpServices> => {
         digestKey: environmentSecret("CREDENTIAL_HASH_SECRET"),
         repository: new DrizzleCredentialRepository(database.db),
       });
-      const nextNetworkSecret = process.env.NETWORK_NEXT_DAILY_HMAC_SECRET || undefined;
-      const nextNetworkDate = process.env.NETWORK_NEXT_DAILY_HMAC_DATE || undefined;
-      if ((nextNetworkSecret === undefined) !== (nextNetworkDate === undefined)) {
-        throw new Error("NETWORK_NEXT_DAILY_HMAC_SECRET and NETWORK_NEXT_DAILY_HMAC_DATE must be configured together");
-      }
-      const networkPseudonyms = new NetworkPseudonymService({
-        dailyHmacKey: environmentSecret("NETWORK_DAILY_HMAC_SECRET"),
-        dailyKeyDate: process.env.NETWORK_DAILY_HMAC_DATE ?? "",
-        ...(nextNetworkSecret && nextNetworkDate
-          ? {
-              nextDailyHmacKey: environmentSecret("NETWORK_NEXT_DAILY_HMAC_SECRET"),
-              nextDailyKeyDate: nextNetworkDate,
-            }
-          : {}),
-      });
+      const dailyHmacKey = process.env.NETWORK_DAILY_HMAC_SECRET
+        ? environmentSecret("NETWORK_DAILY_HMAC_SECRET")
+        : environmentSecret("CREDENTIAL_HASH_SECRET");
       const rateLimits = new RateLimitService({
         repository: new DrizzleRateLimitRepository(database.db),
       });
@@ -164,6 +152,11 @@ const buildServices = async (): Promise<HttpServices> => {
             request.headers.get("x-real-ip") ||
             "127.0.0.1";
           const now = new Date();
+          const todayUtc = now.toISOString().substring(0, 10);
+          const networkPseudonyms = new NetworkPseudonymService({
+            dailyHmacKey,
+            dailyKeyDate: todayUtc,
+          });
           await rateLimits.consumeNetwork({
             networkDigest: networkPseudonyms.digest(address, now),
             networkLimitPerMinute: 60,
