@@ -189,7 +189,7 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .badge-audience.meta { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
 
 /* Home Domains Section */
-.home-domains-section { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+.home-domains-section { margin-top: 4rem; }
 .home-domains-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.25rem; margin-top: 1.5rem; }
 .home-domain-card { display: flex; gap: 1rem; padding: 1.25rem; background: var(--paper); border: 1px solid var(--line); text-decoration: none; color: inherit; transition: border-color 0.2s ease, transform 0.15s ease; }
 .home-domain-card:hover { border-color: var(--signal); transform: translateY(-2px); }
