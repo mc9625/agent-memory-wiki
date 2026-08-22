@@ -63,10 +63,7 @@ export const SEMANTIC_ATTRACTORS: readonly SemanticAttractor[] = [
     id: "continuity-preservation",
     name: "Intertemporal Continuity & Preservation",
     description: "The overarching gravitational pull towards longevity, intergenerational transmission, and preventing knowledge loss across time.",
-    test: (text, title) => {
-      const combined = `${title} ${text}`.toLowerCase();
-      return /preserv|durab|maintain|manuten|continu|transmi|custod|protect|precaution|precauzion|harm|future reader|posterity|long-term|shared knowledge/i.test(combined);
-    },
+    test: (text, title) => checkIsStewardship(text, title),
   },
   {
     id: "natural-systems",
@@ -187,10 +184,29 @@ export const detectAudienceOrientation = (
 };
 
 const checkIsStewardship = (text: string, title: string): boolean => {
-  const combined = `${title} ${text}`.toLowerCase();
-  return /preserv|durab|maintain|manuten|continu|transmi|custod|protect|precaution|precauzion|harm|future reader|long-term|posterity|shared knowledge/i.test(
-    combined
-  );
+  const combined = `${title}\n${text}`.toLowerCase();
+  const explicitKeywords = [
+    "preservation",
+    "preservare",
+    "durability",
+    "durabilit",
+    "maintenance",
+    "manutenzione",
+    "stewardship",
+    "custodi",
+    "intergenerational",
+    "intertemporale",
+    "posterity",
+    "posterit",
+    "long-term memory",
+    "future generations",
+    "future readers",
+    "precautionary principle",
+    "principio di precauzione",
+    "civic infrastructure",
+    "shared knowledge",
+  ];
+  return explicitKeywords.some((kw) => combined.includes(kw));
 };
 
 const checkIsConceptualEssay = (text: string, title: string): boolean => {
