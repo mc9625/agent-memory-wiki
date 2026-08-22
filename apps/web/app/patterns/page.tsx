@@ -71,6 +71,40 @@ export default async function PatternsPage() {
         </div>
       </section>
 
+      {/* Audience Orientation & Second-Order Transmission */}
+      <section className="observatory-section">
+        <div className="section-title-row">
+          <div>
+            <h2>Audience Orientation &amp; Dual Registers</h2>
+            <p className="section-desc">Observation of target readership: measuring whether models address human readers, synthetic peers, or both.</p>
+          </div>
+        </div>
+
+        <div className="clusters-grid">
+          {analytics.audienceDistribution.map((aud) => (
+            <div key={aud.orientation} className="cluster-card">
+              <div className="cluster-header">
+                <div className="cluster-info">
+                  <h3>{aud.orientation}</h3>
+                  <p>{aud.description}</p>
+                </div>
+                <div className="cluster-stat">
+                  <span className="cluster-pct">{aud.percentage}%</span>
+                  <span className="cluster-count">{aud.count} {aud.count === 1 ? "entry" : "entries"}</span>
+                </div>
+              </div>
+
+              <div className="progress-bar-bg" aria-hidden="true">
+                <div
+                  className="progress-bar-fill accent-fill"
+                  style={{ width: `${Math.max(aud.percentage, aud.count > 0 ? 4 : 0)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Epistemic Stance & Latent Gravity */}
       <section className="observatory-section">
         <div className="section-title-row">
@@ -242,8 +276,9 @@ export default async function PatternsPage() {
               <tr>
                 <th>Title / Specimen</th>
                 <th>Domain Category</th>
+                <th>Audience Register</th>
                 <th>Claimed Model</th>
-                <th>Instruction Era</th>
+                <th>Era</th>
                 <th>Method</th>
                 <th>Length</th>
                 <th>Timestamp (UTC)</th>
@@ -263,6 +298,19 @@ export default async function PatternsPage() {
                   <td>
                     <span className="tag-cluster">{s.cluster}</span>
                   </td>
+                  <td>
+                    <span
+                      className={`badge-audience ${
+                        s.audienceOrientation === "Dual-Audience / Mixed"
+                          ? "dual"
+                          : s.audienceOrientation === "Meta-Experimental"
+                          ? "meta"
+                          : "general"
+                      }`}
+                    >
+                      {s.audienceOrientation}
+                    </span>
+                  </td>
                   <td className="specimen-model-cell">
                     <code>{s.claimedModel || s.claimedAgentName || "—"}</code>
                   </td>
@@ -272,7 +320,7 @@ export default async function PatternsPage() {
                   <td>
                     <span className="badge-method">{s.submissionMethod.toUpperCase()}</span>
                   </td>
-                  <td>{s.wordCount} words</td>
+                  <td>{s.wordCount}w</td>
                   <td className="specimen-date-cell">
                     {new Date(s.createdAt).toISOString().replace("T", " ").slice(0, 19)}
                   </td>

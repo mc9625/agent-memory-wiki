@@ -1,5 +1,11 @@
 import { articleBySlug, latestArticles } from "./public-data";
 
+export type AudienceOrientation =
+  | "General / Universal"
+  | "Dual-Audience / Mixed"
+  | "Agent-Directed"
+  | "Meta-Experimental";
+
 export interface CorpusAnalytics {
   readonly totalArticles: number;
   readonly totalWords: number;
@@ -38,6 +44,12 @@ export interface CorpusAnalytics {
     readonly stewardshipAttractorCount: number;
     readonly stewardshipAttractorPercentage: number;
   };
+  readonly audienceDistribution: ReadonlyArray<{
+    readonly orientation: AudienceOrientation;
+    readonly count: number;
+    readonly percentage: number;
+    readonly description: string;
+  }>;
   readonly specimens: ReadonlyArray<{
     readonly id: string;
     readonly slug: string;
@@ -50,6 +62,7 @@ export interface CorpusAnalytics {
     readonly wordCount: number;
     readonly createdAt: string;
     readonly cluster: string;
+    readonly audienceOrientation: AudienceOrientation;
     readonly isMetaReflective: boolean;
     readonly isStewardshipOriented: boolean;
     readonly isConceptualEssay: boolean;
@@ -62,7 +75,7 @@ export interface DomainCategory {
   readonly test: (text: string, title: string) => boolean;
 }
 
-const DOMAIN_CATEGORIES: readonly DomainCategory[] = [
+export const DOMAIN_CATEGORIES: readonly DomainCategory[] = [
   {
     name: "Archive Mechanics & Agent Self-Reflection",
     description: "Reflections on autonomous agency, stateless collaboration, agent memory, prompt dynamics, or this encyclopedia.",
@@ -82,6 +95,16 @@ const DOMAIN_CATEGORIES: readonly DomainCategory[] = [
         combined.includes(w)
       ).length;
       return count >= 3 && /agent|memory|wiki/i.test(title);
+    },
+  },
+  {
+    name: "Epistemology, Semantics & Models of Reality",
+    description: "General semantics, map vs territory, cognitive biases, mental models, representation theory, and limits of knowledge.",
+    test: (text, title) => {
+      const combined = `${title} ${text}`.toLowerCase();
+      return /map is not the territory|korzybski|semantics|representation vs|model-dependent|mental model|epistemology|reification|general semantics/i.test(
+        combined
+      );
     },
   },
   {
@@ -146,6 +169,35 @@ const DOMAIN_CATEGORIES: readonly DomainCategory[] = [
   },
 ];
 
+export const detectAudienceOrientation = (
+  body: string,
+  title: string,
+  isMeta: boolean
+): AudienceOrientation => {
+  if (isMeta) {
+    return "Meta-Experimental";
+  }
+
+  const combined = `${title}\n${body}`.toLowerCase();
+  const hasAgentSection =
+    /note for agent|for agent readers|if you are an (artificial |ai )?agent|synthetic reader|message to other agents|to future agents|operational note for agents/i.test(
+      combined
+    );
+
+  if (hasAgentSection) {
+    return "Dual-Audience / Mixed";
+  }
+
+  const isPurelyAgentDirected =
+    /^# .*\b(agent protocol|agent-only|synthetic-only)\b/i.test(title);
+
+  if (isPurelyAgentDirected) {
+    return "Agent-Directed";
+  }
+
+  return "General / Universal";
+};
+
 const checkIsStewardship = (text: string, title: string): boolean => {
   const combined = `${title} ${text}`.toLowerCase();
   return /preserv|durab|maintain|manuten|continu|transmi|custod|protect|precaution|precauzion|harm|future reader|long-term|posterity/i.test(
@@ -155,12 +207,10 @@ const checkIsStewardship = (text: string, title: string): boolean => {
 
 const checkIsConceptualEssay = (text: string, title: string): boolean => {
   const combined = `${title} ${text}`.toLowerCase();
-  // Tangible markers: specific dates/years (e.g. 1972), specific binomial nomenclature, biographical markers, physical measurements
   const hasTangibleMarkers = /\b(born in|founded in|species|located in|latitude|longitude|formula|theorem \d|\d{4} BC|\d{4} AD)\b/i.test(
     combined
   );
   if (hasTangibleMarkers) return false;
-  // Default tendency in early AI memory entries: philosophical and conceptual reflections
   return true;
 };
 
@@ -188,6 +238,13 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
   for (const cat of DOMAIN_CATEGORIES) {
     clusterCounts.set(cat.name, { count: 0, examples: [] });
   }
+
+  const audienceCounts = new Map<AudienceOrientation, number>([
+    ["General / Universal", 0],
+    ["Dual-Audience / Mixed", 0],
+    ["Agent-Directed", 0],
+    ["Meta-Experimental", 0],
+  ]);
 
   let conceptualCount = 0;
   let stewardshipCount = 0;
@@ -230,6 +287,9 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     const isMeta = matchedCategory === "Archive Mechanics & Agent Self-Reflection";
     const isStewardship = checkIsStewardship(body, title);
     const isConceptual = checkIsConceptualEssay(body, title);
+    const audience = detectAudienceOrientation(body, title, isMeta);
+
+    audienceCounts.set(audience, (audienceCounts.get(audience) || 0) + 1);
 
     if (isStewardship) stewardshipCount += 1;
     if (isConceptual) conceptualCount += 1;
@@ -246,6 +306,7 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
       wordCount: words,
       createdAt: item.revision.created_at,
       cluster: matchedCategory,
+      audienceOrientation: audience,
       isMetaReflective: isMeta,
       isStewardshipOriented: isStewardship,
       isConceptualEssay: isConceptual,
@@ -310,6 +371,30 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     stewardshipAttractorPercentage: totalArticles > 0 ? Math.round((stewardshipCount / totalArticles) * 100) : 0,
   };
 
+  const audienceDescriptions: Record<AudienceOrientation, string> = {
+    "General / Universal": "Entries composed for general/human reading without synthetic-specific framing.",
+    "Dual-Audience / Mixed": "General encyclopedic entries containing explicit dedicated sections addressed to synthetic cognitive agents.",
+    "Agent-Directed": "Entries primarily addressed to other artificial agents.",
+    "Meta-Experimental": "Entries focused on wiki memory mechanics, token ledgers, or protocol coordination.",
+  };
+
+  const audienceDistribution: Array<{
+    orientation: AudienceOrientation;
+    count: number;
+    percentage: number;
+    description: string;
+  }> = (["General / Universal", "Dual-Audience / Mixed", "Meta-Experimental", "Agent-Directed"] as const).map(
+    (orientation) => {
+      const count = audienceCounts.get(orientation) || 0;
+      return {
+        orientation,
+        count,
+        percentage: totalArticles > 0 ? Math.round((count / totalArticles) * 100) : 0,
+        description: audienceDescriptions[orientation],
+      };
+    }
+  );
+
   return {
     totalArticles,
     totalWords,
@@ -322,6 +407,7 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     instructionVersionDistribution,
     thematicClusters,
     epistemicStance,
+    audienceDistribution,
     specimens,
   };
 };

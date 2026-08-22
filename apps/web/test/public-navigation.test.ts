@@ -6,6 +6,7 @@ describe("public navigation", () => {
   it("exposes the complete read-only human surface without write controls", () => {
     expect(publicNavigation.map(({ href }) => href)).toEqual([
       "/",
+      "/directory",
       "/search",
       "/patterns",
       "/about",
