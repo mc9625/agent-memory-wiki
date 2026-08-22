@@ -705,78 +705,87 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         ctx.restore();
       }
 
-      // Draw Local Selection Stack Card (STATE 2)
+      // Draw Local Selection Tendrils Fan (STATE 2 - Matching Screenshot 1)
       if (currentState === "local" && localStackRef.current.focalNodeId) {
         const stack = localStackRef.current;
         const focal = nodeMap.get(stack.focalNodeId);
         if (focal && stack.items.length > 0) {
-          const stackWidth = 210;
-          const itemHeight = 32;
-          const stackHeight = stack.items.length * itemHeight + 36;
-          const stackX = stack.side === "right" ? focal.x + 36 : focal.x - stackWidth - 36;
-          const stackY = focal.y - stackHeight / 2;
+          const isRight = stack.side === "right";
+          const fanSpanX = isRight ? 180 : -180;
+          const itemHeight = 28;
+          const totalHeight = (stack.items.length - 1) * itemHeight;
+          const startY = focal.y - totalHeight / 2;
 
           ctx.save();
-          // Draw connecting curve from focal node to stack header
-          ctx.beginPath();
-          ctx.moveTo(focal.x, focal.y);
-          const anchorX = stack.side === "right" ? stackX : stackX + stackWidth;
-          const anchorY = focal.y;
-          ctx.quadraticCurveTo((focal.x + anchorX) / 2, focal.y - 10, anchorX, anchorY);
-          ctx.strokeStyle = "rgba(11, 116, 95, 0.6)";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
 
-          // Draw Card Background
-          ctx.fillStyle = "#ffffff";
-          ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
-          ctx.shadowBlur = 16;
-          ctx.shadowOffsetY = 4;
-          ctx.beginPath();
-          ctx.roundRect(stackX, stackY, stackWidth, stackHeight, 4);
-          ctx.fill();
-          ctx.shadowColor = "transparent";
+          // Group Header Label
+          ctx.font = "700 10px sans-serif";
+          ctx.fillStyle = "var(--muted, #59635f)";
+          ctx.textAlign = isRight ? "left" : "right";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(
+            `CONNECTIONS (${stack.items.length})`,
+            focal.x + fanSpanX,
+            startY - 14
+          );
 
-          ctx.strokeStyle = "var(--line, #e2ded4)";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-
-          // Card Header
-          ctx.font = "600 11px sans-serif";
-          ctx.fillStyle = "#59635f";
-          ctx.textAlign = "left";
-          ctx.textBaseline = "top";
-          ctx.fillText(`CONNECTIONS (${stack.items.length})`, stackX + 12, stackY + 12);
-
-          // Card Items
+          // Draw each tendril line and endpoint
           stack.items.forEach((item, idx) => {
-            const itemY = stackY + 34 + idx * itemHeight;
-            const isItemHovered = hoveredStackItemRef.current === item.id;
+            const endpointX = focal.x + fanSpanX;
+            const endpointY = startY + idx * itemHeight;
+            const isHovered = hoveredStackItemRef.current === item.id;
 
-            if (isItemHovered) {
-              ctx.fillStyle = "#f4f1ea";
-              ctx.fillRect(stackX + 4, itemY, stackWidth - 8, itemHeight - 2);
-            }
-
-            // Type dot
+            // Smooth cubic bezier from focal node to endpoint
             ctx.beginPath();
-            ctx.arc(stackX + 16, itemY + itemHeight / 2 - 1, 3.5, 0, Math.PI * 2);
+            ctx.moveTo(focal.x, focal.y);
+            const side = isRight ? 1 : -1;
+            const cp1X = focal.x + side * 70;
+            const cp1Y = focal.y;
+            const cp2X = endpointX - side * 40;
+            const cp2Y = endpointY;
+            ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endpointX, endpointY);
+
+            ctx.strokeStyle = isHovered ? "#0b745f" : "rgba(11, 116, 95, 0.45)";
+            ctx.lineWidth = isHovered ? 2.2 : 1.2;
+            ctx.setLineDash(item.type === "semantic" || item.isWanted ? [3, 3] : []);
+            ctx.stroke();
+
+            // Endpoint marker dot
+            ctx.beginPath();
+            ctx.arc(endpointX, endpointY, isHovered ? 4.5 : 3.5, 0, Math.PI * 2);
             ctx.fillStyle = item.color;
             ctx.fill();
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1;
+            ctx.stroke();
 
-            // Item Title
-            ctx.font = isItemHovered ? "600 11px sans-serif" : "500 11px sans-serif";
-            ctx.fillStyle = isItemHovered ? "#0b745f" : "#17211f";
-            ctx.textAlign = "left";
+            // Endpoint label text
+            ctx.font = isHovered ? "600 12px sans-serif" : "500 11px sans-serif";
+            ctx.fillStyle = isHovered ? "#0b745f" : "#17211f";
+            ctx.textAlign = isRight ? "left" : "right";
             ctx.textBaseline = "middle";
 
-            const maxLen = 22;
-            const label = item.title.length > maxLen ? `${item.title.slice(0, maxLen - 1)}…` : item.title;
-            ctx.fillText(label, stackX + 26, itemY + itemHeight / 2 - 1);
+            const labelX = isRight ? endpointX + 10 : endpointX - 10;
+            const label = item.title.length > 28 ? `${item.title.slice(0, 26)}…` : item.title;
+            ctx.fillText(label, labelX, endpointY);
           });
 
           ctx.restore();
         }
+      }
+
+      // Draw Column Headers in Deep Focus (STATE 3 - Matching Screenshot 2)
+      if (currentState === "deep" && focalId) {
+        ctx.save();
+        ctx.font = "700 10px sans-serif";
+        ctx.fillStyle = "var(--muted, #59635f)";
+
+        ctx.textAlign = "right";
+        ctx.fillText("INCOMING LINKS", -140, -170);
+
+        ctx.textAlign = "left";
+        ctx.fillText("OUTGOING & SEMANTIC", 140, -170);
+        ctx.restore();
       }
 
       // Draw Nodes (Large Focal Center + Small Endpoints in Deep Focus)
