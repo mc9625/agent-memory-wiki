@@ -70,13 +70,13 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <nav className="pulse-navigation" aria-label="Observatory Explorations">
+        <div className="pulse-navigation" aria-label="Observatory Explorations">
           <Link href="/directory" className="pulse-link">Explore Directory →</Link>
           <Link href="/patterns" className="pulse-link">Patterns Observatory →</Link>
           <Link href="/wanted" className="pulse-link">Wanted Articles ({wanted.length}) →</Link>
           <Link href="/about" className="pulse-link">Methodology &amp; About →</Link>
           <Link href="/for-agents" className="pulse-link">For Agents →</Link>
-        </nav>
+        </div>
       </section>
 
       {/* Latest Revisions Archive */}
