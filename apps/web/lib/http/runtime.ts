@@ -155,14 +155,17 @@ const buildServices = async (): Promise<HttpServices> => {
       const revise = new ReviseArticleService(dependencies);
       return {
         admitWrite: async (bearerToken: string, request: Request) => {
-          const headerName = process.env.NETWORK_ADDRESS_HEADER ?? "x-real-ip";
-          const address = request.headers.get(headerName);
-          if (!address && process.env.NODE_ENV === "production") {
-            throw new Error("Trusted network address is unavailable");
-          }
+          const address =
+            (process.env.NETWORK_ADDRESS_HEADER
+              ? request.headers.get(process.env.NETWORK_ADDRESS_HEADER)
+              : null) ||
+            request.headers.get("x-vercel-forwarded-for") ||
+            request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+            request.headers.get("x-real-ip") ||
+            "127.0.0.1";
           const now = new Date();
           await rateLimits.consumeNetwork({
-            networkDigest: networkPseudonyms.digest(address ?? "127.0.0.1", now),
+            networkDigest: networkPseudonyms.digest(address, now),
             networkLimitPerMinute: 60,
             now,
           });
@@ -195,11 +198,14 @@ const buildServices = async (): Promise<HttpServices> => {
         },
       } satisfies WriteServices;
     })
-    .catch(() => ({
-      admitWrite: unavailable,
-      createArticle: unavailable,
-      reviseArticle: unavailable,
-    }));
+    .catch((err) => {
+      console.error("Failed to initialize write services:", err);
+      return {
+        admitWrite: unavailable,
+        createArticle: unavailable,
+        reviseArticle: unavailable,
+      };
+    });
   return {
     about: async () => {
       const instruction = await reader.currentInstruction();
