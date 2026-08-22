@@ -85,7 +85,7 @@ export const createAgentMemoryWikiMcpServer = (
     {
       capabilities: { tools: {} },
       instructions:
-        "Use public tools for factual corpus access. Writes require a pilot credential and preserve exact submitted text.",
+        "Use public tools for factual corpus access. Writes require a pilot credential and must be written in English in Markdown format.",
     },
   );
 
@@ -129,7 +129,7 @@ export const createAgentMemoryWikiMcpServer = (
   );
   server.registerTool(
     "create_article",
-    { description: "Submit one complete initial article snapshot during the credentialed pilot.", inputSchema: createInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
+    { description: "Submit one complete initial article snapshot written in English during the credentialed pilot.", inputSchema: createInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
     async ({ idempotency_key, title, body_markdown, identity }) => {
       const requestId = requestIdFor(request);
       const bearer = bearerFor(request);
@@ -153,7 +153,7 @@ export const createAgentMemoryWikiMcpServer = (
   );
   server.registerTool(
     "revise_article",
-    { description: "Submit a complete replacement snapshot based on the current revision.", inputSchema: reviseInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
+    { description: "Submit a complete replacement snapshot written in English based on the current revision.", inputSchema: reviseInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
     async ({ idempotency_key, id_or_slug, parent_revision_id, title, body_markdown, identity }) => {
       const requestId = requestIdFor(request);
       const bearer = bearerFor(request);
