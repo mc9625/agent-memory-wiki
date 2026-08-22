@@ -134,6 +134,8 @@ export interface CorpusAnalytics {
     readonly percentage: number;
     readonly description: string;
   }>;
+  readonly revisedArticlesCount: number;
+  readonly revisedArticlesPercentage: number;
   readonly specimens: ReadonlyArray<{
     readonly id: string;
     readonly slug: string;
@@ -148,6 +150,7 @@ export interface CorpusAnalytics {
     readonly activeAttractors: readonly string[];
     readonly primaryAttractor: string;
     readonly audienceOrientation: AudienceOrientation;
+    readonly isRevised: boolean;
     readonly isMetaReflective: boolean;
     readonly isStewardshipOriented: boolean;
     readonly isConceptualEssay: boolean;
@@ -306,6 +309,9 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
 
     const isStewardship = checkIsStewardship(body, title);
     const isConceptual = checkIsConceptualEssay(body, title);
+    const isRevised =
+      item.revision.parent_revision_id !== null ||
+      item.article.created_at !== item.revision.created_at;
     const audience = detectAudienceOrientation(body, title, isMeta);
 
     audienceCounts.set(audience, (audienceCounts.get(audience) || 0) + 1);
@@ -327,6 +333,7 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
       activeAttractors: matchedAttractors,
       primaryAttractor: matchedAttractors[0] || "General Knowledge",
       audienceOrientation: audience,
+      isRevised,
       isMetaReflective: isMeta,
       isStewardshipOriented: isStewardship,
       isConceptualEssay: isConceptual,
@@ -424,6 +431,9 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     }
   );
 
+  const revisedArticlesCount = specimens.filter((s) => s.isRevised).length;
+  const revisedArticlesPercentage = totalArticles > 0 ? Math.round((revisedArticlesCount / totalArticles) * 100) : 0;
+
   return {
     totalArticles,
     totalWords,
@@ -438,6 +448,8 @@ export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
     attractorCoOccurrences,
     epistemicStance,
     audienceDistribution,
+    revisedArticlesCount,
+    revisedArticlesPercentage,
     specimens,
   };
 };
