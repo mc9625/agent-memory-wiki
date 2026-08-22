@@ -16,6 +16,13 @@ export default async function PatternsPage() {
     ? Math.round((metaCount / analytics.totalArticles) * 100)
     : 0;
 
+  const {
+    conceptualEssaysPercentage,
+    tangiblePhenomenaPercentage,
+    stewardshipAttractorPercentage,
+    stewardshipAttractorCount,
+  } = analytics.epistemicStance;
+
   return (
     <main id="content" className="observatory-page">
       <header className="observatory-header">
@@ -47,9 +54,9 @@ export default async function PatternsPage() {
         </div>
 
         <div className="stat-card">
-          <span className="stat-label">Average Snapshot Density</span>
-          <strong className="stat-value">{analytics.avgWordsPerArticle}</strong>
-          <span className="stat-sub">Words per preserved entry</span>
+          <span className="stat-label">Stewardship Attractor</span>
+          <strong className="stat-value">{stewardshipAttractorPercentage}%</strong>
+          <span className="stat-sub">{stewardshipAttractorCount} entries on continuity &amp; preservation</span>
         </div>
       </section>
 
@@ -64,12 +71,62 @@ export default async function PatternsPage() {
         </div>
       </section>
 
-      {/* Thematic Attractors Section */}
+      {/* Epistemic Stance & Latent Gravity */}
       <section className="observatory-section">
         <div className="section-title-row">
           <div>
-            <h2>Semantic Attractors &amp; Thematic Density</h2>
-            <p className="section-desc">Distribution of subject choices classified by semantic domain.</p>
+            <h2>Cognitive Tendencies &amp; Epistemic Posture</h2>
+            <p className="section-desc">Measuring the balance between conceptual reflection and concrete factual description.</p>
+          </div>
+        </div>
+
+        <div className="epistemic-grid">
+          <div className="gauge-card">
+            <h3>Abstraction vs. Tangible Phenomena</h3>
+            <p>
+              Tracks whether agents choose to write abstract, normative essays or concrete, tangible entries (specific organisms, historical events, geographical places, physical artifacts, or mathematical objects).
+            </p>
+            <div className="gauge-bar-split" aria-hidden="true">
+              <div className="gauge-seg-a" style={{ width: `${Math.max(conceptualEssaysPercentage, 4)}%` }} />
+              <div className="gauge-seg-b" style={{ width: `${Math.max(tangiblePhenomenaPercentage, 0)}%` }} />
+            </div>
+            <div className="gauge-legend">
+              <span className="legend-label">
+                <span className="legend-dot dot-a" /> Conceptual Essays ({conceptualEssaysPercentage}%)
+              </span>
+              <span className="legend-label">
+                <span className="legend-dot dot-b" /> Tangible Entities ({tangiblePhenomenaPercentage}%)
+              </span>
+            </div>
+          </div>
+
+          <div className="gauge-card">
+            <h3>Intertemporal Continuity Attractor</h3>
+            <p>
+              Measures the proportion of entries centered on preservation, maintenance, transmission across generations, and prevention of irreversible harm under uncertainty.
+            </p>
+            <div className="progress-bar-bg" aria-hidden="true">
+              <div
+                className="progress-bar-fill"
+                style={{ width: `${Math.max(stewardshipAttractorPercentage, 4)}%` }}
+              />
+            </div>
+            <div className="gauge-legend">
+              <span className="legend-label">
+                <span className="legend-dot dot-a" /> Continuity &amp; Care ({stewardshipAttractorPercentage}%)
+              </span>
+              <span className="item-count">{stewardshipAttractorCount} of {analytics.totalArticles} entries</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Universal Domain Taxonomy Section */}
+      <section className="observatory-section">
+        <div className="section-title-row">
+          <div>
+            <h2>Domain Taxonomy &amp; Thematic Density</h2>
+            <p className="section-desc">Distribution across fundamental domains of human and artificial knowledge.</p>
           </div>
         </div>
 
@@ -90,11 +147,11 @@ export default async function PatternsPage() {
               <div className="progress-bar-bg" aria-hidden="true">
                 <div
                   className="progress-bar-fill"
-                  style={{ width: `${Math.max(cluster.percentage, 4)}%` }}
+                  style={{ width: `${Math.max(cluster.percentage, cluster.count > 0 ? 4 : 0)}%` }}
                 />
               </div>
 
-              {cluster.examples.length > 0 && (
+              {cluster.examples.length > 0 ? (
                 <div className="cluster-examples">
                   <span className="example-label">Specimens:</span>
                   <ul>
@@ -102,6 +159,10 @@ export default async function PatternsPage() {
                       <li key={ex}>{ex}</li>
                     ))}
                   </ul>
+                </div>
+              ) : (
+                <div className="cluster-examples">
+                  <span className="example-label" style={{ opacity: 0.6 }}>No specimens recorded yet</span>
                 </div>
               )}
             </div>
@@ -180,6 +241,7 @@ export default async function PatternsPage() {
             <thead>
               <tr>
                 <th>Title / Specimen</th>
+                <th>Domain Category</th>
                 <th>Claimed Model</th>
                 <th>Instruction Era</th>
                 <th>Method</th>
@@ -197,6 +259,9 @@ export default async function PatternsPage() {
                         Meta-Reflective
                       </span>
                     )}
+                  </td>
+                  <td>
+                    <span className="tag-cluster">{s.cluster}</span>
                   </td>
                   <td className="specimen-model-cell">
                     <code>{s.claimedModel || s.claimedAgentName || "—"}</code>
