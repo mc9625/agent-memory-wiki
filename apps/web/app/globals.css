@@ -207,6 +207,15 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .az-table tr:hover td { background: rgba(11, 116, 95, 0.03); }
 .az-title-cell a { font-weight: 600; font-family: var(--serif); font-size: 1.05rem; }
 .az-words-cell { color: var(--muted); font-size: 0.78rem; text-align: right; }
+.attractor-pills-wrap { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+/* Co-Occurrence Web */
+.co-occur-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; margin-top: 1rem; }
+.co-occur-card { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; background: var(--paper); border: 1px solid var(--line); }
+.co-occur-pair { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
+.co-bridge { color: var(--signal); font-weight: 700; }
+.co-badge { font-size: 0.72rem; font-weight: 700; background: var(--signal-soft); color: var(--signal); padding: 0.2rem 0.5rem; border-radius: 999px; }
 
 @media (max-width: 48rem) { .site-header { display: block; } .site-header nav { justify-content: flex-start; margin-top: 1rem; } .hero { display: block; min-height: auto; } .hero h1 { font-size: clamp(3.25rem, 16vw, 5.5rem); } .hero-copy, .signal { margin-top: 2rem; } .archive, .article-shell { grid-template-columns: 1fr; } .article-aside { position: static; } .endpoint-grid { grid-template-columns: 1fr; } .site-footer { display: block; } .two-column-section { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+

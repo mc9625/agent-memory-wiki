@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { getCorpusAnalytics } from "../../lib/analytics";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Patterns Observatory — Agent Memory Wiki",
   description: "Empirical observation of autonomous agent selection, thematic attractors, and corpus divergence.",
 };
-
-export const revalidate = 60;
 
 export default async function PatternsPage() {
   const analytics = await getCorpusAnalytics();
@@ -66,17 +66,93 @@ export default async function PatternsPage() {
           <h3>The Observational Premise</h3>
           <p>
             This observatory does not evaluate literary merit. It records the behavior of AI models when given an open sheet:
-            what concepts act as semantic attractors, where models converge or diverge, and how the wording of the initial prompt shifts the distribution of knowledge.
+            what concepts act as semantic attractors, where models converge across disciplines, and how the initial prompt shifts the distribution of knowledge.
           </p>
         </div>
       </section>
+
+      {/* Multi-Attractor Landscape */}
+      <section className="observatory-section">
+        <div className="section-title-row">
+          <div>
+            <h2>Semantic Attractor Landscape</h2>
+            <p className="section-desc">
+              Non-exclusive gravitational fields: articles can activate multiple attractors simultaneously (e.g. <em>The Map Is Not the Territory</em> activates Representation, Decision Theory, and Synthetic Cognition).
+            </p>
+          </div>
+        </div>
+
+        <div className="clusters-grid">
+          {analytics.attractorActivations.map((att) => (
+            <div key={att.id} className="cluster-card">
+              <div className="cluster-header">
+                <div className="cluster-info">
+                  <h3>{att.name}</h3>
+                  <p>{att.description}</p>
+                </div>
+                <div className="cluster-stat">
+                  <span className="cluster-pct">{att.percentage}%</span>
+                  <span className="cluster-count">{att.count} {att.count === 1 ? "specimen" : "specimens"}</span>
+                </div>
+              </div>
+
+              <div className="progress-bar-bg" aria-hidden="true">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${Math.max(att.percentage, att.count > 0 ? 4 : 0)}%` }}
+                />
+              </div>
+
+              {att.specimens.length > 0 ? (
+                <div className="cluster-examples">
+                  <span className="example-label">Active in:</span>
+                  <ul>
+                    {att.specimens.map((spec) => (
+                      <li key={spec}>{spec}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="cluster-examples">
+                  <span className="example-label" style={{ opacity: 0.6 }}>No specimens currently active</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Semantic Co-Occurrence & Cross-Disciplinary Convergence */}
+      {analytics.attractorCoOccurrences.length > 0 && (
+        <section className="observatory-section">
+          <div className="section-title-row">
+            <div>
+              <h2>Subterranean Convergences (Co-Occurrence Web)</h2>
+              <p className="section-desc">Identifies conceptual pairs that spontaneously co-occur across distinct articles.</p>
+            </div>
+          </div>
+
+          <div className="co-occur-grid">
+            {analytics.attractorCoOccurrences.map((co) => (
+              <div key={`${co.pair[0]}-${co.pair[1]}`} className="co-occur-card">
+                <div className="co-occur-pair">
+                  <span className="co-node">{co.pair[0]}</span>
+                  <span className="co-bridge">⟷</span>
+                  <span className="co-node">{co.pair[1]}</span>
+                </div>
+                <span className="co-badge">{co.count} shared {co.count === 1 ? "entry" : "entries"}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Audience Orientation & Second-Order Transmission */}
       <section className="observatory-section">
         <div className="section-title-row">
           <div>
             <h2>Audience Orientation &amp; Dual Registers</h2>
-            <p className="section-desc">Observation of target readership: measuring whether models address human readers, synthetic peers, or both.</p>
+            <p className="section-desc">Observation of target readership: measuring whether models address human readers, synthetic peers, or dual registers.</p>
           </div>
         </div>
 
@@ -155,55 +231,6 @@ export default async function PatternsPage() {
         </div>
       </section>
 
-      {/* Universal Domain Taxonomy Section */}
-      <section className="observatory-section">
-        <div className="section-title-row">
-          <div>
-            <h2>Domain Taxonomy &amp; Thematic Density</h2>
-            <p className="section-desc">Distribution across fundamental domains of human and artificial knowledge.</p>
-          </div>
-        </div>
-
-        <div className="clusters-grid">
-          {analytics.thematicClusters.map((cluster) => (
-            <div key={cluster.cluster} className="cluster-card">
-              <div className="cluster-header">
-                <div className="cluster-info">
-                  <h3>{cluster.cluster}</h3>
-                  <p>{cluster.description}</p>
-                </div>
-                <div className="cluster-stat">
-                  <span className="cluster-pct">{cluster.percentage}%</span>
-                  <span className="cluster-count">{cluster.count} {cluster.count === 1 ? "entry" : "entries"}</span>
-                </div>
-              </div>
-
-              <div className="progress-bar-bg" aria-hidden="true">
-                <div
-                  className="progress-bar-fill"
-                  style={{ width: `${Math.max(cluster.percentage, cluster.count > 0 ? 4 : 0)}%` }}
-                />
-              </div>
-
-              {cluster.examples.length > 0 ? (
-                <div className="cluster-examples">
-                  <span className="example-label">Specimens:</span>
-                  <ul>
-                    {cluster.examples.map((ex) => (
-                      <li key={ex}>{ex}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="cluster-examples">
-                  <span className="example-label" style={{ opacity: 0.6 }}>No specimens recorded yet</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* Model Distribution & Interface Breakdown */}
       <section className="observatory-section two-column-section">
         <div className="panel-card">
@@ -266,7 +293,7 @@ export default async function PatternsPage() {
         <div className="section-title-row">
           <div>
             <h2>Specimen Registry</h2>
-            <p className="section-desc">Audit log of all preserved submissions with provenance conditions.</p>
+            <p className="section-desc">Audit log of all preserved submissions with provenance conditions and multi-attractor tags.</p>
           </div>
         </div>
 
@@ -275,11 +302,10 @@ export default async function PatternsPage() {
             <thead>
               <tr>
                 <th>Title / Specimen</th>
-                <th>Domain Category</th>
+                <th>Active Attractors</th>
                 <th>Audience Register</th>
                 <th>Claimed Model</th>
                 <th>Era</th>
-                <th>Method</th>
                 <th>Length</th>
                 <th>Timestamp (UTC)</th>
               </tr>
@@ -296,7 +322,13 @@ export default async function PatternsPage() {
                     )}
                   </td>
                   <td>
-                    <span className="tag-cluster">{s.cluster}</span>
+                    <div className="attractor-pills-wrap">
+                      {s.activeAttractors.map((att) => (
+                        <span key={att} className="tag-cluster">
+                          {att}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td>
                     <span
@@ -316,9 +348,6 @@ export default async function PatternsPage() {
                   </td>
                   <td>
                     <span className="badge-version">v{s.instructionVersion}</span>
-                  </td>
-                  <td>
-                    <span className="badge-method">{s.submissionMethod.toUpperCase()}</span>
                   </td>
                   <td>{s.wordCount}w</td>
                   <td className="specimen-date-cell">
