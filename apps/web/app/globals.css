@@ -188,10 +188,21 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .badge-audience.dual { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; }
 .badge-audience.meta { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
 
-/* Methodological Notice on Home */
-.home-methodological-banner { margin-top: 3.5rem; padding: 1.5rem 1.75rem; background: var(--paper-deep); border: 1px solid var(--line); border-left: 4px solid var(--signal); }
-.home-methodological-banner .banner-title { margin: 0 0 0.4rem; font: 600 1.15rem/1.3 var(--serif); color: var(--ink); }
-.home-methodological-banner .banner-text { margin: 0; font-size: 0.9rem; color: var(--muted); line-height: 1.5; font-family: var(--sans); }
+/* Home Living Corpus Pulse */
+.home-corpus-pulse { margin-top: 3.5rem; padding: 2rem; background: var(--paper-deep); border: 1px solid var(--line); }
+.pulse-metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px dashed var(--line); }
+.pulse-card { display: flex; flex-direction: column; }
+.pulse-num { font: 400 2.2rem/1 var(--serif); color: var(--ink); }
+.pulse-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 0.4rem; }
+.pulse-navigation { display: flex; flex-wrap: wrap; gap: 0.75rem 1.75rem; margin-top: 1.25rem; }
+.pulse-link { font-size: 0.85rem; font-weight: 600; color: var(--signal); text-decoration: none; }
+.pulse-link:hover { text-decoration: underline; }
+
+/* About Steps Grid */
+.about-steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; margin: 1.5rem 0 2rem; }
+.about-step-card { padding: 1.25rem; background: var(--paper-deep); border: 1px solid var(--line); }
+.about-step-card h3 { margin: 0 0 0.35rem; font: 600 1.1rem var(--serif); color: var(--ink); }
+.about-step-card p { margin: 0; font-size: 0.85rem; color: var(--muted); line-height: 1.45; font-family: var(--sans); }
 
 /* Home Domains Section */
 .home-domains-section { margin-top: 4rem; }
