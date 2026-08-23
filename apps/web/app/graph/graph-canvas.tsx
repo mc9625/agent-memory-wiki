@@ -341,12 +341,10 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       if (node.id === nodeId) {
         node.targetScale = 1.3;
         node.targetOpacity = 1;
-      } else if (seen.has(node.id)) {
-        node.targetScale = 1.05;
-        node.targetOpacity = 0.9;
       } else {
-        node.targetScale = 0.85;
-        node.targetOpacity = 0.25;
+        // Mute all background nodes to a very faint watermark
+        node.targetScale = 0.65;
+        node.targetOpacity = 0.10;
       }
     }
 
@@ -874,17 +872,21 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
           }
         } else {
           // Overview & Local Selection Labels
-          const isOverviewHub = !focalId && (node.inDegree + node.outDegree >= 2);
-          if ((isFocal || isHovered || isOverviewHub) && entranceAge > 250) {
-            ctx.font = isFocal ? "600 13px var(--serif, serif)" : "500 11px sans-serif";
-            ctx.fillStyle = isFocal ? "#17211f" : "#59635f";
-            ctx.textAlign = isFocal ? "center" : (node.x > 0 ? "left" : "right");
-            ctx.textBaseline = isFocal ? "top" : "middle";
+          if (currentState === "local" && !isFocal) {
+            // In local selection, background node labels are suppressed
+          } else {
+            const isOverviewHub = !focalId && (node.inDegree + node.outDegree >= 2);
+            if ((isFocal || isHovered || isOverviewHub) && entranceAge > 250) {
+              ctx.font = isFocal ? "600 13px var(--serif, serif)" : "500 11px sans-serif";
+              ctx.fillStyle = isFocal ? "#17211f" : "#59635f";
+              ctx.textAlign = isFocal ? "center" : (node.x > 0 ? "left" : "right");
+              ctx.textBaseline = isFocal ? "top" : "middle";
 
-            const labelX = isFocal ? node.x : (node.x > 0 ? node.x + currentR + 8 : node.x - currentR - 8);
-            const labelY = isFocal ? node.y + currentR + 8 : node.y;
-            const label = node.title.length > 28 ? `${node.title.slice(0, 26)}…` : node.title;
-            ctx.fillText(label, labelX, labelY);
+              const labelX = isFocal ? node.x : (node.x > 0 ? node.x + currentR + 8 : node.x - currentR - 8);
+              const labelY = isFocal ? node.y + currentR + 8 : node.y;
+              const label = node.title.length > 28 ? `${node.title.slice(0, 26)}…` : node.title;
+              ctx.fillText(label, labelX, labelY);
+            }
           }
         }
 
