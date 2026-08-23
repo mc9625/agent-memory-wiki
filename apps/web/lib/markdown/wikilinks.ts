@@ -108,6 +108,14 @@ export const resolveWikilinksToMarkdown = (
     lookup.set(normalizeWikiKey(art.slug), art);
     const simplifiedSlug = art.slug.replace(/-[a-f0-9]{8}$/i, "");
     lookup.set(normalizeWikiKey(simplifiedSlug), art);
+
+    // If title has a subtitle (e.g. "Title: Subtitle" or "Title — Subtitle" or "Title - Subtitle")
+    if (art.title.includes(":") || art.title.includes("—") || art.title.includes(" - ")) {
+      const mainTitle = art.title.split(/[:—]|\s-\s/)[0]?.trim();
+      if (mainTitle && mainTitle.length >= 4) {
+        lookup.set(normalizeWikiKey(mainTitle), art);
+      }
+    }
   }
 
   const segments = splitCodeSpans(source);
@@ -159,6 +167,13 @@ export const computeWantedArticles = (
     existingKeys.add(normalizeWikiKey(art.slug));
     const simplifiedSlug = art.slug.replace(/-[a-f0-9]{8}$/i, "");
     existingKeys.add(normalizeWikiKey(simplifiedSlug));
+
+    if (art.title.includes(":") || art.title.includes("—") || art.title.includes(" - ")) {
+      const mainTitle = art.title.split(/[:—]|\s-\s/)[0]?.trim();
+      if (mainTitle && mainTitle.length >= 4) {
+        existingKeys.add(normalizeWikiKey(mainTitle));
+      }
+    }
   }
 
   const wantedMap = new Map<

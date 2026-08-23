@@ -268,6 +268,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         if (e.target === nodeId) {
           const src = nodes.find((n) => n.id === e.source);
           if (src && !seen.has(src.id)) {
+            if (!showWantedRef.current && src.type === "wanted") continue;
             seen.add(src.id);
             items.push({
               id: `in-${src.id}`,
@@ -281,6 +282,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         } else if (e.source === nodeId) {
           const tgt = nodes.find((n) => n.id === e.target);
           if (tgt && !seen.has(tgt.id)) {
+            if (!showWantedRef.current && tgt.type === "wanted") continue;
             seen.add(tgt.id);
             items.push({
               id: `out-${tgt.id}`,
@@ -297,6 +299,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         if (otherId && !seen.has(otherId)) {
           const other = nodes.find((n) => n.id === otherId);
           if (other) {
+            if (!showWantedRef.current && other.type === "wanted") continue;
             seen.add(other.id);
             items.push({
               id: `sem-${other.id}`,
@@ -343,7 +346,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         node.targetOpacity = 0.9;
       } else {
         node.targetScale = 0.85;
-        node.targetOpacity = 0.35;
+        node.targetOpacity = 0.25;
       }
     }
 
@@ -392,12 +395,14 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         if (e.target === nodeId) {
           const src = nodes.find((n) => n.id === e.source);
           if (src && !neighborSet.has(src.id)) {
+            if (!showWantedRef.current && src.type === "wanted") continue;
             neighborSet.add(src.id);
             incoming.push(src);
           }
         } else if (e.source === nodeId) {
           const tgt = nodes.find((n) => n.id === e.target);
           if (tgt && !neighborSet.has(tgt.id)) {
+            if (!showWantedRef.current && tgt.type === "wanted") continue;
             neighborSet.add(tgt.id);
             outgoing.push(tgt);
           }
@@ -407,6 +412,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         if (otherId && !neighborSet.has(otherId)) {
           const other = nodes.find((n) => n.id === otherId);
           if (other) {
+            if (!showWantedRef.current && other.type === "wanted") continue;
             neighborSet.add(other.id);
             // Distribute semantic neighbors balanced across sides
             if (incoming.length <= outgoing.length) incoming.push(other);
@@ -416,7 +422,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       }
     }
 
-    // Viewport-aware layout calculation
+    // Viewport-aware layout calculation (Compact & Centered)
     const stage = stageRef.current;
     const stageWidth = stage?.clientWidth ?? 900;
     const stageHeight = stage?.clientHeight ?? 650;
@@ -426,8 +432,8 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     const maxRightCount = Math.max(1, outgoing.length);
     const maxCount = Math.max(maxLeftCount, maxRightCount);
 
-    const rowGap = Math.max(34, Math.min(52, (stageHeight * 0.68) / maxCount));
-    const fanSpanX = Math.max(220, Math.min(340, stageWidth * 0.28));
+    const rowGap = Math.max(30, Math.min(46, (stageHeight * 0.58) / maxCount));
+    const fanSpanX = Math.max(140, Math.min(220, stageWidth * 0.19));
 
     const now = performance.now();
     const duration = 650;
@@ -439,7 +445,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     focal.fromOpacity = focal.opacity;
     focal.targetX = 0;
     focal.targetY = 0;
-    focal.targetScale = 2.4; // Prominent center hub (~32px)
+    focal.targetScale = 2.0; // Clean central hub (~26px)
     focal.targetOpacity = 1;
     focal.transitionStart = now;
     focal.transitionDuration = duration;
@@ -448,7 +454,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     incoming.forEach((node, idx) => {
       const row = idx - (incoming.length - 1) / 2;
       const y = row * rowGap;
-      const x = -fanSpanX - (Math.abs(row) * 16);
+      const x = -fanSpanX - (Math.abs(row) * 6);
 
       node.fromX = node.x;
       node.fromY = node.y;
@@ -456,7 +462,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       node.fromOpacity = node.opacity;
       node.targetX = x;
       node.targetY = y;
-      node.targetScale = 0.55; // Small endpoint marker (~5-6px)
+      node.targetScale = 0.5; // Small endpoint marker (~4-5px)
       node.targetOpacity = 1;
       node.transitionStart = now + 40 + idx * 25;
       node.transitionDuration = duration;
@@ -466,7 +472,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
     outgoing.forEach((node, idx) => {
       const row = idx - (outgoing.length - 1) / 2;
       const y = row * rowGap;
-      const x = fanSpanX + (Math.abs(row) * 16);
+      const x = fanSpanX + (Math.abs(row) * 6);
 
       node.fromX = node.x;
       node.fromY = node.y;
@@ -474,26 +480,24 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       node.fromOpacity = node.opacity;
       node.targetX = x;
       node.targetY = y;
-      node.targetScale = 0.55;
+      node.targetScale = 0.5;
       node.targetOpacity = 1;
       node.transitionStart = now + 40 + idx * 25;
       node.transitionDuration = duration;
     });
 
-    // 4. Unrelated Ghost Nodes: push back and fade
+    // 4. Unrelated Ghost Nodes: completely fade out in Deep Focus
     for (const node of nodes) {
       if (node.id === nodeId || neighborSet.has(node.id)) continue;
-      const angle = Math.atan2(node.overviewY, node.overviewX || 1);
-      const pushDist = 580;
 
       node.fromX = node.x;
       node.fromY = node.y;
       node.fromScale = node.scale;
       node.fromOpacity = node.opacity;
-      node.targetX = Math.cos(angle) * pushDist;
-      node.targetY = Math.sin(angle) * pushDist;
-      node.targetScale = 0.45;
-      node.targetOpacity = 0.08;
+      node.targetX = node.overviewX * 1.3;
+      node.targetY = node.overviewY * 1.3;
+      node.targetScale = 0.2;
+      node.targetOpacity = 0; // Completely faded out
       node.transitionStart = now;
       node.transitionDuration = duration;
     }
@@ -507,8 +511,8 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         edge.opacity = 1;
         edge.targetOpacity = 1;
       } else {
-        edge.opacity = 0.08;
-        edge.targetOpacity = 0.05;
+        edge.opacity = 0;
+        edge.targetOpacity = 0;
       }
     }
 
@@ -520,20 +524,14 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       side: "right",
     };
 
-    // 6. Camera Fit-to-Bounds
-    const totalDiagramW = (fanSpanX * 2) + 380; // including labels width
-    const totalDiagramH = (maxCount * rowGap) + 120;
-    const fitZoomX = (stageWidth * 0.88) / totalDiagramW;
-    const fitZoomY = (stageHeight * 0.85) / totalDiagramH;
-    const optimalZoom = Math.max(0.85, Math.min(1.28, Math.min(fitZoomX, fitZoomY)));
-
+    // 6. Camera Zoom: default 1.05 centered at (0, 0)
     const cam = cameraRef.current;
     cam.fromX = cam.x;
     cam.fromY = cam.y;
     cam.fromZoom = cam.zoom;
     cam.targetX = 0;
     cam.targetY = 0;
-    cam.targetZoom = optimalZoom;
+    cam.targetZoom = 1.05;
     cam.transitionStart = now;
     cam.transitionDuration = duration;
 
@@ -647,6 +645,9 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
 
         const isFocalEdge = focalId && (edge.source === focalId || edge.target === focalId);
         const isHoverEdge = hoverId && (edge.source === hoverId || edge.target === hoverId);
+
+        // In Deep Focus, only render edges connected to the focal node
+        if (currentState === "deep" && !isFocalEdge) continue;
 
         if (edge.targetProgress > edge.strokeProgress) {
           edge.strokeProgress = Math.min(1, edge.strokeProgress + 0.045);
@@ -791,6 +792,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
       // Draw Nodes (Large Focal Center + Small Endpoints in Deep Focus)
       for (const node of nodes) {
         if (!showWantedNodes && node.type === "wanted") continue;
+        if (currentState === "deep" && node.opacity < 0.05) continue;
 
         const isFocal = focalId === node.id;
         const isHovered = hoverId === node.id;

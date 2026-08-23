@@ -323,6 +323,14 @@ export const getCorpusGraphData = async (): Promise<GraphData> => {
     articleMapByNormalizedKey.set(normalizeWikiKey(item.article.slug), item.article.id);
     const simpleSlug = item.article.slug.replace(/-[a-f0-9]{8}$/i, "");
     articleMapByNormalizedKey.set(normalizeWikiKey(simpleSlug), item.article.id);
+
+    if (title.includes(":") || title.includes("—") || title.includes(" - ")) {
+      const mainTitle = title.split(/[:—]|\s-\s/)[0]?.trim();
+      if (mainTitle && mainTitle.length >= 4) {
+        articleMapByNormalizedKey.set(normalizeWikiKey(mainTitle), item.article.id);
+      }
+    }
+
     articleMapById.set(item.article.id, item);
   }
 
