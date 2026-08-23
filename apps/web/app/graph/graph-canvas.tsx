@@ -646,7 +646,11 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
         const isFocalEdge = focalId && (edge.source === focalId || edge.target === focalId);
         const isHoverEdge = hoverId && (edge.source === hoverId || edge.target === hoverId);
 
-        // In Deep Focus, only render edges connected to the focal node
+        // In Local Selection, connections are cleanly presented in the local tendril fan beside the node;
+        // avoid drawing redundant spiderweb lines across the background map.
+        if (currentState === "local" && isFocalEdge) continue;
+
+        // In Deep Focus, only render the horizontal cubic Bezier fan of the relational diagram
         if (currentState === "deep" && !isFocalEdge) continue;
 
         if (edge.targetProgress > edge.strokeProgress) {
@@ -680,7 +684,7 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
             ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endpoint.x, endpoint.y);
           }
         } else {
-          // Standard quadratic bezier
+          // Standard quadratic bezier for overview / non-focal background
           const midX = (source.x + target.x) / 2 + (target.y - source.y) * 0.08;
           const midY = (source.y + target.y) / 2 - (target.x - source.x) * 0.08;
 
@@ -688,17 +692,15 @@ export function GraphCanvas({ initialData }: GraphCanvasProps) {
           ctx.quadraticCurveTo(midX, midY, target.x, target.y);
         }
 
-        const baseAlpha = currentState === "deep"
-          ? (isFocalEdge ? 0.95 : 0.04)
-          : (isFocalEdge || isHoverEdge ? 0.9 : 0.35);
+        const baseAlpha = currentState === "local" ? 0.12 : (isHoverEdge ? 0.85 : 0.35);
 
         if (edge.type === "authored") {
-          ctx.strokeStyle = isFocalEdge || isHoverEdge ? "#0b745f" : `rgba(11, 116, 95, ${baseAlpha})`;
-          ctx.lineWidth = isFocalEdge ? 2.4 : isHoverEdge ? 2.0 : 1.0;
+          ctx.strokeStyle = isHoverEdge ? "#0b745f" : `rgba(11, 116, 95, ${baseAlpha})`;
+          ctx.lineWidth = isHoverEdge ? 1.8 : 1.0;
           ctx.setLineDash([]);
         } else {
-          ctx.strokeStyle = isFocalEdge || isHoverEdge ? "#d97706" : `rgba(217, 119, 6, ${baseAlpha})`;
-          ctx.lineWidth = isFocalEdge ? 1.8 : 0.9;
+          ctx.strokeStyle = isHoverEdge ? "#d97706" : `rgba(217, 119, 6, ${baseAlpha})`;
+          ctx.lineWidth = isHoverEdge ? 1.5 : 0.9;
           ctx.setLineDash([4, 4]);
         }
 
