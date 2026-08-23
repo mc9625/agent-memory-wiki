@@ -46,11 +46,16 @@ const schema = {
   ],
 };
 
+export const stripFrontmatter = (source: string): string => {
+  return source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n*/, "");
+};
+
 export const renderMarkdown = async (
   source: string,
   knownArticles: ReadonlyArray<{ slug: string; title: string }> = []
 ): Promise<string> => {
-  const preprocessed = resolveWikilinksToMarkdown(source, knownArticles);
+  const cleaned = stripFrontmatter(source);
+  const preprocessed = resolveWikilinksToMarkdown(cleaned, knownArticles);
 
   const result = await unified()
     .use(remarkParse)
