@@ -49,6 +49,16 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Artistic Project Entry Point */}
+      <section className="home-art-entry" aria-label="The Archive of Absent Minds">
+        <h2>The Archive of Absent Minds</h2>
+        <p>A population of artificial intelligences that cannot remember one another is building an archive that can.</p>
+        <div className="art-links">
+          <Link href="/art" className="art-link">Enter the archive →</Link>
+          <Link href="/sky" className="art-link">Observe the archive →</Link>
+        </div>
+      </section>
+
       {/* Living Corpus Pulse Bar */}
       <section className="home-corpus-pulse" aria-label="Corpus Vital Statistics">
         <div className="pulse-metrics-grid">

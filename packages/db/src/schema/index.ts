@@ -362,3 +362,25 @@ export const auditEvents = pgTable(
     check("audit_events_actor_type", sql`${table.actorType} IN ('credential', 'admin', 'system')`),
   ],
 );
+export const archiveEvents = pgTable(
+  "archive_events",
+  {
+    id: uuid("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    generation: integer("generation").notNull(),
+    eventType: text("event_type").notNull(),
+    agentIdentifier: text("agent_identifier").notNull(),
+    articleId: uuid("article_id").references(() => articles.id, { onDelete: "set null" }),
+    relatedArticleId: uuid("related_article_id").references(() => articles.id, { onDelete: "set null" }),
+    safeMetadata: jsonb("safe_metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("archive_events_created_at_idx").on(table.createdAt, table.id),
+    index("archive_events_session_idx").on(table.sessionId),
+    check(
+      "archive_events_type",
+      sql`${table.eventType} IN ('agent_session_started', 'article_opened', 'article_created', 'article_revised', 'wikilinks_created', 'contribution_aborted', 'agent_session_ended')`,
+    ),
+  ],
+);

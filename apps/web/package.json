@@ -24,6 +24,8 @@
     "rehype-stringify": "^10.0.1",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
+    "three": "^0.185.1",
+    "tweakpane": "^4.0.5",
     "unified": "^11.0.5",
     "zod": "4.4.3"
   },
@@ -31,6 +33,7 @@
     "@modelcontextprotocol/client": "^2.0.0",
     "@playwright/test": "1.62.0",
     "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4"
+    "@types/react-dom": "19.2.4",
+    "@types/three": "^0.185.4"
   }
 }

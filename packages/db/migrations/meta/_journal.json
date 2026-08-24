@@ -15,6 +15,13 @@
       "when": 1787261489116,
       "tag": "0001_needy_james_howlett",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787493334303,
+      "tag": "0002_gigantic_the_professor",
+      "breakpoints": true
     }
   ]
 }
