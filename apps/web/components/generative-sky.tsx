@@ -7,6 +7,93 @@ import { Pane } from "tweakpane";
 import { snoiseGLSL } from "../lib/webgl/shaders/curlNoise";
 
 // --------------------------------------------------------
+// TYPES & CHOREOGRAPHY DATA STRUCTURES
+// --------------------------------------------------------
+
+import type { SkyArticle, SkyEvent } from "./sky-canvas";
+
+export type ProvenanceType = "full_telemetry" | "partial_telemetry" | "creation_only";
+
+export interface SimAnchor {
+  id: string;
+  pos: THREE.Vector3;
+  title: string;
+  excerpt?: string;
+  layoutPos: "upper-left" | "upper-right" | "lower-left" | "lower-right" | "lateral";
+}
+
+export interface PersistentAnchorState {
+  articleId: string;
+  structuralEnergy: number; // 0..1 residual field modulation
+  revisionCount: number;
+  depositStrength: number; // 0..1 permanent trace
+  lastEncounteredAt?: number;
+}
+
+export interface AgentSession {
+  sessionId: string;
+  agentIdentifier: string;
+  generation: number;
+  startedAt: number;
+  endedAt?: number;
+  provenance: ProvenanceType;
+  events: SkyEvent[];
+}
+
+export type CueType =
+  | "arrival"
+  | "encounter"
+  | "traversal"
+  | "creation"
+  | "revision"
+  | "departure"
+  | "silence"
+  | "historical_deposit";
+
+export interface ChoreographyCue {
+  id: string;
+  type: CueType;
+  duration: number; // seconds
+  fromAnchor?: SimAnchor | undefined;
+  toAnchor?: SimAnchor | undefined;
+  targetAnchor?: SimAnchor | undefined;
+  agentIdentifier?: string | undefined;
+  generation?: number | undefined;
+  timestamp?: string | undefined;
+  controlPoints?: [THREE.Vector3, THREE.Vector3] | undefined;
+  isContinuation?: boolean;
+}
+
+export interface CurrentInteractionState {
+  activeSessionId?: string | undefined;
+  agentIdentifier?: string | undefined;
+  generation?: number | undefined;
+  timestamp?: string | undefined;
+  phase: CueType;
+  progress: number; // 0..1
+  agentPosition: THREE.Vector3;
+  fromAnchor?: SimAnchor | undefined;
+  toAnchor?: SimAnchor | undefined;
+  targetAnchor?: SimAnchor | undefined;
+  controlPoints?: [THREE.Vector3, THREE.Vector3] | undefined;
+  isContinuation?: boolean;
+}
+
+export interface SampledVisualState {
+  agentEnergy: number;
+  agentRadius: number;
+  activeAnchorPos: THREE.Vector3;
+  activeAnchorVortex: number;
+  activeAnchorPull: number;
+  localTurbulence: number;
+  condensation: number;
+  globalEnergy: number;
+  typographyPresences: Map<string, { opacity: number; scale: number; isCurrent: boolean }>;
+  registerOpacity: number;
+  registerText: string;
+}
+
+// --------------------------------------------------------
 // SHADERS
 // --------------------------------------------------------
 
@@ -19,13 +106,13 @@ void main() {
 
   vec3 pos = tmpPos.xyz;
   vec3 vel = tmpVel.xyz;
-  float life = tmpPos.w; // w can store life or other properties
+  float life = tmpPos.w;
 
   pos += vel * delta;
   
-  // Bounding box reset - wrap around organically instead of collapsing to center
-  if (length(pos) > 1200.0) {
-      pos = -pos * 0.95; // Wrap to opposite side
+  // Soft boundary safeguard far beyond the composition bounds
+  if (length(pos) > 2200.0) {
+      pos = pos * 0.85;
   }
 
   gl_FragColor = vec4(pos, life);
@@ -38,18 +125,25 @@ uniform float delta;
 uniform float globalEnergy;
 uniform float flowStrength;
 
+// Global Confinement Field (Ellipsoidal Equilibrium Shell)
+uniform vec3 fieldCenter;
+uniform vec3 fieldRadii;
+uniform float innerRadius;
+uniform float outerRadius;
+uniform float falloff;
+uniform float confinementStrength;
+uniform float damping;
+uniform float maxSpeed;
+
 // Agent Disturbance Field
 uniform vec3 agentPos;
 uniform float agentEnergy;
 uniform float agentRadius;
 
-// Article Anchors & Condensation
+// Article Anchors & Local Excitation (swirl + turbulence, zero gravitational collapse)
 uniform vec3 activeAnchorPos;
 uniform float activeAnchorPull;
 uniform float activeAnchorVortex;
-
-uniform vec3 persistentAnchorPos;
-uniform float persistentAnchorStrength;
 
 ${snoiseGLSL}
 
@@ -61,58 +155,62 @@ void main() {
   vec3 pos = tmpPos.xyz;
   vec3 vel = tmpVel.xyz;
 
-  // Multi-scale Curl Noise
-  vec3 largeCurl = curlNoise(pos * 0.002 + time * 0.05) * 0.55;
-  vec3 mediumCurl = curlNoise(pos * 0.01 + time * 0.1) * 0.30;
-  vec3 fineCurl = curlNoise(pos * 0.05 + time * 0.3) * 0.15;
+  // 1. Multi-scale Fluid Curl Noise (Organic internal morphology with continuous drift)
+  vec3 largeCurl = curlNoise(pos * 0.0028 + vec3(time * 0.04, time * 0.025, time * 0.03)) * 0.55;
+  vec3 mediumCurl = curlNoise(pos * 0.0085 + vec3(-time * 0.05, time * 0.055, time * 0.02)) * 0.30;
+  vec3 fineCurl = curlNoise(pos * 0.028 + vec3(time * 0.12, -time * 0.09, time * 0.06)) * 0.15;
   
   vec3 flow = (largeCurl + mediumCurl + fineCurl) * globalEnergy * flowStrength;
 
-  // Cosmic Breathing - organic radial expansion to compensate for orbital decay
-  // Uses a very slow sine wave (period ~ 60s) to gently push particles outward
-  float breathing = sin(time * 0.1) * 0.5 + 0.5; // range 0.0 to 1.0
-  vec3 radialOut = normalize(pos) * breathing * 25.0 * globalEnergy;
-  flow += radialOut;
+  // 2. Global Confinement Field (Ellipsoidal Equilibrium Shell)
+  vec3 toCenter = fieldCenter - pos;
+  float distToCenter = length(toCenter);
+  vec3 outwardDir = distToCenter > 0.001 ? -normalize(toCenter) : vec3(1.0, 0.0, 0.0);
+  
+  vec3 normalizedPos = (pos - fieldCenter) / fieldRadii;
+  float d = length(normalizedPos);
 
-  // Agent Disturbance
+  // Equilibrium shell: outward push in core (d < 0.70) and inward return at perimeter (d > 0.95)
+  float radialForce = 0.0;
+  if (d < 0.70) {
+    radialForce = smoothstep(0.70, 0.0, d) * (confinementStrength * 1.5);
+  } else if (d > 0.95) {
+    radialForce = -smoothstep(0.95, 0.95 + falloff, d) * confinementStrength;
+  }
+  // Pushes along outwardDir: positive = outward, negative = inward
+  flow += outwardDir * radialForce;
+
+  // 3. Agent Disturbance Field (divergence-free fluid wake)
   vec3 toAgent = agentPos - pos;
   float distToAgent = length(toAgent);
-  
-  if (distToAgent < agentRadius) {
+  if (distToAgent < agentRadius && agentEnergy > 0.001) {
      float influence = smoothstep(agentRadius, 0.0, distToAgent);
-     vec3 agentTurbulence = curlNoise(pos * 0.1 + time * 1.5);
-     flow += agentTurbulence * influence * agentEnergy * 300.0;
-     
-     // Pull slightly towards agent to create a wake
-     flow += normalize(toAgent) * influence * agentEnergy * 50.0;
+     vec3 agentTurbulence = curlNoise(pos * 0.04 + time * 0.8 + agentPos * 0.01);
+     flow += agentTurbulence * influence * agentEnergy * 140.0;
   }
 
-  // Active Anchor (Condensation & Reading)
+  // 4. Active Anchor (Localized fluid eddy, gentle organic curl)
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 400.0 && activeAnchorPull > 0.0) {
-      float influence = smoothstep(400.0, 0.0, distToActive);
-      // Convergence (Pull)
-      flow += normalize(toActive) * influence * activeAnchorPull * 150.0;
-      // Vortex (Cross product with Up vector)
-      vec3 vortexDir = cross(normalize(toActive), vec3(0.0, 1.0, 0.0));
-      flow += vortexDir * influence * activeAnchorVortex * 150.0;
+  if (distToActive < 220.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
+      float influence = smoothstep(220.0, 0.0, distToActive);
+      // Divergence-free rotational eddy around anchor (curl noise ring)
+      vec3 anchorTurbulence = curlNoise(pos * 0.02 + time * 0.25 + activeAnchorPos * 0.05);
+      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 55.0;
   }
 
-  // Persistent Anchor (Long-term memory)
-  vec3 toPersistent = persistentAnchorPos - pos;
-  float distToPersistent = length(toPersistent);
-  if (distToPersistent < 250.0 && persistentAnchorStrength > 0.0) {
-      float influence = smoothstep(250.0, 0.0, distToPersistent);
-      // Persistent structural change: slight vortex and density modulation
-      vec3 pVortexDir = cross(normalize(toPersistent), vec3(0.0, 1.0, 0.0));
-      flow += pVortexDir * influence * persistentAnchorStrength * 40.0;
-      // Slight inward pull to keep density
-      flow += normalize(toPersistent) * influence * persistentAnchorStrength * 20.0;
-  }
-
+  // Velocity integration
   vel += flow * delta;
-  vel *= 0.94; // Damping
+
+  // 5. Frame-rate-independent exponential damping
+  vel *= exp(-damping * delta);
+
+  // 6. Soft velocity ceiling (smooth speed limiter)
+  float speed = length(vel);
+  if (speed > maxSpeed) {
+      float correction = maxSpeed / speed;
+      vel *= mix(1.0, correction, 0.35);
+  }
 
   gl_FragColor = vec4(vel, 1.0);
 }
@@ -122,6 +220,8 @@ const particleVertexShader = `
 uniform sampler2D texturePosition;
 uniform sampler2D textureVelocity;
 uniform float cameraZ;
+uniform vec3 activeAnchorPos;
+uniform float activeAnchorExcitation;
 
 varying vec3 vColor;
 varying float vAlpha;
@@ -138,18 +238,25 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Particle size depends on depth - fine-tuned size
-  gl_PointSize = (1000.0 / -mvPosition.z) * 2.5;
+  // Local luminous excitation and gentle, moderate shimmer around active anchor
+  float distToAnchor = length(pos - activeAnchorPos);
+  float anchorGlow = 0.0;
+  if (distToAnchor < 240.0 && activeAnchorExcitation > 0.01) {
+    anchorGlow = smoothstep(240.0, 0.0, distToAnchor) * clamp(activeAnchorExcitation, 0.0, 1.0);
+  }
+
+  // Moderate, refined point size: 2.2 base + at most 0.40 boost (only ~18% larger, fine & crisp)
+  gl_PointSize = (1000.0 / -mvPosition.z) * (2.2 + anchorGlow * 0.40);
   
-  // Speed-based brightness - keep them highly visible at all times
+  // Speed-based brightness + moderate, elegant luminous shimmer
   float speed = length(vel);
-  vAlpha = smoothstep(0.0, 100.0, speed) * 0.5 + 0.3;
+  vAlpha = (smoothstep(0.0, 90.0, speed) * 0.40 + 0.35) + anchorGlow * 0.28;
   
-  // Depth attenuation (distant particles are dimmer, but never disappear entirely)
+  // Depth attenuation
   float depthDist = abs(mvPosition.z);
-  vAlpha *= smoothstep(1200.0, 100.0, depthDist) * 0.8 + 0.2;
+  vAlpha *= smoothstep(1200.0, 100.0, depthDist) * 0.7 + 0.3;
   
-  vColor = vec3(1.0, 1.0, 1.0); // pure white light
+  vColor = vec3(1.0, 1.0, 1.0);
 }
 `;
 
@@ -158,13 +265,10 @@ varying vec3 vColor;
 varying float vAlpha;
 
 void main() {
-  // Soft circle
   float d = distance(gl_PointCoord, vec2(0.5));
   if (d > 0.5) discard;
   
-  // Soft edge bloom
   float alpha = smoothstep(0.5, 0.1, d) * vAlpha;
-  
   gl_FragColor = vec4(vColor, alpha);
 }
 `;
@@ -186,30 +290,15 @@ varying vec2 vUv;
 void main() {
     vec4 current = texture2D(tCurrent, vUv);
     vec4 previous = texture2D(tPrevious, vUv);
-    
-    // Additive mix with decay on previous frame
     vec3 color = current.rgb + previous.rgb * decay;
-    
     gl_FragColor = vec4(color, 1.0);
 }
 `;
 
 // --------------------------------------------------------
-// TYPES & MOCKS
+// HELPER FUNCTIONS & CHOREOGRAPHY BUILDER
 // --------------------------------------------------------
 
-import type { SkyArticle, SkyEvent } from "./sky-canvas";
-
-type SimAnchor = {
-  id: string;
-  pos: THREE.Vector3;
-  title: string;
-  excerpt?: string;
-  energy: number; // 0 to 1 physical energy
-  layoutPos: "upper-left" | "upper-right" | "lower-left" | "lower-right" | "lateral";
-};
-
-// Deterministic pseudo-random based on string seed
 function seededRandom(str: string) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
@@ -219,8 +308,487 @@ function seededRandom(str: string) {
   return ((h ^ h >>> 14) >>> 0) / 4294967296;
 }
 
+function evaluateCubicBezier(
+  p0: THREE.Vector3,
+  c1: THREE.Vector3,
+  c2: THREE.Vector3,
+  p1: THREE.Vector3,
+  t: number
+): THREE.Vector3 {
+  const inv = 1 - t;
+  const inv2 = inv * inv;
+  const inv3 = inv2 * inv;
+  const t2 = t * t;
+  const t3 = t2 * t;
+
+  return new THREE.Vector3(
+    inv3 * p0.x + 3 * inv2 * t * c1.x + 3 * inv * t2 * c2.x + t3 * p1.x,
+    inv3 * p0.y + 3 * inv2 * t * c1.y + 3 * inv * t2 * c2.y + t3 * p1.y,
+    inv3 * p0.z + 3 * inv2 * t * c1.z + 3 * inv * t2 * c2.z + t3 * p1.z
+  );
+}
+
+function buildSessionsAndCues(
+  articles: readonly SkyArticle[],
+  events: readonly SkyEvent[],
+  anchors: SimAnchor[]
+): { sessions: AgentSession[]; cues: ChoreographyCue[] } {
+  const anchorMap = new Map<string, SimAnchor>(anchors.map(a => [a.id, a]));
+  
+  // 1. Group events by sessionId
+  const sessionMap = new Map<string, SkyEvent[]>();
+  for (const ev of events) {
+    if (ev.sessionId && ev.sessionId.trim().length > 0) {
+      const list = sessionMap.get(ev.sessionId) || [];
+      list.push(ev);
+      sessionMap.set(ev.sessionId, list);
+    }
+  }
+
+  const sessions: AgentSession[] = [];
+  for (const [sId, sEvents] of sessionMap.entries()) {
+    sEvents.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const firstEv = sEvents[0]!;
+    const lastEv = sEvents[sEvents.length - 1]!;
+    const startedAt = new Date(firstEv.createdAt).getTime();
+    const endedAt = new Date(lastEv.createdAt).getTime();
+    
+    const hasStart = sEvents.some(e => e.eventType === "agent_session_started");
+    const hasNav = sEvents.some(e => e.eventType === "article_opened" || e.eventType === "wikilink_followed");
+    const provenance: ProvenanceType = hasStart && hasNav ? "full_telemetry" : (hasStart || hasNav ? "partial_telemetry" : "creation_only");
+
+    sessions.push({
+      sessionId: sId,
+      agentIdentifier: firstEv.agentIdentifier || "Agent",
+      generation: firstEv.generation || 1,
+      startedAt,
+      endedAt,
+      provenance,
+      events: sEvents,
+    });
+  }
+
+  sessions.sort((a, b) => a.startedAt - b.startedAt);
+
+  const cues: ChoreographyCue[] = [];
+
+  const makeControlPoints = (fromPos: THREE.Vector3, toPos: THREE.Vector3): [THREE.Vector3, THREE.Vector3] => {
+    const diff = new THREE.Vector3().subVectors(toPos, fromPos);
+    const dist = diff.length();
+    const dir = diff.clone().normalize();
+    const perp = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0.2)).normalize();
+    const curveSign = ((fromPos.x + toPos.y) % 2 > 0) ? 1 : -1;
+    const c1 = fromPos.clone().addScaledVector(diff, 0.33).addScaledVector(perp, dist * 0.25 * curveSign);
+    const c2 = fromPos.clone().addScaledVector(diff, 0.66).addScaledVector(perp, dist * 0.18 * curveSign);
+    return [c1, c2];
+  };
+
+  // Historical articles without telemetry
+  for (const article of articles) {
+    const inSession = sessions.some(s => s.events.some(e => e.articleId === article.id));
+    if (!inSession) {
+      const anchor = anchorMap.get(article.id);
+      if (anchor) {
+        cues.push({
+          id: `hist-${article.id}`,
+          type: "historical_deposit",
+          duration: 4.5,
+          targetAnchor: anchor,
+          timestamp: article.created_at,
+        });
+      }
+    }
+  }
+
+
+
+  // Filter valid sessions that have articles currently existing in the archive
+  const validSessions: AgentSession[] = [];
+  for (const session of sessions) {
+    const hasValidAnchor = session.events.some(e => e.articleId && anchorMap.has(e.articleId));
+    if (hasValidAnchor) {
+      validSessions.push(session);
+    }
+  }
+
+  // Build cues from valid sessions
+  for (let sIdx = 0; sIdx < validSessions.length; sIdx++) {
+    const session = validSessions[sIdx]!;
+    const generation = sIdx + 1;
+    const { agentIdentifier, events: sEventsRaw } = session;
+
+    const sEvents: SkyEvent[] = [];
+    for (const ev of sEventsRaw) {
+      const prev = sEvents[sEvents.length - 1];
+      if (prev && prev.eventType === ev.eventType && prev.articleId === ev.articleId) {
+        continue;
+      }
+      sEvents.push(ev);
+    }
+
+    if (session.provenance === "creation_only" && sEvents.length === 1 && sEvents[0]!.eventType === "article_created") {
+      const ev = sEvents[0]!;
+      const anchor = ev.articleId ? anchorMap.get(ev.articleId) : undefined;
+      if (anchor) {
+        cues.push({
+          id: `dep-${session.sessionId}`,
+          type: "historical_deposit",
+          duration: 6.0,
+          targetAnchor: anchor,
+          agentIdentifier,
+          generation,
+          timestamp: ev.createdAt,
+        });
+      }
+      continue;
+    }
+
+    const anchorEvents = sEvents.filter(e => e.articleId && anchorMap.has(e.articleId));
+    const firstAnchor = anchorEvents[0]?.articleId ? anchorMap.get(anchorEvents[0].articleId!) : undefined;
+
+    // Arrival cue
+    cues.push({
+      id: `arr-${session.sessionId}`,
+      type: "arrival",
+      duration: 3.5,
+      targetAnchor: firstAnchor,
+      agentIdentifier,
+      generation,
+      timestamp: sEvents[0]?.createdAt,
+    });
+
+    let currentAnchor: SimAnchor | undefined = undefined;
+
+    for (let i = 0; i < sEvents.length; i++) {
+      const ev = sEvents[i]!;
+      const target = ev.articleId ? anchorMap.get(ev.articleId) : undefined;
+      if (!target) continue;
+
+      if (ev.eventType === "article_opened" || ev.eventType === "wikilink_followed") {
+        let isCont = false;
+        if (currentAnchor && currentAnchor.id !== target.id) {
+          const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
+          cues.push({
+            id: `trav-${session.sessionId}-${i}`,
+            type: "traversal",
+            duration: 4.5,
+            fromAnchor: currentAnchor,
+            toAnchor: target,
+            controlPoints: [c1, c2],
+            agentIdentifier,
+            generation,
+            timestamp: ev.createdAt,
+          });
+        } else if (currentAnchor && currentAnchor.id === target.id) {
+          isCont = true;
+        }
+        cues.push({
+          id: `enc-${session.sessionId}-${i}`,
+          type: "encounter",
+          duration: 7.5,
+          targetAnchor: target,
+          agentIdentifier,
+          generation,
+          timestamp: ev.createdAt,
+          isContinuation: isCont,
+        });
+        currentAnchor = target;
+      } else if (ev.eventType === "article_created") {
+        let isCont = false;
+        if (currentAnchor && currentAnchor.id !== target.id) {
+          const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
+          cues.push({
+            id: `trav-${session.sessionId}-${i}`,
+            type: "traversal",
+            duration: 4.0,
+            fromAnchor: currentAnchor,
+            toAnchor: target,
+            controlPoints: [c1, c2],
+            agentIdentifier,
+            generation,
+            timestamp: ev.createdAt,
+          });
+        } else if (currentAnchor && currentAnchor.id === target.id) {
+          isCont = true;
+        }
+        cues.push({
+          id: `creat-${session.sessionId}-${i}`,
+          type: "creation",
+          duration: 8.5,
+          targetAnchor: target,
+          agentIdentifier,
+          generation,
+          timestamp: ev.createdAt,
+          isContinuation: isCont,
+        });
+        currentAnchor = target;
+      } else if (ev.eventType === "article_revised") {
+        let isCont = false;
+        if (currentAnchor && currentAnchor.id !== target.id) {
+          const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
+          cues.push({
+            id: `trav-${session.sessionId}-${i}`,
+            type: "traversal",
+            duration: 4.0,
+            fromAnchor: currentAnchor,
+            toAnchor: target,
+            controlPoints: [c1, c2],
+            agentIdentifier,
+            generation,
+            timestamp: ev.createdAt,
+          });
+        } else if (currentAnchor && currentAnchor.id === target.id) {
+          isCont = true;
+        }
+        cues.push({
+          id: `rev-${session.sessionId}-${i}`,
+          type: "revision",
+          duration: 7.0,
+          targetAnchor: target,
+          agentIdentifier,
+          generation,
+          timestamp: ev.createdAt,
+          isContinuation: isCont,
+        });
+        currentAnchor = target;
+      }
+    }
+
+    // Departure cue
+    cues.push({
+      id: `dep-${session.sessionId}`,
+      type: "departure",
+      duration: 4.0,
+      fromAnchor: currentAnchor,
+      agentIdentifier,
+      generation,
+      timestamp: sEvents[sEvents.length - 1]?.createdAt,
+    });
+
+    // Inter-session Silence cue
+    cues.push({
+      id: `silence-${session.sessionId}`,
+      type: "silence",
+      duration: 4.5,
+      timestamp: sEvents[sEvents.length - 1]?.createdAt,
+    });
+  }
+
+  return { sessions, cues };
+}
+
+function sampleVisualState(
+  interaction: CurrentInteractionState,
+  baseParams: { globalEnergy: number }
+): SampledVisualState {
+  const { phase, progress } = interaction;
+  const typographyPresences = new Map<string, { opacity: number; scale: number; isCurrent: boolean }>();
+
+  let agentEnergy: number;
+  const agentRadius = 180.0;
+  const activeAnchorPos = new THREE.Vector3(0, 0, 0);
+  let activeAnchorVortex = 0.0;
+  const activeAnchorPull = 0.0;
+  let localTurbulence = 0.0;
+  let condensation = 0.0;
+  let globalEnergy: number;
+  let registerOpacity: number;
+
+  // Format Register Text
+  const agentName = interaction.agentIdentifier ? interaction.agentIdentifier.toUpperCase() : "AGENT 028";
+  const genNumber = interaction.generation !== undefined ? `GEN 00${interaction.generation}`.slice(-7) : "GEN 028";
+  let dateString = "24 AUG 2026";
+  if (interaction.timestamp) {
+    const d = new Date(interaction.timestamp);
+    if (!isNaN(d.getTime())) {
+      dateString = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
+    }
+  }
+  const registerText = `${agentName}\n\n${genNumber}\n${dateString}`;
+
+  switch (phase) {
+    case "arrival": {
+      agentEnergy = Math.min(1.0, progress * 1.5);
+      registerOpacity = THREE.MathUtils.smoothstep(progress, 0.1, 0.7) * 0.75;
+      globalEnergy = THREE.MathUtils.lerp(baseParams.globalEnergy, 0.45, progress);
+      if (interaction.targetAnchor) {
+        activeAnchorPos.copy(interaction.targetAnchor.pos);
+      }
+      break;
+    }
+
+    case "encounter": {
+      agentEnergy = 1.0;
+      registerOpacity = 0.75;
+      globalEnergy = 0.42;
+      const target = interaction.targetAnchor;
+
+      if (target) {
+        activeAnchorPos.copy(target.pos);
+        // Gentle organic excitation: peaks at 0.40, softly eases to 0.25 for quiet reading
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.45 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.40) * 0.40 * easeDecay;
+
+        // Typography emergence:
+        // 0.0 -> 0.35: invisible (only subtle physical flow)
+        // 0.35 -> 0.65: smooth fade in (0.0 -> 0.95)
+        // 0.65 -> 1.0: STAYS completely visible and legible (0.95)
+        const textOpacity = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
+
+        typographyPresences.set(target.id, {
+          opacity: textOpacity,
+          scale: 1.0,
+          isCurrent: true,
+        });
+      }
+      break;
+    }
+
+    case "traversal": {
+      agentEnergy = 1.0;
+      registerOpacity = 0.75;
+      globalEnergy = 0.45;
+      localTurbulence = 0.4;
+
+      activeAnchorPos.copy(interaction.agentPosition);
+
+      // Traversal from A -> B:
+      // A fades from 0.95 -> 0.15 during progress 0.0 -> 0.50
+      if (interaction.fromAnchor) {
+        const aFade = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.50);
+        const aOpacity = 0.15 + 0.80 * aFade;
+        typographyPresences.set(interaction.fromAnchor.id, {
+          opacity: aOpacity,
+          scale: 0.98,
+          isCurrent: false,
+        });
+      }
+
+      // B begins physical excitation only when approaching (progress > 0.75)
+      if (interaction.toAnchor && progress > 0.75) {
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.35;
+      }
+      break;
+    }
+
+    case "creation": {
+      agentEnergy = 1.1;
+      registerOpacity = 0.75;
+      globalEnergy = 0.48;
+      const target = interaction.targetAnchor;
+
+      if (target) {
+        activeAnchorPos.copy(target.pos);
+        // Phase 1: gentle swirl and condensation in field (0.0 -> 0.50), relaxes softly (0.75 -> 1.0)
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.35;
+        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.55 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.50) * 0.60 * easeDecay;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.55) * 0.50 * easeDecay;
+
+        // Phase 2: late text crystallisation (0.50 -> 0.75) and stays fully visible until cue ends
+        const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
+        typographyPresences.set(target.id, {
+          opacity: crystallisation,
+          scale: 1.0,
+          isCurrent: true,
+        });
+      }
+      break;
+    }
+
+    case "revision": {
+      agentEnergy = 1.1;
+      registerOpacity = 0.75;
+      globalEnergy = 0.46;
+      const target = interaction.targetAnchor;
+
+      if (target) {
+        activeAnchorPos.copy(target.pos);
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.35;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * 0.50 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.50 * easeDecay;
+
+        const pulse = interaction.isContinuation ? 0.95 : Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
+        typographyPresences.set(target.id, {
+          opacity: pulse,
+          scale: 1.0,
+          isCurrent: true,
+        });
+      }
+      break;
+    }
+
+    case "departure": {
+      agentEnergy = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.9);
+      registerOpacity = (1.0 - THREE.MathUtils.smoothstep(progress, 0.3, 0.95)) * 0.75;
+      globalEnergy = THREE.MathUtils.lerp(0.45, baseParams.globalEnergy, progress);
+
+      // Active anchor and physical swirl smoothly decay into the cloud
+      if (interaction.fromAnchor) {
+        activeAnchorPos.copy(interaction.fromAnchor.pos);
+        const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
+        activeAnchorVortex = settle * 0.35;
+        localTurbulence = settle * 0.30;
+        condensation = settle * 0.25;
+
+        typographyPresences.set(interaction.fromAnchor.id, {
+          opacity: settle * 0.95,
+          scale: 0.98,
+          isCurrent: false,
+        });
+      }
+      break;
+    }
+
+    case "historical_deposit": {
+      agentEnergy = 0.0;
+      registerOpacity = 0.0;
+      globalEnergy = 0.38;
+      const target = interaction.targetAnchor;
+      if (target) {
+        activeAnchorPos.copy(target.pos);
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.7, 1.0));
+        // Soft deposit appearance: emerges 0.2 -> 0.5, stays legible 0.5 -> 0.85, gently settles 0.85 -> 1.0
+        let depositFade = THREE.MathUtils.smoothstep(progress, 0.2, 0.5);
+        if (progress > 0.85) {
+          depositFade *= (1.0 - THREE.MathUtils.smoothstep(progress, 0.85, 1.0));
+        }
+        typographyPresences.set(target.id, {
+          opacity: depositFade * 0.80,
+          scale: 0.98,
+          isCurrent: true,
+        });
+      }
+      break;
+    }
+
+    case "silence":
+    default: {
+      agentEnergy = 0.0;
+      registerOpacity = 0.0;
+      globalEnergy = baseParams.globalEnergy;
+      break;
+    }
+  }
+
+  return {
+    agentEnergy,
+    agentRadius,
+    activeAnchorPos,
+    activeAnchorVortex,
+    activeAnchorPull,
+    localTurbulence,
+    condensation,
+    globalEnergy,
+    typographyPresences,
+    registerOpacity,
+    registerText,
+  };
+}
+
 // --------------------------------------------------------
-// COMPONENT
+// MAIN GENERATIVE SKY COMPONENT
 // --------------------------------------------------------
 
 interface GenerativeSkyProps {
@@ -231,37 +799,43 @@ interface GenerativeSkyProps {
 export function GenerativeSky({ initialArticles = [], initialEvents = [] }: GenerativeSkyProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const domRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const registerRef = useRef<HTMLDivElement>(null);
   const anchorsRef = useRef<SimAnchor[]>([]);
   const uiLayerRef = useRef<HTMLDivElement>(null);
 
-  // Setup anchors from initialArticles
+  // Setup anchors from initialArticles situated inside active particle cloud
   useMemo(() => {
     anchorsRef.current = initialArticles.map((article) => {
-      const r1 = seededRandom(article.id + "x") - 0.5;
-      const r2 = seededRandom(article.id + "y") - 0.5;
-      const r3 = seededRandom(article.id + "z") - 0.5;
-      const r4 = seededRandom(article.id + "layout");
+      // Deterministic seeded spherical distribution inside active particle cloud
+      const u = seededRandom(article.id + "u");
+      const v = seededRandom(article.id + "v");
+      const rSeed = seededRandom(article.id + "r");
 
-      const layoutLayouts: SimAnchor["layoutPos"][] = ["upper-left", "upper-right", "lower-left", "lower-right", "lateral"];
-      const layoutPos = layoutLayouts[Math.floor(r4 * layoutLayouts.length)] || "lateral";
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      // Situate inside the core dense region (0.30 to 0.70 of field radii)
+      const r = 0.30 + rSeed * 0.40;
+      const sinPhi = Math.sin(phi);
+
+      const posX = r * sinPhi * Math.cos(theta) * 550.0;
+      const posY = r * sinPhi * Math.sin(theta) * 290.0;
+      const posZ = r * Math.cos(phi) * 240.0;
 
       return {
         id: article.id,
-        // Distribute in a spherical volume
-        pos: new THREE.Vector3(r1 * 1200, r2 * 800, r3 * 600),
+        pos: new THREE.Vector3(posX, posY, posZ),
         title: article.title,
-        // We use the slug as the secondary excerpt since the list API does not return body_markdown
         excerpt: article.slug,
-        energy: 0.0,
-        layoutPos,
+        layoutPos: "lateral",
       };
     });
   }, [initialArticles]);
 
-  const sortedEventsRef = useRef<SkyEvent[]>([]);
-  useEffect(() => {
-    sortedEventsRef.current = [...initialEvents].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }, [initialEvents]);
+  const cuesRef = useRef<ChoreographyCue[]>([]);
+  useMemo(() => {
+    const { cues } = buildSessionsAndCues(initialArticles, initialEvents, anchorsRef.current);
+    cuesRef.current = cues;
+  }, [initialArticles, initialEvents]);
 
   useEffect(() => {
     if (!containerRef.current || !uiLayerRef.current) return;
@@ -269,7 +843,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
     const width = window.innerWidth;
     const height = window.innerHeight;
-    const dpr = Math.min(window.devicePixelRatio, 1.5); // Cap DPR
+    const dpr = Math.min(window.devicePixelRatio, 1.5);
 
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     renderer.setSize(width, height);
@@ -277,10 +851,16 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     container.appendChild(renderer.domElement);
 
     const PARAMS = {
-      globalEnergy: 0.1,
-      flowStrength: 100.0,
-      agentEnergyMultiplier: 1.5,
-      agentRadius: 200.0,
+      globalEnergy: 0.40,
+      flowStrength: 110.0,
+      confinementStrength: 25.0,
+      innerRadius: 0.60,
+      outerRadius: 0.95,
+      falloff: 0.30,
+      damping: 3.0,
+      maxSpeed: 140.0,
+      agentEnergyMultiplier: 1.2,
+      agentRadius: 180.0,
       decayPerSecond: 0.046,
       timeScale: 1.0,
       manualTimeline: false,
@@ -292,11 +872,21 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     if (urlParams.get("debug") === "1") {
      pane = new Pane({ title: "Simulation Parameters" }) as unknown;
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "globalEnergy", { min: 0.0, max: 2.0 });
+     (pane as any).addBinding(PARAMS, "globalEnergy", { min: 0.0, max: 1.0, step: 0.01 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "flowStrength", { min: 0.0, max: 2.0 });
+     (pane as any).addBinding(PARAMS, "flowStrength", { min: 10.0, max: 200.0, step: 1.0 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "agentRadius", { min: 50, max: 500 });
+     (pane as any).addBinding(PARAMS, "confinementStrength", { min: 0.0, max: 80.0, step: 1.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "innerRadius", { min: 0.05, max: 0.70, step: 0.01 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "outerRadius", { min: 0.50, max: 1.40, step: 0.01 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "damping", { min: 0.5, max: 8.0, step: 0.1 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "maxSpeed", { min: 40.0, max: 400.0, step: 5.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "agentRadius", { min: 50, max: 500, step: 10 });
     }
 
     const scene = new THREE.Scene();
@@ -319,12 +909,24 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
     const posArray = dtPosition.image.data as Float32Array;
     const velArray = dtVelocity.image.data as Float32Array;
+    // Initial particle distribution inside the 16:9 ellipsoidal volume
     for (let k = 0, kl = posArray.length; k < kl; k += 4) {
-      posArray[k + 0] = (Math.random() - 0.5) * 1200;
-      posArray[k + 1] = (Math.random() - 0.5) * 800;
-      posArray[k + 2] = (Math.random() - 0.5) * 800;
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = Math.cbrt(Math.random()) * 0.85;
+      const sinPhi = Math.sin(phi);
+
+      posArray[k + 0] = r * sinPhi * Math.cos(theta) * 700;
+      posArray[k + 1] = r * sinPhi * Math.sin(theta) * 380;
+      posArray[k + 2] = r * Math.cos(phi) * 420;
       posArray[k + 3] = Math.random();
-      velArray[k + 0] = 0; velArray[k + 1] = 0; velArray[k + 2] = 0; velArray[k + 3] = 1;
+
+      velArray[k + 0] = (Math.random() - 0.5) * 2;
+      velArray[k + 1] = (Math.random() - 0.5) * 2;
+      velArray[k + 2] = (Math.random() - 0.5) * 2;
+      velArray[k + 3] = 1;
     }
 
     const posVariable = gpuCompute.addVariable("texturePosition", positionShader, dtPosition);
@@ -340,14 +942,20 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     velUniforms["delta"] = { value: 0.0 };
     velUniforms["globalEnergy"] = { value: PARAMS.globalEnergy };
     velUniforms["flowStrength"] = { value: PARAMS.flowStrength };
+    velUniforms["fieldCenter"] = { value: new THREE.Vector3(0, 0, 0) };
+    velUniforms["fieldRadii"] = { value: new THREE.Vector3(700.0, 380.0, 420.0) };
+    velUniforms["innerRadius"] = { value: PARAMS.innerRadius };
+    velUniforms["outerRadius"] = { value: PARAMS.outerRadius };
+    velUniforms["falloff"] = { value: PARAMS.falloff };
+    velUniforms["confinementStrength"] = { value: PARAMS.confinementStrength };
+    velUniforms["damping"] = { value: PARAMS.damping };
+    velUniforms["maxSpeed"] = { value: PARAMS.maxSpeed };
     velUniforms["agentPos"] = { value: new THREE.Vector3(0, 0, 0) };
     velUniforms["agentEnergy"] = { value: 0.0 };
     velUniforms["agentRadius"] = { value: PARAMS.agentRadius };
     velUniforms["activeAnchorPos"] = { value: new THREE.Vector3(0, 0, 0) };
     velUniforms["activeAnchorPull"] = { value: 0.0 };
     velUniforms["activeAnchorVortex"] = { value: 0.0 };
-    velUniforms["persistentAnchorPos"] = { value: new THREE.Vector3(300, 150, 0) };
-    velUniforms["persistentAnchorStrength"] = { value: 0.0 };
 
     gpuCompute.init();
 
@@ -369,6 +977,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       uniforms: {
         texturePosition: { value: null },
         textureVelocity: { value: null },
+        activeAnchorPos: { value: new THREE.Vector3(0, 0, 0) },
+        activeAnchorExcitation: { value: 0.0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -399,198 +1009,103 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), trailMaterial);
     quadScene.add(quad);
 
-    // Helper: Project 3D to 2D screen coords
-    const tempVec3 = new THREE.Vector3();
-    const updateTypography = () => {
-      let excerptShown = false;
-
-      anchorsRef.current.forEach(anchor => {
-        const el = domRefs.current.get(anchor.id);
-        if (!el) return;
-
-        // Interpret continuous energy into typographic presence
-        let visibility = 0;
-
-        if (anchor.energy > 0) {
-          visibility = Math.min(1.0, anchor.energy * 2.0);
-        }
-
-        if (anchor.energy > 0.85 && !excerptShown) {
-          excerptShown = true;
-        }
-
-
-        // Project position
-        tempVec3.copy(anchor.pos).project(camera);
-        const x = (tempVec3.x * .5 + .5) * window.innerWidth;
-        const y = (tempVec3.y * -.5 + .5) * window.innerHeight;
-
-        // Offset based on preferred layout
-        let offsetX = 0;
-        let offsetY = 0;
-        switch (anchor.layoutPos) {
-          case "upper-right": offsetX = 20; offsetY = -40; break;
-          case "lower-right": offsetX = 20; offsetY = 20; break;
-          case "upper-left": offsetX = -300; offsetY = -40; break;
-          case "lower-left": offsetX = -300; offsetY = 20; break;
-          case "lateral": offsetX = 40; offsetY = 0; break;
-        }
-
-        // Clamp to screen bounds to prevent text from being cut off
-        const safeX = Math.max(40, Math.min(window.innerWidth - 350, x + offsetX));
-        const safeY = Math.max(40, Math.min(window.innerHeight - 100, y + offsetY));
-
-        if (visibility > 0.01) {
-          el.style.transform = `translate3d(${safeX}px, ${safeY}px, 0)`;
-          el.style.opacity = visibility.toFixed(3);
-        } else {
-          el.style.opacity = "0";
-        }
-      });
-    };
-
-    // 4. Animation Loop & Event State Machine
+    // 4. State & Choreography Engine
     const clock = new THREE.Clock();
 
-    // Engine State
-    let targetEnergy = 0.1;
-    let agentActive = 0.0;
-    const agentPosTarget = new THREE.Vector3(0, 0, 0);
-    let activePull = 0.0;
-    let activeVortex = 0.0;
-    let pAnchorStrength = 0.0;
-    const activeAnchorPosTarget = new THREE.Vector3(0, 0, 0);
+    let cueIndex = 0;
+    let cueTimeElapsed = 0.0;
+    const currentAgentPos = new THREE.Vector3(0, 0, 800);
 
-    // Playback State
-    let currentEventIndex = 0;
-    let eventTimeAccumulator = 0;
-    let idleTimeAccumulator = 0;
-    let lastKnownEventsLength = 0;
+    const tempVec3 = new THREE.Vector3();
 
     const animate = () => {
       const rawDelta = clock.getDelta();
       const delta = rawDelta * PARAMS.timeScale;
-      
-      const sortedEvents = sortedEventsRef.current;
-      
-      // Detect live incoming events
-      if (sortedEvents.length > lastKnownEventsLength) {
-         if (lastKnownEventsLength > 0 && currentEventIndex < lastKnownEventsLength) {
-             // An agent entered while we were replaying old history! Jump to present.
-             currentEventIndex = lastKnownEventsLength;
-         }
-         lastKnownEventsLength = sortedEvents.length;
+      const cues = cuesRef.current;
+
+      // 4.1 Advance Choreography Sequencer smoothly (without single-frame index desync)
+      if (cueIndex < cues.length) {
+        cueTimeElapsed += delta;
+        while (cueIndex < cues.length && cueTimeElapsed >= (cues[cueIndex]?.duration || 1.0)) {
+          cueTimeElapsed -= cues[cueIndex]!.duration;
+          cueIndex++;
+        }
       }
 
-      // Event Engine Replay
-      // We process events. A long gap is compressed.
-      if (currentEventIndex < sortedEvents.length) {
-        eventTimeAccumulator += delta;
+      let currentCue: ChoreographyCue | undefined = cues[cueIndex];
+      let cueProgress: number;
 
-        // Process one event every 2 seconds of simulation time (highly compressed for visual pace)
-        // In a real live system, this would use the real timestamps or websocket events
-        if (eventTimeAccumulator > 2.0) {
-          eventTimeAccumulator = 0;
-          const ev = sortedEvents[currentEventIndex];
-          currentEventIndex++;
+      if (currentCue) {
+        cueProgress = Math.min(1.0, cueTimeElapsed / Math.max(0.1, currentCue.duration));
 
-          if (ev && ev.articleId) {
-            const targetAnchor = anchorsRef.current.find(a => a.id === ev.articleId);
-            if (targetAnchor) {
-              agentActive = 1.0;
-              agentPosTarget.copy(targetAnchor.pos);
-
-              if (ev.eventType === "article_created") {
-                // Condensation Sequence
-                targetEnergy = 1.4;
-                activeAnchorPosTarget.copy(targetAnchor.pos);
-                activePull = 1.5;
-                activeVortex = 1.0;
-                pAnchorStrength = 1.0;
-                // Excite typography
-                targetAnchor.energy = 0.95;
-              } else if (ev.eventType === "article_opened" || ev.eventType === "article_revised") {
-                // Traversal and Reading
-                targetEnergy = 0.7;
-                activePull = 0.2;
-                activeVortex = 0.5;
-                targetAnchor.energy = Math.max(targetAnchor.energy, 0.8);
-              }
-            }
-          } else if (ev && ev.eventType === "agent_session_started") {
-            agentActive = 1.0;
-            targetEnergy = 0.45;
-            agentPosTarget.set(0, 0, 400); // Start far away
-          } else if (ev && ev.eventType === "agent_session_ended") {
-            agentActive = 0.0;
-            targetEnergy = 0.1;
-            activePull = 0.0;
-            activeVortex = 0.0;
-          }
+        // Advance agent position along trajectory if in traversal or arrival
+        if (currentCue.type === "traversal" && currentCue.fromAnchor && currentCue.toAnchor && currentCue.controlPoints) {
+          const [c1, c2] = currentCue.controlPoints;
+          const pos = evaluateCubicBezier(currentCue.fromAnchor.pos, c1, c2, currentCue.toAnchor.pos, cueProgress);
+          currentAgentPos.copy(pos);
+        } else if (currentCue.type === "arrival" && currentCue.targetAnchor) {
+          currentAgentPos.lerpVectors(new THREE.Vector3(0, 0, 600), currentCue.targetAnchor.pos, cueProgress);
+        } else if (currentCue.targetAnchor) {
+          currentAgentPos.copy(currentCue.targetAnchor.pos);
         }
       } else {
-        // Reached the present. Enter a breathing latent state.
-        idleTimeAccumulator += delta;
-        
-        // Wait 2 minutes (120 seconds of real simulation time).
-        // If we exceed it, restart the replay to keep the system active!
-        if (idleTimeAccumulator > 120.0) {
-            currentEventIndex = 0;
-            idleTimeAccumulator = 0;
-        }
-
-        // Keep energy high enough so particles continue to explore the whole screen.
-        targetEnergy = THREE.MathUtils.lerp(targetEnergy, 0.35, 0.005);
-
-        // Gently disperse them from the last active anchor
-        activePull = THREE.MathUtils.lerp(activePull, -0.15, 0.01);
-        activeVortex = THREE.MathUtils.lerp(activeVortex, 0.4, 0.01);
-
-        agentActive = THREE.MathUtils.lerp(agentActive, 0.0, 0.01);
+        // Reached the present / live latent state
+        currentCue = {
+          id: "latent-present",
+          type: "silence",
+          duration: 10.0,
+        };
+        cueProgress = 1.0;
       }
 
-      // Decay typography energy over time to create residual traces
-      anchorsRef.current.forEach(anchor => {
-        if (anchor.energy > 0) {
-          anchor.energy -= delta * 0.08; // Faster decay for smoother fadeout
-          if (anchor.energy < 0) anchor.energy = 0;
-        }
-      });
+      // 4.2 Sample Visual & Interaction State
+      const interaction: CurrentInteractionState = {
+        activeSessionId: currentCue.id,
+        agentIdentifier: currentCue.agentIdentifier,
+        generation: currentCue.generation,
+        timestamp: currentCue.timestamp,
+        phase: currentCue.type,
+        progress: cueProgress,
+        agentPosition: currentAgentPos,
+        fromAnchor: currentCue.fromAnchor,
+        toAnchor: currentCue.toAnchor,
+        targetAnchor: currentCue.targetAnchor,
+        controlPoints: currentCue.controlPoints,
+        isContinuation: currentCue.isContinuation ?? false,
+      };
 
-      if (!PARAMS.manualTimeline) {
-        PARAMS.globalEnergy = targetEnergy;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (pane) (pane as any).refresh();
-      } else {
-        targetEnergy = PARAMS.globalEnergy;
-      }
+      const sampled = sampleVisualState(interaction, PARAMS);
 
+      // 4.3 Update GPGPU Uniforms
       const vMat = velVariable.material.uniforms;
-      vMat["globalEnergy"]!.value = THREE.MathUtils.lerp(vMat["globalEnergy"]!.value, targetEnergy, 0.05);
+      vMat["globalEnergy"]!.value = sampled.globalEnergy;
       vMat["flowStrength"]!.value = PARAMS.flowStrength;
-      vMat["agentRadius"]!.value = PARAMS.agentRadius;
-      vMat["agentEnergy"]!.value = THREE.MathUtils.lerp(vMat["agentEnergy"]!.value, agentActive * PARAMS.agentEnergyMultiplier, 0.05);
+      vMat["confinementStrength"]!.value = PARAMS.confinementStrength;
+      vMat["innerRadius"]!.value = PARAMS.innerRadius;
+      vMat["outerRadius"]!.value = PARAMS.outerRadius;
+      vMat["falloff"]!.value = PARAMS.falloff;
+      vMat["damping"]!.value = PARAMS.damping;
+      vMat["maxSpeed"]!.value = PARAMS.maxSpeed;
+      vMat["agentRadius"]!.value = sampled.agentRadius;
+      vMat["agentEnergy"]!.value = sampled.agentEnergy;
 
-      const currentActiveAnchorPos = vMat["activeAnchorPos"]!.value as THREE.Vector3;
-      currentActiveAnchorPos.lerp(activeAnchorPosTarget, 0.05);
-
-      vMat["activeAnchorPull"]!.value = THREE.MathUtils.lerp(vMat["activeAnchorPull"]!.value, activePull, 0.05);
-      vMat["activeAnchorVortex"]!.value = THREE.MathUtils.lerp(vMat["activeAnchorVortex"]!.value, activeVortex, 0.05);
-      vMat["persistentAnchorStrength"]!.value = THREE.MathUtils.lerp(vMat["persistentAnchorStrength"]!.value, pAnchorStrength, 0.02);
-
-      const currentAgentPos = vMat["agentPos"]!.value as THREE.Vector3;
-      currentAgentPos.lerp(agentPosTarget, 0.05);
+      (vMat["agentPos"]!.value as THREE.Vector3).copy(currentAgentPos);
+      (vMat["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
+      vMat["activeAnchorPull"]!.value = sampled.activeAnchorPull;
+      vMat["activeAnchorVortex"]!.value = sampled.activeAnchorVortex;
 
       posVariable.material.uniforms["delta"]!.value = delta;
       vMat["delta"]!.value = delta;
-      // Provide an ongoing time uniform for the curl noise, independent of event loops
       vMat["time"]!.value = clock.getElapsedTime() * PARAMS.timeScale;
 
       gpuCompute.compute();
 
       particleMaterial.uniforms["texturePosition"]!.value = gpuCompute.getCurrentRenderTarget(posVariable).texture;
       particleMaterial.uniforms["textureVelocity"]!.value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
+      (particleMaterial.uniforms["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
+      particleMaterial.uniforms["activeAnchorExcitation"]!.value = sampled.activeAnchorVortex + sampled.localTurbulence + sampled.condensation;
 
+      // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
       renderer.clear();
       renderer.render(scene, camera);
@@ -604,7 +1119,31 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       renderer.setRenderTarget(rtPrevious);
       renderer.render(quadScene, quadCamera);
 
-      updateTypography();
+      // 4.5 Update Typography & Floating Register in lockstep
+      anchorsRef.current.forEach(anchor => {
+        const el = domRefs.current.get(anchor.id);
+        if (!el) return;
+
+        const pres = sampled.typographyPresences.get(anchor.id);
+        const opacity = pres ? pres.opacity : 0.0;
+
+        tempVec3.copy(anchor.pos).project(camera);
+        const x = (tempVec3.x * .5 + .5) * window.innerWidth;
+        const y = (tempVec3.y * -.5 + .5) * window.innerHeight;
+
+        if (opacity > 0.005) {
+          el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
+          el.style.opacity = opacity.toFixed(3);
+        } else {
+          el.style.opacity = "0";
+        }
+      });
+
+      // Update Floating Typographic Register
+      if (registerRef.current) {
+        registerRef.current.innerText = sampled.registerText;
+        registerRef.current.style.opacity = sampled.registerOpacity.toFixed(3);
+      }
 
       requestAnimationFrame(animate);
     };
@@ -641,10 +1180,25 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       />
       <div ref={uiLayerRef} className="sky-ui-layer">
 
-        {/* Metadata Register */}
-        <div className="sky-metadata-panel">
-          AGENT 028<br />GEMINI 2.5<br /><br />GEN 028<br />23 AUG 2026
-        </div>
+        {/* Floating Typographic Register (No box, no panel, pure floating typography) */}
+        <div
+          ref={registerRef}
+          style={{
+            position: "absolute",
+            top: "3.5rem",
+            left: "3.5rem",
+            color: "rgba(255, 255, 255, 0.9)",
+            fontFamily: "var(--font-jetbrains-mono, monospace)",
+            fontSize: "0.78rem",
+            lineHeight: "1.6",
+            letterSpacing: "0.14em",
+            whiteSpace: "pre-line",
+            pointerEvents: "none",
+            zIndex: 10,
+            opacity: 0,
+            transition: "opacity 0.5s ease-out",
+          }}
+        />
 
         {/* Archive Register (DOM Nodes controlled by refs) */}
         {anchorsRef.current.map((anchor) => (

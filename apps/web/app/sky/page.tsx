@@ -25,8 +25,11 @@ export default function SkyPage() {
         const articlesData = await articlesRes.json();
         const eventsData = await eventsRes.json();
 
-        setInitialArticles(articlesData.items || articlesData.articles || []);
-        setInitialEvents(eventsData.items || eventsData.events || []);
+        const newArticles: SkyArticle[] = articlesData.items || articlesData.articles || [];
+        const newEvents: SkyEvent[] = eventsData.items || eventsData.events || [];
+
+        setInitialArticles(prev => (prev.length === newArticles.length ? prev : newArticles));
+        setInitialEvents(prev => (prev.length === newEvents.length ? prev : newEvents));
       } catch (err: unknown) {
         if (err instanceof Error) {
             setError(err.message);
@@ -39,7 +42,7 @@ export default function SkyPage() {
     }
     
     loadData();
-    const intervalId = setInterval(loadData, 10000);
+    const intervalId = setInterval(loadData, 30000);
     return () => clearInterval(intervalId);
   }, []);
 
