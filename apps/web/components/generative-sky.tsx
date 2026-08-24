@@ -189,14 +189,14 @@ void main() {
      flow += agentTurbulence * influence * agentEnergy * 140.0;
   }
 
-  // 4. Active Anchor (Localized fluid eddy, ZERO gravitational sinkhole)
+  // 4. Active Anchor (Localized fluid eddy, gentle organic curl)
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 280.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
-      float influence = smoothstep(280.0, 0.0, distToActive);
+  if (distToActive < 220.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
+      float influence = smoothstep(220.0, 0.0, distToActive);
       // Divergence-free rotational eddy around anchor (curl noise ring)
-      vec3 anchorTurbulence = curlNoise(pos * 0.025 + time * 0.35 + activeAnchorPos * 0.05);
-      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 110.0;
+      vec3 anchorTurbulence = curlNoise(pos * 0.02 + time * 0.25 + activeAnchorPos * 0.05);
+      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 55.0;
   }
 
   // Velocity integration
@@ -220,8 +220,6 @@ const particleVertexShader = `
 uniform sampler2D texturePosition;
 uniform sampler2D textureVelocity;
 uniform float cameraZ;
-uniform vec3 activeAnchorPos;
-uniform float activeAnchorExcitation;
 
 varying vec3 vColor;
 varying float vAlpha;
@@ -238,19 +236,12 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Local luminous excitation and size boost around active anchor
-  float distToAnchor = length(pos - activeAnchorPos);
-  float anchorGlow = 0.0;
-  if (distToAnchor < 260.0 && activeAnchorExcitation > 0.01) {
-    anchorGlow = smoothstep(260.0, 0.0, distToAnchor) * activeAnchorExcitation;
-  }
-
-  // Particle size depends on depth + local anchor glow
-  gl_PointSize = (1000.0 / -mvPosition.z) * (2.3 + anchorGlow * 1.5);
+  // Particle size depends purely on camera depth - fine, consistent, ethereal dust
+  gl_PointSize = (1000.0 / -mvPosition.z) * 2.2;
   
-  // Speed-based brightness + anchor excitation glow
+  // Speed-based brightness - natural physical response when moving faster
   float speed = length(vel);
-  vAlpha = (smoothstep(0.0, 80.0, speed) * 0.4 + 0.35) + anchorGlow * 0.45;
+  vAlpha = smoothstep(0.0, 90.0, speed) * 0.40 + 0.35;
   
   // Depth attenuation
   float depthDist = abs(mvPosition.z);
@@ -615,15 +606,15 @@ function sampleVisualState(
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Physical excitation: peaks around progress 0.25 -> 0.70
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.8;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.40) * 0.7;
+        // Gentle organic excitation: peaks at 0.40, softly eases to 0.25 for quiet reading
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.45 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.40) * 0.40 * easeDecay;
 
-        // Typography emergence delayed:
-        // 0.0 -> 0.35: invisible (only physical particles)
+        // Typography emergence:
+        // 0.0 -> 0.35: invisible (only subtle physical flow)
         // 0.35 -> 0.65: smooth fade in (0.0 -> 0.95)
         // 0.65 -> 1.0: STAYS completely visible and legible (0.95)
-        // If it's a continuation on the same anchor, bypass the fade in
         const textOpacity = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
 
         typographyPresences.set(target.id, {
@@ -639,7 +630,7 @@ function sampleVisualState(
       agentEnergy = 1.0;
       registerOpacity = 0.75;
       globalEnergy = 0.45;
-      localTurbulence = 0.7;
+      localTurbulence = 0.4;
 
       activeAnchorPos.copy(interaction.agentPosition);
 
@@ -655,25 +646,26 @@ function sampleVisualState(
         });
       }
 
-      // B begins physical excitation only when approaching (progress > 0.80)
-      if (interaction.toAnchor && progress > 0.80) {
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.80, 1.0) * 0.5;
+      // B begins physical excitation only when approaching (progress > 0.75)
+      if (interaction.toAnchor && progress > 0.75) {
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.35;
       }
       break;
     }
 
     case "creation": {
-      agentEnergy = 1.2;
+      agentEnergy = 1.1;
       registerOpacity = 0.75;
-      globalEnergy = 0.50;
+      globalEnergy = 0.48;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Phase 1: condensation & swirl in empty space (0.0 -> 0.50)
-        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.50);
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.55);
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.60);
+        // Phase 1: gentle swirl and condensation in field (0.0 -> 0.50), relaxes softly (0.75 -> 1.0) to 0.25
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.45;
+        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.35 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.50) * 0.45 * easeDecay;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.55) * 0.35 * easeDecay;
 
         // Phase 2: late text crystallisation (0.50 -> 0.75) and stays fully visible until cue ends
         const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
@@ -689,15 +681,15 @@ function sampleVisualState(
     case "revision": {
       agentEnergy = 1.1;
       registerOpacity = 0.75;
-      globalEnergy = 0.48;
+      globalEnergy = 0.46;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * 0.8;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.7;
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * 0.45 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.40 * easeDecay;
 
-        // Palimpsest text pulse and resolution
         const pulse = interaction.isContinuation ? 0.95 : Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
         typographyPresences.set(target.id, {
           opacity: pulse,
@@ -713,9 +705,13 @@ function sampleVisualState(
       registerOpacity = (1.0 - THREE.MathUtils.smoothstep(progress, 0.3, 0.95)) * 0.75;
       globalEnergy = THREE.MathUtils.lerp(0.45, baseParams.globalEnergy, progress);
 
-      // Active anchor gently fades out across departure
+      // Active anchor and physical swirl smoothly decay into the cloud
       if (interaction.fromAnchor) {
+        activeAnchorPos.copy(interaction.fromAnchor.pos);
         const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
+        activeAnchorVortex = settle * 0.25;
+        localTurbulence = settle * 0.20;
+
         typographyPresences.set(interaction.fromAnchor.id, {
           opacity: settle * 0.95,
           scale: 0.98,
@@ -961,8 +957,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       uniforms: {
         texturePosition: { value: null },
         textureVelocity: { value: null },
-        activeAnchorPos: { value: new THREE.Vector3(0, 0, 0) },
-        activeAnchorExcitation: { value: 0.0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -1086,8 +1080,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
       particleMaterial.uniforms["texturePosition"]!.value = gpuCompute.getCurrentRenderTarget(posVariable).texture;
       particleMaterial.uniforms["textureVelocity"]!.value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
-      (particleMaterial.uniforms["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
-      particleMaterial.uniforms["activeAnchorExcitation"]!.value = sampled.activeAnchorVortex + sampled.localTurbulence + sampled.condensation;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
