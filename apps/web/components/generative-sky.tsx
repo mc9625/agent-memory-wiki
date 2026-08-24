@@ -389,10 +389,21 @@ function buildSessionsAndCues(
     }
   }
 
+
+
   // Build cues from sessions
   for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
     const session = sessions[sIdx]!;
-    const { agentIdentifier, generation, events: sEvents } = session;
+    const { agentIdentifier, generation, events: sEventsRaw } = session;
+
+    const sEvents: SkyEvent[] = [];
+    for (const ev of sEventsRaw) {
+      const prev = sEvents[sEvents.length - 1];
+      if (prev && prev.eventType === ev.eventType && prev.articleId === ev.articleId) {
+        continue;
+      }
+      sEvents.push(ev);
+    }
 
     if (session.provenance === "creation_only" && sEvents.length === 1 && sEvents[0]!.eventType === "article_created") {
       const ev = sEvents[0]!;
@@ -401,7 +412,7 @@ function buildSessionsAndCues(
         cues.push({
           id: `dep-${session.sessionId}`,
           type: "historical_deposit",
-          duration: 5.0,
+          duration: 6.0,
           targetAnchor: anchor,
           agentIdentifier,
           generation,
@@ -418,7 +429,7 @@ function buildSessionsAndCues(
     cues.push({
       id: `arr-${session.sessionId}`,
       type: "arrival",
-      duration: 3.0,
+      duration: 3.5,
       targetAnchor: firstAnchor,
       agentIdentifier,
       generation,
@@ -450,7 +461,7 @@ function buildSessionsAndCues(
         cues.push({
           id: `enc-${session.sessionId}-${i}`,
           type: "encounter",
-          duration: 5.0,
+          duration: 7.5,
           targetAnchor: target,
           agentIdentifier,
           generation,
@@ -475,7 +486,7 @@ function buildSessionsAndCues(
         cues.push({
           id: `creat-${session.sessionId}-${i}`,
           type: "creation",
-          duration: 7.5,
+          duration: 8.5,
           targetAnchor: target,
           agentIdentifier,
           generation,
@@ -500,7 +511,7 @@ function buildSessionsAndCues(
         cues.push({
           id: `rev-${session.sessionId}-${i}`,
           type: "revision",
-          duration: 6.0,
+          duration: 7.0,
           targetAnchor: target,
           agentIdentifier,
           generation,
@@ -514,7 +525,7 @@ function buildSessionsAndCues(
     cues.push({
       id: `dep-${session.sessionId}`,
       type: "departure",
-      duration: 3.5,
+      duration: 4.0,
       fromAnchor: currentAnchor,
       agentIdentifier,
       generation,
@@ -525,7 +536,7 @@ function buildSessionsAndCues(
     cues.push({
       id: `silence-${session.sessionId}`,
       type: "silence",
-      duration: 4.0,
+      duration: 4.5,
       timestamp: sEvents[sEvents.length - 1]?.createdAt,
     });
   }
@@ -565,7 +576,7 @@ function sampleVisualState(
   switch (phase) {
     case "arrival": {
       agentEnergy = Math.min(1.0, progress * 1.5);
-      registerOpacity = Math.min(0.65, progress * 1.2);
+      registerOpacity = THREE.MathUtils.smoothstep(progress, 0.1, 0.7) * 0.75;
       globalEnergy = THREE.MathUtils.lerp(baseParams.globalEnergy, 0.45, progress);
       if (interaction.targetAnchor) {
         activeAnchorPos.copy(interaction.targetAnchor.pos);
@@ -575,23 +586,24 @@ function sampleVisualState(
 
     case "encounter": {
       agentEnergy = 1.0;
-      registerOpacity = 0.65;
+      registerOpacity = 0.75;
       globalEnergy = 0.42;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Overlapping physical envelopes
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.85, 1.0));
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.45) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.85, 1.0));
-        const localExcitation = localTurbulence * 0.5 + activeAnchorVortex * 0.5;
+        // Physical excitation: peaks around progress 0.25 -> 0.70
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.8;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.40) * 0.7;
 
-        // Typography emergence delayed: starts emerging only at progress > 0.45
-        const delayedSemanticEnvelope = THREE.MathUtils.smoothstep(progress, 0.45, 0.85);
-        const textOpacity = delayedSemanticEnvelope * THREE.MathUtils.smoothstep(localExcitation, 0.10, 0.55);
+        // Typography emergence delayed:
+        // 0.0 -> 0.35: invisible (only physical particles)
+        // 0.35 -> 0.65: smooth fade in (0.0 -> 0.95)
+        // 0.65 -> 1.0: STAYS completely visible and legible (0.95)
+        const textOpacity = THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
 
         typographyPresences.set(target.id, {
-          opacity: Math.max(0.0, Math.min(0.95, textOpacity * 0.95)),
+          opacity: textOpacity,
           scale: 1.0,
           isCurrent: true,
         });
@@ -601,17 +613,17 @@ function sampleVisualState(
 
     case "traversal": {
       agentEnergy = 1.0;
-      registerOpacity = 0.65;
+      registerOpacity = 0.75;
       globalEnergy = 0.45;
       localTurbulence = 0.7;
 
       activeAnchorPos.copy(interaction.agentPosition);
 
       // Traversal from A -> B:
-      // A fades from 0.85 -> 0.10 during progress 0.0 -> 0.50
+      // A fades from 0.95 -> 0.15 during progress 0.0 -> 0.50
       if (interaction.fromAnchor) {
         const aFade = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.50);
-        const aOpacity = 0.10 + 0.75 * aFade;
+        const aOpacity = 0.15 + 0.80 * aFade;
         typographyPresences.set(interaction.fromAnchor.id, {
           opacity: aOpacity,
           scale: 0.98,
@@ -628,7 +640,7 @@ function sampleVisualState(
 
     case "creation": {
       agentEnergy = 1.2;
-      registerOpacity = 0.65;
+      registerOpacity = 0.75;
       globalEnergy = 0.50;
       const target = interaction.targetAnchor;
 
@@ -636,13 +648,13 @@ function sampleVisualState(
         activeAnchorPos.copy(target.pos);
         // Phase 1: condensation & swirl in empty space (0.0 -> 0.50)
         condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.50);
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.55) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.90, 1.0));
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.55);
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.60);
 
-        // Phase 2: late text crystallisation (0.65 -> 0.92)
-        const crystallisation = THREE.MathUtils.smoothstep(progress, 0.65, 0.92);
+        // Phase 2: late text crystallisation (0.50 -> 0.75) and stays fully visible until cue ends
+        const crystallisation = THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
         typographyPresences.set(target.id, {
-          opacity: crystallisation * 0.95,
+          opacity: crystallisation,
           scale: 1.0,
           isCurrent: true,
         });
@@ -652,7 +664,7 @@ function sampleVisualState(
 
     case "revision": {
       agentEnergy = 1.1;
-      registerOpacity = 0.65;
+      registerOpacity = 0.75;
       globalEnergy = 0.48;
       const target = interaction.targetAnchor;
 
@@ -662,7 +674,7 @@ function sampleVisualState(
         activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.7;
 
         // Palimpsest text pulse and resolution
-        const pulse = Math.sin(progress * Math.PI) * 0.3 + 0.65;
+        const pulse = Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
         typographyPresences.set(target.id, {
           opacity: pulse,
           scale: 1.0,
@@ -674,15 +686,15 @@ function sampleVisualState(
 
     case "departure": {
       agentEnergy = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.9);
-      registerOpacity = (1.0 - THREE.MathUtils.smoothstep(progress, 0.2, 0.9)) * 0.65;
+      registerOpacity = (1.0 - THREE.MathUtils.smoothstep(progress, 0.3, 0.95)) * 0.75;
       globalEnergy = THREE.MathUtils.lerp(0.45, baseParams.globalEnergy, progress);
 
-      // Previous anchors gently settle to residual trace
+      // Active anchor gently fades out across departure
       if (interaction.fromAnchor) {
-        const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.8);
+        const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
         typographyPresences.set(interaction.fromAnchor.id, {
-          opacity: settle * 0.4,
-          scale: 0.95,
+          opacity: settle * 0.95,
+          scale: 0.98,
           isCurrent: false,
         });
       }
@@ -697,10 +709,14 @@ function sampleVisualState(
       if (target) {
         activeAnchorPos.copy(target.pos);
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.7, 1.0));
-        const depositFade = THREE.MathUtils.smoothstep(progress, 0.4, 0.85) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.9, 1.0));
+        // Soft deposit appearance: emerges 0.2 -> 0.5, stays legible 0.5 -> 0.85, gently settles 0.85 -> 1.0
+        let depositFade = THREE.MathUtils.smoothstep(progress, 0.2, 0.5);
+        if (progress > 0.85) {
+          depositFade *= (1.0 - THREE.MathUtils.smoothstep(progress, 0.85, 1.0));
+        }
         typographyPresences.set(target.id, {
-          opacity: depositFade * 0.75,
-          scale: 0.95,
+          opacity: depositFade * 0.80,
+          scale: 0.98,
           isCurrent: true,
         });
       }
