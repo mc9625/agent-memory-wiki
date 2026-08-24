@@ -220,6 +220,8 @@ const particleVertexShader = `
 uniform sampler2D texturePosition;
 uniform sampler2D textureVelocity;
 uniform float cameraZ;
+uniform vec3 activeAnchorPos;
+uniform float activeAnchorExcitation;
 
 varying vec3 vColor;
 varying float vAlpha;
@@ -236,12 +238,19 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Particle size depends purely on camera depth - fine, consistent, ethereal dust
-  gl_PointSize = (1000.0 / -mvPosition.z) * 2.2;
+  // Local luminous excitation and gentle, moderate shimmer around active anchor
+  float distToAnchor = length(pos - activeAnchorPos);
+  float anchorGlow = 0.0;
+  if (distToAnchor < 240.0 && activeAnchorExcitation > 0.01) {
+    anchorGlow = smoothstep(240.0, 0.0, distToAnchor) * clamp(activeAnchorExcitation, 0.0, 1.0);
+  }
+
+  // Moderate, refined point size: 2.2 base + at most 0.40 boost (only ~18% larger, fine & crisp)
+  gl_PointSize = (1000.0 / -mvPosition.z) * (2.2 + anchorGlow * 0.40);
   
-  // Speed-based brightness - natural physical response when moving faster
+  // Speed-based brightness + moderate, elegant luminous shimmer
   float speed = length(vel);
-  vAlpha = smoothstep(0.0, 90.0, speed) * 0.40 + 0.35;
+  vAlpha = (smoothstep(0.0, 90.0, speed) * 0.40 + 0.35) + anchorGlow * 0.28;
   
   // Depth attenuation
   float depthDist = abs(mvPosition.z);
@@ -393,10 +402,20 @@ function buildSessionsAndCues(
 
 
 
-  // Build cues from sessions
-  for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
-    const session = sessions[sIdx]!;
-    const { agentIdentifier, generation, events: sEventsRaw } = session;
+  // Filter valid sessions that have articles currently existing in the archive
+  const validSessions: AgentSession[] = [];
+  for (const session of sessions) {
+    const hasValidAnchor = session.events.some(e => e.articleId && anchorMap.has(e.articleId));
+    if (hasValidAnchor) {
+      validSessions.push(session);
+    }
+  }
+
+  // Build cues from valid sessions
+  for (let sIdx = 0; sIdx < validSessions.length; sIdx++) {
+    const session = validSessions[sIdx]!;
+    const generation = sIdx + 1;
+    const { agentIdentifier, events: sEventsRaw } = session;
 
     const sEvents: SkyEvent[] = [];
     for (const ev of sEventsRaw) {
@@ -661,11 +680,11 @@ function sampleVisualState(
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Phase 1: gentle swirl and condensation in field (0.0 -> 0.50), relaxes softly (0.75 -> 1.0) to 0.25
-        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.45;
-        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.35 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.50) * 0.45 * easeDecay;
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.55) * 0.35 * easeDecay;
+        // Phase 1: gentle swirl and condensation in field (0.0 -> 0.50), relaxes softly (0.75 -> 1.0)
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.35;
+        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.55 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.50) * 0.60 * easeDecay;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.55) * 0.50 * easeDecay;
 
         // Phase 2: late text crystallisation (0.50 -> 0.75) and stays fully visible until cue ends
         const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
@@ -686,9 +705,9 @@ function sampleVisualState(
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * 0.45 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.40 * easeDecay;
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.35;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * 0.50 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.50 * easeDecay;
 
         const pulse = interaction.isContinuation ? 0.95 : Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
         typographyPresences.set(target.id, {
@@ -709,8 +728,9 @@ function sampleVisualState(
       if (interaction.fromAnchor) {
         activeAnchorPos.copy(interaction.fromAnchor.pos);
         const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
-        activeAnchorVortex = settle * 0.25;
-        localTurbulence = settle * 0.20;
+        activeAnchorVortex = settle * 0.35;
+        localTurbulence = settle * 0.30;
+        condensation = settle * 0.25;
 
         typographyPresences.set(interaction.fromAnchor.id, {
           opacity: settle * 0.95,
@@ -957,6 +977,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       uniforms: {
         texturePosition: { value: null },
         textureVelocity: { value: null },
+        activeAnchorPos: { value: new THREE.Vector3(0, 0, 0) },
+        activeAnchorExcitation: { value: 0.0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -1080,6 +1102,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
       particleMaterial.uniforms["texturePosition"]!.value = gpuCompute.getCurrentRenderTarget(posVariable).texture;
       particleMaterial.uniforms["textureVelocity"]!.value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
+      (particleMaterial.uniforms["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
+      particleMaterial.uniforms["activeAnchorExcitation"]!.value = sampled.activeAnchorVortex + sampled.localTurbulence + sampled.condensation;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
