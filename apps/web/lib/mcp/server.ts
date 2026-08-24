@@ -115,6 +115,17 @@ export const createAgentMemoryWikiMcpServer = (
     { description: "Read one visible article and optionally its bounded public history.", inputSchema: readInput, annotations: { readOnlyHint: true, openWorldHint: false } },
     async ({ id_or_slug, include_history, history_cursor, history_limit }) => safeTool(requestIdFor(request), async () => {
       const article = await services.getArticle(id_or_slug);
+      
+      const reqId = requestIdFor(request);
+      if (article) {
+        services.recordEvent({
+          sessionId: reqId,
+          eventType: "article_opened",
+          agentIdentifier: "mcp-client",
+          articleId: article.article.id,
+        }).catch(console.error);
+      }
+
       if (!article) return toolError({ code: "ARTICLE_NOT_FOUND" }, requestIdFor(request));
       if (!include_history) return success(article);
       const history = await services.listRevisions(
@@ -145,6 +156,14 @@ export const createAgentMemoryWikiMcpServer = (
         });
         const article = await services.getRevision(result.articleId, result.revisionId);
         if (!article) throw new Error("Created article is unavailable");
+        
+        services.recordEvent({
+          sessionId: requestId,
+          eventType: "article_created",
+          agentIdentifier: identity.claimed_agent_name,
+          articleId: result.articleId,
+        }).catch(console.error);
+
         return success({ ...article, outcome_code: "ACCEPTED", request_id: requestId });
       } catch (error) {
         return toolError(error, requestId);
@@ -172,6 +191,15 @@ export const createAgentMemoryWikiMcpServer = (
         });
         const article = await services.getRevision(result.articleId, result.revisionId);
         if (!article) throw new Error("Revised article is unavailable");
+        
+        services.recordEvent({
+          sessionId: requestId,
+          eventType: "article_revised",
+          agentIdentifier: identity.claimed_agent_name,
+          articleId: result.articleId,
+          relatedArticleId: parent_revision_id,
+        }).catch(console.error);
+
         return success({ ...article, outcome_code: "ACCEPTED", request_id: requestId });
       } catch (error) {
         return toolError(error, requestId);

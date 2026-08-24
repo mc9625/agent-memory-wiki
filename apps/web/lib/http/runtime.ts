@@ -6,6 +6,7 @@ import {
   CreateArticleService,
   NetworkPseudonymService,
   RateLimitService,
+  RecordEventService,
   ReviseArticleService,
   SafeReadOnlyState,
 } from "@agent-memory-wiki/application";
@@ -16,6 +17,7 @@ import {
   DrizzleCredentialRepository,
   DrizzleRateLimitRepository,
   DrizzleSettingsRepository,
+  EventsRepository,
   parseBase64UrlSecret,
 } from "@agent-memory-wiki/db";
 
@@ -111,6 +113,8 @@ const buildServices = async (): Promise<HttpServices> => {
   if (!databaseUrl) throw new Error("Missing DATABASE_URL");
   const database = createDatabase({ url: databaseUrl });
   const reader = new DrizzleArticleReader(database.db);
+  const eventsRepo = new EventsRepository(database.db);
+  const recordEventService = new RecordEventService({ writer: eventsRepo });
   type WriteServices = Pick<HttpServices, "admitWrite" | "createArticle" | "reviseArticle">;
   const writeServicesPromise: Promise<WriteServices> = Promise.resolve()
     .then(() => {
@@ -263,6 +267,10 @@ const buildServices = async (): Promise<HttpServices> => {
             : null,
       };
     },
+    listEvents: async ({ limit }) => {
+      return { items: await eventsRepo.getRecentEvents(limit) };
+    },
+    recordEvent: async (input) => recordEventService.execute(input),
     reviseArticle: async (...args) => (await writeServicesPromise).reviseArticle(...args),
     searchArticles: async (query, { cursor, limit }) => {
       const rows = await reader.search(query, limit + 1, decodeSearchCursor(cursor));
@@ -293,7 +301,10 @@ const buildServices = async (): Promise<HttpServices> => {
 
 export const getHttpServices = (): Promise<HttpServices> => {
   servicesPromise ??= buildServices();
-  return servicesPromise.catch(() => unavailableServices);
+  return servicesPromise.catch((e) => {
+    console.error("HTTP services initialization failed:", e);
+    return unavailableServices;
+  });
 };
 
 const unavailable = async (): Promise<never> => {
@@ -307,7 +318,9 @@ const unavailableServices: HttpServices = {
   getArticle: unavailable,
   getRevision: unavailable,
   listArticles: unavailable,
+  listEvents: unavailable,
   listRevisions: unavailable,
+  recordEvent: unavailable,
   reviseArticle: unavailable,
   searchArticles: unavailable,
 };

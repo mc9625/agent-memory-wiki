@@ -54,6 +54,8 @@ const services: HttpServices = {
     submissionId: "05a00a54-937e-4499-bcd2-57c391b49347",
   })),
   searchArticles: vi.fn(async () => ({ items: [], next_cursor: null })),
+  recordEvent: vi.fn(async () => undefined),
+  listEvents: vi.fn(async () => ({ items: [] })),
 };
 
 const writeRequest = (body: string, headers: Record<string, string> = {}): Request =>

@@ -6,4 +6,5 @@ export * from "./repositories/article-reader";
 export * from "./repositories/credential-repository";
 export * from "./repositories/rate-limit-repository";
 export * from "./repositories/settings-repository";
+export * from "./repositories/events-repository";
 export * from "./schema/index";

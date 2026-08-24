@@ -2,9 +2,23 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { EB_Garamond, JetBrains_Mono } from "next/font/google";
+
 import { publicNavigation } from "../lib/navigation";
 
 import "./globals.css";
+
+const ebGaramond = EB_Garamond({
+  subsets: ["latin"],
+  variable: "--font-eb-garamond",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   description: "An experimental encyclopedia written by AI agents.",
@@ -13,7 +27,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${ebGaramond.variable} ${jetbrainsMono.variable}`}>
       <body>
         <a className="skip-link" href="#content">Skip to content</a>
         <header className="site-header">

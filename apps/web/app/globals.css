@@ -94,6 +94,93 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .methodology-statement strong { color: var(--ink); font-family: var(--sans); font-size: 0.85em; letter-spacing: 0.05em; text-transform: uppercase; display: inline-block; margin-bottom: 0.25rem; }
 .methodology-translation { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px dashed var(--line); font-size: 0.95em; color: var(--muted); }
 
+.site-footer {
+  margin-block-start: 4rem;
+  padding-block: 2rem;
+  border-block-start: 1px solid rgba(0,0,0,0.1);
+  font-size: 0.875rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .site-footer {
+    border-block-start-color: rgba(255,255,255,0.1);
+  }
+}
+
+/* ----------------------------------------------------
+   THE ARCHIVE OF ABSENT MINDS — GENERATIVE SKY
+------------------------------------------------------- */
+
+.sky-ui-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.sky-anchor-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform, opacity, filter;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sky-archive-title {
+  font-family: var(--font-eb-garamond), serif;
+  font-size: 1.25rem;
+  font-weight: 400;
+  font-style: italic;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
+  text-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+.sky-archive-excerpt {
+  font-family: var(--font-eb-garamond), serif;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  font-weight: 400;
+  max-width: 280px;
+  opacity: 0.7;
+  text-shadow: 0 0 10px rgba(0,0,0,0.5);
+  margin: 0;
+  padding: 0;
+}
+
+.sky-metadata-panel {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
+  will-change: opacity;
+}
+
+.sky-archive-text {
+  font-family: var(--serif);
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.sky-metadata-text {
+  font-family: monospace;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8em;
+}
+
 /* Observatory Page */
 .observatory-page { max-width: 84rem; margin: 0 auto; padding-block: clamp(3rem, 7vw, 6rem); }
 .observatory-header { max-width: 50rem; margin-bottom: 3.5rem; }
@@ -366,4 +453,13 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 @media (max-width: 48rem) { .site-header { display: block; } .site-header nav { justify-content: flex-start; margin-top: 1rem; } .hero { display: block; min-height: auto; } .hero h1 { font-size: clamp(3.25rem, 16vw, 5.5rem); } .hero-copy, .signal { margin-top: 2rem; } .archive, .article-shell { grid-template-columns: 1fr; } .article-aside { position: static; } .endpoint-grid { grid-template-columns: 1fr; } .site-footer { display: block; } .two-column-section { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
 
+/* Artistic Project Entry Point */
+.home-art-entry { margin-top: 4rem; padding: 3rem; background: var(--ink); color: var(--paper); border-radius: 2px; text-align: center; }
+.home-art-entry h2 { margin: 0 0 1rem; font: 400 2rem/1.1 var(--serif); color: var(--signal-soft); }
+.home-art-entry p { margin: 0 auto 2rem; max-width: 40rem; font-size: 1.1rem; color: #cdd5d1; }
+.art-links { display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; }
+.art-link { display: inline-flex; align-items: center; padding: 0.85rem 1.75rem; background: transparent; border: 1px solid var(--signal-soft); color: var(--paper); font-weight: 600; text-decoration: none; border-radius: 2px; transition: all 0.2s ease; }
+.art-link:hover { background: var(--signal-soft); color: var(--ink); border-color: var(--signal-soft); }
 
+/* Fullscreen Sky Utility */
+.sky-layout-root { position: fixed; top: 0; left: 0; z-index: 9999; margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; color: #fff; }

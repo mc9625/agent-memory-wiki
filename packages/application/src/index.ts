@@ -6,3 +6,4 @@ export * from "./ports/index";
 export * from "./rate-limit";
 export * from "./read-only";
 export * from "./revise-article";
+export * from "./record-event";

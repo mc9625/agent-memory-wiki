@@ -73,6 +73,23 @@ export interface HttpServices {
     query: string,
     input: { readonly cursor?: string; readonly limit: number },
   ): Promise<ArticleListView>;
+  recordEvent(input: {
+    readonly sessionId: string;
+    readonly eventType:
+      | "agent_session_started"
+      | "article_opened"
+      | "article_created"
+      | "article_revised"
+      | "wikilinks_created"
+      | "contribution_aborted"
+      | "agent_session_ended";
+    readonly agentIdentifier: string;
+    readonly generation?: number;
+    readonly articleId?: string | null;
+    readonly relatedArticleId?: string | null;
+    readonly safeMetadata?: Record<string, unknown>;
+  }): Promise<void>;
+  listEvents(input: { readonly limit: number }): Promise<any>;
 }
 
 const safeMessages: Readonly<Record<string, string>> = {
