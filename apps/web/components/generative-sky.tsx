@@ -43,6 +43,7 @@ export interface AgentSession {
 export type CueType =
   | "arrival"
   | "encounter"
+  | "extrusion"
   | "traversal"
   | "creation"
   | "revision"
@@ -72,6 +73,7 @@ export interface CurrentInteractionState {
   phase: CueType;
   progress: number; // 0..1
   agentPosition: THREE.Vector3;
+  traversalDirection?: THREE.Vector3 | undefined;
   fromAnchor?: SimAnchor | undefined;
   toAnchor?: SimAnchor | undefined;
   targetAnchor?: SimAnchor | undefined;
@@ -82,6 +84,10 @@ export interface CurrentInteractionState {
 export interface SampledVisualState {
   agentEnergy: number;
   agentRadius: number;
+  traversalDirection: THREE.Vector3;
+  alignmentStrength: number;
+  speedResponse: number;
+  traversalTargetSpeed: number;
   activeAnchorPos: THREE.Vector3;
   activeAnchorVortex: number;
   activeAnchorPull: number;
@@ -135,10 +141,14 @@ uniform float confinementStrength;
 uniform float damping;
 uniform float maxSpeed;
 
-// Agent Disturbance Field
+// Agent Traversal & Moving Wave Packet
 uniform vec3 agentPos;
+uniform vec3 traversalDirection;
 uniform float agentEnergy;
 uniform float agentRadius;
+uniform float alignmentStrength;
+uniform float speedResponse;
+uniform float traversalTargetSpeed;
 
 // Article Anchors & Local Excitation (swirl + turbulence, zero gravitational collapse)
 uniform vec3 activeAnchorPos;
@@ -177,26 +187,39 @@ void main() {
   } else if (d > 0.95) {
     radialForce = -smoothstep(0.95, 0.95 + falloff, d) * confinementStrength;
   }
-  // Pushes along outwardDir: positive = outward, negative = inward
   flow += outwardDir * radialForce;
 
-  // 3. Agent Disturbance Field (divergence-free fluid wake)
-  vec3 toAgent = agentPos - pos;
-  float distToAgent = length(toAgent);
-  if (distToAgent < agentRadius && agentEnergy > 0.001) {
-     float influence = smoothstep(agentRadius, 0.0, distToAgent);
-     vec3 agentTurbulence = curlNoise(pos * 0.04 + time * 0.8 + agentPos * 0.01);
-     flow += agentTurbulence * influence * agentEnergy * 140.0;
+  // 3. Traversal Wave Packet & Directional Combing (Anisotropic elongated packet)
+  vec3 relAgent = pos - agentPos;
+  vec3 tDir = length(traversalDirection) > 0.001 ? normalize(traversalDirection) : vec3(1.0, 0.0, 0.0);
+  float longitudinal = dot(relAgent, tDir);
+  vec3 radialVec = relAgent - tDir * longitudinal;
+  float radialDist = length(radialVec);
+
+  // Anisotropic elongated packet falloff: length [-160, +120], radial width [0, 110]
+  float longFalloff = smoothstep(-160.0, -10.0, longitudinal) * (1.0 - smoothstep(10.0, 120.0, longitudinal));
+  float radFalloff = 1.0 - smoothstep(0.0, 110.0, radialDist);
+  float waveInfluence = longFalloff * radFalloff * agentEnergy;
+
+  if (waveInfluence > 0.001) {
+    // Directional Alignment >> Speed Response (Combing without snowstorm acceleration)
+    float curSpeed = length(vel);
+    vec3 curDir = curSpeed > 0.001 ? vel / curSpeed : tDir;
+    vec3 alignedDir = normalize(mix(curDir, tDir, waveInfluence * alignmentStrength));
+    float newSpeed = mix(curSpeed, traversalTargetSpeed, waveInfluence * speedResponse);
+    
+    // Gentle fluid flutter to preserve organic wake texture
+    vec3 flutter = curlNoise(pos * 0.025 + time * 0.35 + agentPos * 0.01) * (1.0 - alignmentStrength * 0.65);
+    vel = alignedDir * newSpeed + flutter * (waveInfluence * 18.0);
   }
 
   // 4. Active Anchor (Localized fluid eddy, gentle organic curl)
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 220.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
-      float influence = smoothstep(220.0, 0.0, distToActive);
-      // Divergence-free rotational eddy around anchor (curl noise ring)
+  if (distToActive < 240.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
+      float influence = smoothstep(240.0, 0.0, distToActive);
       vec3 anchorTurbulence = curlNoise(pos * 0.02 + time * 0.25 + activeAnchorPos * 0.05);
-      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 55.0;
+      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 60.0;
   }
 
   // Velocity integration
@@ -222,6 +245,9 @@ uniform sampler2D textureVelocity;
 uniform float cameraZ;
 uniform vec3 activeAnchorPos;
 uniform float activeAnchorExcitation;
+uniform vec3 agentPos;
+uniform vec3 traversalDirection;
+uniform float agentEnergy;
 
 varying vec3 vColor;
 varying float vAlpha;
@@ -238,19 +264,33 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Local luminous excitation and gentle, moderate shimmer around active anchor
+  // 1. Local luminous excitation around active anchor
   float distToAnchor = length(pos - activeAnchorPos);
   float anchorGlow = 0.0;
   if (distToAnchor < 240.0 && activeAnchorExcitation > 0.01) {
     anchorGlow = smoothstep(240.0, 0.0, distToAnchor) * clamp(activeAnchorExcitation, 0.0, 1.0);
   }
 
-  // Moderate, refined point size: 2.2 base + at most 0.40 boost (only ~18% larger, fine & crisp)
-  gl_PointSize = (1000.0 / -mvPosition.z) * (2.2 + anchorGlow * 0.40);
+  // 2. Anisotropic elongated wave packet optical emphasis
+  vec3 relAgent = pos - agentPos;
+  vec3 tDir = length(traversalDirection) > 0.001 ? normalize(traversalDirection) : vec3(1.0, 0.0, 0.0);
+  float longitudinal = dot(relAgent, tDir);
+  vec3 radialVec = relAgent - tDir * longitudinal;
+  float radialDist = length(radialVec);
+
+  float longFalloff = smoothstep(-160.0, -10.0, longitudinal) * (1.0 - smoothstep(10.0, 120.0, longitudinal));
+  float radFalloff = 1.0 - smoothstep(0.0, 110.0, radialDist);
+  float waveInfluence = longFalloff * radFalloff * agentEnergy;
+
+  // Moderate optical emphasis coupled to wave packet: size (+15-22%), brightness (+20-32%)
+  float sizeBoost = 1.0 + anchorGlow * 0.20 + waveInfluence * 0.22;
+  float brightnessBoost = 1.0 + anchorGlow * 0.28 + waveInfluence * 0.32;
+
+  gl_PointSize = (1000.0 / -mvPosition.z) * (2.2 * sizeBoost);
   
-  // Speed-based brightness + moderate, elegant luminous shimmer
+  // Speed-based brightness + coupled optical emphasis
   float speed = length(vel);
-  vAlpha = (smoothstep(0.0, 90.0, speed) * 0.40 + 0.35) + anchorGlow * 0.28;
+  vAlpha = (smoothstep(0.0, 90.0, speed) * 0.40 + 0.35) * brightnessBoost;
   
   // Depth attenuation
   float depthDist = abs(mvPosition.z);
@@ -328,6 +368,26 @@ function evaluateCubicBezier(
   );
 }
 
+function evaluateCubicBezierDerivative(
+  p0: THREE.Vector3,
+  c1: THREE.Vector3,
+  c2: THREE.Vector3,
+  p1: THREE.Vector3,
+  t: number
+): THREE.Vector3 {
+  const inv = 1 - t;
+  const d = new THREE.Vector3(
+    3 * inv * inv * (c1.x - p0.x) + 6 * inv * t * (c2.x - c1.x) + 3 * t * t * (p1.x - c2.x),
+    3 * inv * inv * (c1.y - p0.y) + 6 * inv * t * (c2.y - c1.y) + 3 * t * t * (p1.y - c2.y),
+    3 * inv * inv * (c1.z - p0.z) + 6 * inv * t * (c2.z - c1.z) + 3 * t * t * (p1.z - c2.z)
+  );
+  if (d.lengthSq() > 0.0001) {
+    return d.normalize();
+  }
+  const fallback = new THREE.Vector3().subVectors(p1, p0);
+  return fallback.lengthSq() > 0.0001 ? fallback.normalize() : new THREE.Vector3(1, 0, 0);
+}
+
 function buildSessionsAndCues(
   articles: readonly SkyArticle[],
   events: readonly SkyEvent[],
@@ -400,8 +460,6 @@ function buildSessionsAndCues(
     }
   }
 
-
-
   // Filter valid sessions that have articles currently existing in the archive
   const validSessions: AgentSession[] = [];
   for (const session of sessions) {
@@ -468,10 +526,25 @@ function buildSessionsAndCues(
         let isCont = false;
         if (currentAnchor && currentAnchor.id !== target.id) {
           const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
+          
+          // Extrusion & Detachment (2.0s)
+          cues.push({
+            id: `ext-${session.sessionId}-${i}`,
+            type: "extrusion",
+            duration: 2.0,
+            fromAnchor: currentAnchor,
+            toAnchor: target,
+            controlPoints: [c1, c2],
+            agentIdentifier,
+            generation,
+            timestamp: ev.createdAt,
+          });
+
+          // Coherent Traversal Wave (4.0s)
           cues.push({
             id: `trav-${session.sessionId}-${i}`,
             type: "traversal",
-            duration: 4.5,
+            duration: 4.0,
             fromAnchor: currentAnchor,
             toAnchor: target,
             controlPoints: [c1, c2],
@@ -497,6 +570,21 @@ function buildSessionsAndCues(
         let isCont = false;
         if (currentAnchor && currentAnchor.id !== target.id) {
           const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
+          
+          // Extrusion & Detachment (2.0s)
+          cues.push({
+            id: `ext-${session.sessionId}-${i}`,
+            type: "extrusion",
+            duration: 2.0,
+            fromAnchor: currentAnchor,
+            toAnchor: target,
+            controlPoints: [c1, c2],
+            agentIdentifier,
+            generation,
+            timestamp: ev.createdAt,
+          });
+
+          // Coherent Traversal Wave (4.0s)
           cues.push({
             id: `trav-${session.sessionId}-${i}`,
             type: "traversal",
@@ -526,6 +614,21 @@ function buildSessionsAndCues(
         let isCont = false;
         if (currentAnchor && currentAnchor.id !== target.id) {
           const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
+          
+          // Extrusion & Detachment (2.0s)
+          cues.push({
+            id: `ext-${session.sessionId}-${i}`,
+            type: "extrusion",
+            duration: 2.0,
+            fromAnchor: currentAnchor,
+            toAnchor: target,
+            controlPoints: [c1, c2],
+            agentIdentifier,
+            generation,
+            timestamp: ev.createdAt,
+          });
+
+          // Coherent Traversal Wave (4.0s)
           cues.push({
             id: `trav-${session.sessionId}-${i}`,
             type: "traversal",
@@ -584,8 +687,13 @@ function sampleVisualState(
   const { phase, progress } = interaction;
   const typographyPresences = new Map<string, { opacity: number; scale: number; isCurrent: boolean }>();
 
-  let agentEnergy: number;
+  let agentEnergy = 0.0;
   const agentRadius = 180.0;
+  let traversalDirection = new THREE.Vector3(1, 0, 0);
+  let alignmentStrength = 0.0;
+  let speedResponse = 0.15;
+  let traversalTargetSpeed = 80.0;
+
   const activeAnchorPos = new THREE.Vector3(0, 0, 0);
   let activeAnchorVortex = 0.0;
   const activeAnchorPull = 0.0;
@@ -611,29 +719,31 @@ function sampleVisualState(
       agentEnergy = Math.min(1.0, progress * 1.5);
       registerOpacity = THREE.MathUtils.smoothstep(progress, 0.1, 0.7) * 0.75;
       globalEnergy = THREE.MathUtils.lerp(baseParams.globalEnergy, 0.45, progress);
+      alignmentStrength = 0.35 * (1.0 - progress);
       if (interaction.targetAnchor) {
         activeAnchorPos.copy(interaction.targetAnchor.pos);
+        traversalDirection.subVectors(interaction.targetAnchor.pos, interaction.agentPosition).normalize();
       }
       break;
     }
 
     case "encounter": {
-      agentEnergy = 1.0;
+      agentEnergy = 0.2; // Absorbed into anchor
       registerOpacity = 0.75;
       globalEnergy = 0.42;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Gentle organic excitation: peaks at 0.40, softly eases to 0.25 for quiet reading
-        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.45 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.40) * 0.40 * easeDecay;
+        // Pre-title frenzy: 0.0 -> 0.35 initial vortex excitement, relaxes softly 0.65 -> 1.0
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.65, 1.0) * 0.50;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.30) * 0.55 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.50 * easeDecay;
 
-        // Typography emergence:
-        // 0.0 -> 0.35: invisible (only subtle physical flow)
+        // Typography crystallization:
+        // 0.0 -> 0.35: invisible (local frenzy prepares the region)
         // 0.35 -> 0.65: smooth fade in (0.0 -> 0.95)
-        // 0.65 -> 1.0: STAYS completely visible and legible (0.95)
+        // 0.65 -> 1.0: STAYS fully visible and legible (0.95)
         const textOpacity = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
 
         typographyPresences.set(target.id, {
@@ -645,49 +755,84 @@ function sampleVisualState(
       break;
     }
 
-    case "traversal": {
-      agentEnergy = 1.0;
+    case "extrusion": {
+      // Release as Extrusion: local field around A stretches toward B, packet detaches
       registerOpacity = 0.75;
-      globalEnergy = 0.45;
-      localTurbulence = 0.4;
+      globalEnergy = 0.44;
+      speedResponse = 0.15;
+      traversalTargetSpeed = 80.0;
 
-      activeAnchorPos.copy(interaction.agentPosition);
+      if (interaction.fromAnchor && interaction.toAnchor && interaction.controlPoints) {
+        activeAnchorPos.copy(interaction.fromAnchor.pos);
+        const [c1, c2] = interaction.controlPoints;
+        // Direction pointing along initial Bézier trajectory
+        traversalDirection = evaluateCubicBezierDerivative(interaction.fromAnchor.pos, c1, c2, interaction.toAnchor.pos, 0.0);
 
-      // Traversal from A -> B:
-      // A fades from 0.95 -> 0.15 during progress 0.0 -> 0.50
-      if (interaction.fromAnchor) {
-        const aFade = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.50);
-        const aOpacity = 0.15 + 0.80 * aFade;
+        // Packet stretches and detaches from Anchor A
+        agentEnergy = THREE.MathUtils.smoothstep(progress, 0.0, 1.0) * 0.95;
+        alignmentStrength = THREE.MathUtils.smoothstep(progress, 0.0, 1.0) * 0.85;
+
+        // Anchor A vortex relaxes as matter is drawn out
+        const aRelease = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.80);
+        activeAnchorVortex = aRelease * 0.30;
+        localTurbulence = aRelease * 0.25;
+
+        // Anchor A typography smoothly fades out during release
+        const aFade = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.70);
         typographyPresences.set(interaction.fromAnchor.id, {
-          opacity: aOpacity,
+          opacity: aFade * 0.95,
           scale: 0.98,
           isCurrent: false,
         });
       }
+      break;
+    }
 
-      // B begins physical excitation only when approaching (progress > 0.75)
-      if (interaction.toAnchor && progress > 0.75) {
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.35;
+    case "traversal": {
+      registerOpacity = 0.75;
+      globalEnergy = 0.45;
+      alignmentStrength = 0.85; // Strong directional combing
+      speedResponse = 0.16; // Gentle speed response, no snowstorm
+      traversalTargetSpeed = 95.0;
+
+      if (interaction.fromAnchor && interaction.toAnchor && interaction.controlPoints) {
+        const [c1, c2] = interaction.controlPoints;
+        traversalDirection = evaluateCubicBezierDerivative(interaction.fromAnchor.pos, c1, c2, interaction.toAnchor.pos, progress);
+
+        // Staged Handover to Anchor B:
+        // progress 0.0 -> 0.65: Traveling wave moves at full energy
+        // progress 0.65 -> 1.0: Wave is absorbed into Anchor B (energy 1.0 -> 0.25, Anchor B excitation 0.0 -> 0.60)
+        if (progress < 0.65) {
+          agentEnergy = 1.0;
+          activeAnchorPos.copy(interaction.agentPosition);
+        } else {
+          const handover = THREE.MathUtils.smoothstep(progress, 0.65, 1.0);
+          agentEnergy = 1.0 - handover * 0.75;
+          activeAnchorPos.copy(interaction.toAnchor.pos);
+          activeAnchorVortex = handover * 0.60;
+          localTurbulence = handover * 0.50;
+          condensation = handover * 0.40;
+        }
       }
       break;
     }
 
     case "creation": {
-      agentEnergy = 1.1;
+      agentEnergy = 0.2; // Absorbed
       registerOpacity = 0.75;
       globalEnergy = 0.48;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Phase 1: gentle swirl and condensation in field (0.0 -> 0.50), relaxes softly (0.75 -> 1.0)
-        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.75, 1.0) * 0.35;
-        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.55 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.10, 0.50) * 0.60 * easeDecay;
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.55) * 0.50 * easeDecay;
+        // Phase 1: local frenzy and condensation (0.0 -> 0.45), relaxes softly (0.70 -> 1.0)
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
+        condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.40) * 0.55 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.60 * easeDecay;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.05, 0.50) * 0.50 * easeDecay;
 
-        // Phase 2: late text crystallisation (0.50 -> 0.75) and stays fully visible until cue ends
-        const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
+        // Phase 2: text crystallization (0.45 -> 0.70) and stays fully visible until cue ends
+        const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.45, 0.70) * 0.95;
         typographyPresences.set(target.id, {
           opacity: crystallisation,
           scale: 1.0,
@@ -698,18 +843,18 @@ function sampleVisualState(
     }
 
     case "revision": {
-      agentEnergy = 1.1;
+      agentEnergy = 0.2;
       registerOpacity = 0.75;
       globalEnergy = 0.46;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.35;
-        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * 0.50 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.50 * easeDecay;
+        const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
+        localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.40) * 0.50 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.45) * 0.50 * easeDecay;
 
-        const pulse = interaction.isContinuation ? 0.95 : Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
+        const pulse = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.40, 0.65) * 0.95;
         typographyPresences.set(target.id, {
           opacity: pulse,
           scale: 1.0,
@@ -720,17 +865,17 @@ function sampleVisualState(
     }
 
     case "departure": {
-      agentEnergy = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.9);
-      registerOpacity = (1.0 - THREE.MathUtils.smoothstep(progress, 0.3, 0.95)) * 0.75;
+      // Loss of Coherence: gradual decay of alignment and excitation, ambient field takes over smoothly
+      const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
+      agentEnergy = settle * 0.60;
+      alignmentStrength = settle * 0.40;
+      registerOpacity = settle * 0.75;
       globalEnergy = THREE.MathUtils.lerp(0.45, baseParams.globalEnergy, progress);
 
-      // Active anchor and physical swirl smoothly decay into the cloud
       if (interaction.fromAnchor) {
         activeAnchorPos.copy(interaction.fromAnchor.pos);
-        const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
-        activeAnchorVortex = settle * 0.35;
-        localTurbulence = settle * 0.30;
-        condensation = settle * 0.25;
+        activeAnchorVortex = settle * 0.25;
+        localTurbulence = settle * 0.20;
 
         typographyPresences.set(interaction.fromAnchor.id, {
           opacity: settle * 0.95,
@@ -749,7 +894,6 @@ function sampleVisualState(
       if (target) {
         activeAnchorPos.copy(target.pos);
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.4) * (1.0 - THREE.MathUtils.smoothstep(progress, 0.7, 1.0));
-        // Soft deposit appearance: emerges 0.2 -> 0.5, stays legible 0.5 -> 0.85, gently settles 0.85 -> 1.0
         let depositFade = THREE.MathUtils.smoothstep(progress, 0.2, 0.5);
         if (progress > 0.85) {
           depositFade *= (1.0 - THREE.MathUtils.smoothstep(progress, 0.85, 1.0));
@@ -775,6 +919,10 @@ function sampleVisualState(
   return {
     agentEnergy,
     agentRadius,
+    traversalDirection,
+    alignmentStrength,
+    speedResponse,
+    traversalTargetSpeed,
     activeAnchorPos,
     activeAnchorVortex,
     activeAnchorPull,
@@ -951,8 +1099,12 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     velUniforms["damping"] = { value: PARAMS.damping };
     velUniforms["maxSpeed"] = { value: PARAMS.maxSpeed };
     velUniforms["agentPos"] = { value: new THREE.Vector3(0, 0, 0) };
+    velUniforms["traversalDirection"] = { value: new THREE.Vector3(1, 0, 0) };
     velUniforms["agentEnergy"] = { value: 0.0 };
     velUniforms["agentRadius"] = { value: PARAMS.agentRadius };
+    velUniforms["alignmentStrength"] = { value: 0.0 };
+    velUniforms["speedResponse"] = { value: 0.15 };
+    velUniforms["traversalTargetSpeed"] = { value: 80.0 };
     velUniforms["activeAnchorPos"] = { value: new THREE.Vector3(0, 0, 0) };
     velUniforms["activeAnchorPull"] = { value: 0.0 };
     velUniforms["activeAnchorVortex"] = { value: 0.0 };
@@ -979,6 +1131,9 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         textureVelocity: { value: null },
         activeAnchorPos: { value: new THREE.Vector3(0, 0, 0) },
         activeAnchorExcitation: { value: 0.0 },
+        agentPos: { value: new THREE.Vector3(0, 0, 0) },
+        traversalDirection: { value: new THREE.Vector3(1, 0, 0) },
+        agentEnergy: { value: 0.0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -1043,6 +1198,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
           const [c1, c2] = currentCue.controlPoints;
           const pos = evaluateCubicBezier(currentCue.fromAnchor.pos, c1, c2, currentCue.toAnchor.pos, cueProgress);
           currentAgentPos.copy(pos);
+        } else if (currentCue.type === "extrusion" && currentCue.fromAnchor) {
+          currentAgentPos.copy(currentCue.fromAnchor.pos);
         } else if (currentCue.type === "arrival" && currentCue.targetAnchor) {
           currentAgentPos.lerpVectors(new THREE.Vector3(0, 0, 600), currentCue.targetAnchor.pos, cueProgress);
         } else if (currentCue.targetAnchor) {
@@ -1088,8 +1245,12 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       vMat["maxSpeed"]!.value = PARAMS.maxSpeed;
       vMat["agentRadius"]!.value = sampled.agentRadius;
       vMat["agentEnergy"]!.value = sampled.agentEnergy;
+      vMat["alignmentStrength"]!.value = sampled.alignmentStrength;
+      vMat["speedResponse"]!.value = sampled.speedResponse;
+      vMat["traversalTargetSpeed"]!.value = sampled.traversalTargetSpeed;
 
       (vMat["agentPos"]!.value as THREE.Vector3).copy(currentAgentPos);
+      (vMat["traversalDirection"]!.value as THREE.Vector3).copy(sampled.traversalDirection);
       (vMat["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
       vMat["activeAnchorPull"]!.value = sampled.activeAnchorPull;
       vMat["activeAnchorVortex"]!.value = sampled.activeAnchorVortex;
@@ -1104,6 +1265,9 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       particleMaterial.uniforms["textureVelocity"]!.value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
       (particleMaterial.uniforms["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
       particleMaterial.uniforms["activeAnchorExcitation"]!.value = sampled.activeAnchorVortex + sampled.localTurbulence + sampled.condensation;
+      (particleMaterial.uniforms["agentPos"]!.value as THREE.Vector3).copy(currentAgentPos);
+      (particleMaterial.uniforms["traversalDirection"]!.value as THREE.Vector3).copy(sampled.traversalDirection);
+      particleMaterial.uniforms["agentEnergy"]!.value = sampled.agentEnergy;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
