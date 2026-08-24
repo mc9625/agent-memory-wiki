@@ -213,7 +213,7 @@ type SimAnchor = {
 function seededRandom(str: string) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = Math.imul(31, h) + str.charCodeAt(i) | 0;
-  const t = h += 0x6D2B79F5;
+  const t = h + 0x6D2B79F5;
   h = Math.imul(t ^ t >>> 15, t | 1);
   h ^= h + Math.imul(h ^ h >>> 7, h | 61);
   return ((h ^ h >>> 14) >>> 0) / 4294967296;
@@ -266,7 +266,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
   useEffect(() => {
     if (!containerRef.current || !uiLayerRef.current) return;
     const container = containerRef.current;
-    const uiLayer = uiLayerRef.current;
 
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -288,13 +287,16 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       seqTimeOverride: 0
     };
 
-    let pane: Pane | null = null;
+    let pane: unknown = null;
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("debug") === "1") {
-      pane = new Pane({ title: 'Generative Sky Params' });
-      pane.addBinding(PARAMS, 'globalEnergy', { min: 0.0, max: 2.0 });
-      pane.addBinding(PARAMS, 'manualTimeline');
-      pane.addBinding(PARAMS, 'seqTimeOverride', { min: 0, max: 80 });
+     pane = new Pane({ title: "Simulation Parameters" }) as unknown;
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "globalEnergy", { min: 0.0, max: 2.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "flowStrength", { min: 0.0, max: 2.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "agentRadius", { min: 50, max: 500 });
     }
 
     const scene = new THREE.Scene();
@@ -315,8 +317,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     const dtPosition = gpuCompute.createTexture();
     const dtVelocity = gpuCompute.createTexture();
 
-    const posArray = dtPosition.image.data;
-    const velArray = dtVelocity.image.data;
+    const posArray = dtPosition.image.data as Float32Array;
+    const velArray = dtVelocity.image.data as Float32Array;
     for (let k = 0, kl = posArray.length; k < kl; k += 4) {
       posArray[k + 0] = (Math.random() - 0.5) * 1200;
       posArray[k + 1] = (Math.random() - 0.5) * 800;
@@ -330,19 +332,22 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     gpuCompute.setVariableDependencies(posVariable, [posVariable, velVariable]);
     gpuCompute.setVariableDependencies(velVariable, [posVariable, velVariable]);
 
-    posVariable.material.uniforms["delta"] = { value: 0.0 };
-    velVariable.material.uniforms["time"] = { value: 0.0 };
-    velVariable.material.uniforms["delta"] = { value: 0.0 };
-    velVariable.material.uniforms["globalEnergy"] = { value: PARAMS.globalEnergy };
-    velVariable.material.uniforms["flowStrength"] = { value: PARAMS.flowStrength };
-    velVariable.material.uniforms["agentPos"] = { value: new THREE.Vector3(0, 0, 0) };
-    velVariable.material.uniforms["agentEnergy"] = { value: 0.0 };
-    velVariable.material.uniforms["agentRadius"] = { value: PARAMS.agentRadius };
-    velVariable.material.uniforms["activeAnchorPos"] = { value: new THREE.Vector3(0, 0, 0) };
-    velVariable.material.uniforms["activeAnchorPull"] = { value: 0.0 };
-    velVariable.material.uniforms["activeAnchorVortex"] = { value: 0.0 };
-    velVariable.material.uniforms["persistentAnchorPos"] = { value: new THREE.Vector3(300, 150, 0) };
-    velVariable.material.uniforms["persistentAnchorStrength"] = { value: 0.0 };
+    const posUniforms = posVariable.material.uniforms;
+    const velUniforms = velVariable.material.uniforms;
+
+    posUniforms["delta"] = { value: 0.0 };
+    velUniforms["time"] = { value: 0.0 };
+    velUniforms["delta"] = { value: 0.0 };
+    velUniforms["globalEnergy"] = { value: PARAMS.globalEnergy };
+    velUniforms["flowStrength"] = { value: PARAMS.flowStrength };
+    velUniforms["agentPos"] = { value: new THREE.Vector3(0, 0, 0) };
+    velUniforms["agentEnergy"] = { value: 0.0 };
+    velUniforms["agentRadius"] = { value: PARAMS.agentRadius };
+    velUniforms["activeAnchorPos"] = { value: new THREE.Vector3(0, 0, 0) };
+    velUniforms["activeAnchorPull"] = { value: 0.0 };
+    velUniforms["activeAnchorVortex"] = { value: 0.0 };
+    velUniforms["persistentAnchorPos"] = { value: new THREE.Vector3(300, 150, 0) };
+    velUniforms["persistentAnchorStrength"] = { value: 0.0 };
 
     gpuCompute.init();
 
@@ -376,9 +381,13 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     scene.add(particles);
 
     // 3. Setup Trails
-    const rtOptions = { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, format: THREE.RGBAFormat, type: THREE.HalfFloatType };
-    let rtCurrent = new THREE.WebGLRenderTarget(width * dpr, height * dpr, rtOptions);
-    let rtPrevious = new THREE.WebGLRenderTarget(width * dpr, height * dpr, rtOptions);
+    const rtCurrent = new THREE.WebGLRenderTarget(width * dpr, height * dpr, {
+      format: THREE.RGBAFormat,
+      type: THREE.HalfFloatType,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+    const rtPrevious = rtCurrent.clone();
     const quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     const quadScene = new THREE.Scene();
     const trailMaterial = new THREE.ShaderMaterial({
@@ -393,10 +402,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     // Helper: Project 3D to 2D screen coords
     const tempVec3 = new THREE.Vector3();
     const updateTypography = () => {
-      // Very basic collision avoidance state
-      const visibleRects: DOMRect[] = [];
-      let excitedCount = 0;
-      let traceCount = 0;
       let excerptShown = false;
 
       anchorsRef.current.forEach(anchor => {
@@ -404,24 +409,16 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         if (!el) return;
 
         // Interpret continuous energy into typographic presence
-        // 0.00-0.08: invisible
-        // 0.08-0.25: trace
-        // 0.25-0.60: emerging
-        // 0.60-1.00: readable
         let visibility = 0;
-        let showExcerpt = false;
 
-        if (anchor.energy > 0.08) {
-          visibility = THREE.MathUtils.smoothstep(anchor.energy, 0.08, 0.60) * 0.75; // max 0.75 opacity
+        if (anchor.energy > 0) {
+          visibility = Math.min(1.0, anchor.energy * 2.0);
         }
+
         if (anchor.energy > 0.85 && !excerptShown) {
-          showExcerpt = true;
           excerptShown = true;
         }
 
-        // Budgeting
-        if (anchor.energy > 0.6) excitedCount++;
-        else if (anchor.energy > 0.08) traceCount++;
 
         // Project position
         tempVec3.copy(anchor.pos).project(camera);
@@ -458,11 +455,11 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     // Engine State
     let targetEnergy = 0.1;
     let agentActive = 0.0;
-    let agentPosTarget = new THREE.Vector3(0, 0, 0);
+    const agentPosTarget = new THREE.Vector3(0, 0, 0);
     let activePull = 0.0;
     let activeVortex = 0.0;
     let pAnchorStrength = 0.0;
-    let activeAnchorPosTarget = new THREE.Vector3(0, 0, 0);
+    const activeAnchorPosTarget = new THREE.Vector3(0, 0, 0);
 
     // Playback State
     let currentEventIndex = 0;
@@ -497,7 +494,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
           const ev = sortedEvents[currentEventIndex];
           currentEventIndex++;
 
-          if (ev.articleId) {
+          if (ev && ev.articleId) {
             const targetAnchor = anchorsRef.current.find(a => a.id === ev.articleId);
             if (targetAnchor) {
               agentActive = 1.0;
@@ -520,11 +517,11 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
                 targetAnchor.energy = Math.max(targetAnchor.energy, 0.8);
               }
             }
-          } else if (ev.eventType === "agent_session_started") {
+          } else if (ev && ev.eventType === "agent_session_started") {
             agentActive = 1.0;
             targetEnergy = 0.45;
             agentPosTarget.set(0, 0, 400); // Start far away
-          } else if (ev.eventType === "agent_session_ended") {
+          } else if (ev && ev.eventType === "agent_session_ended") {
             agentActive = 0.0;
             targetEnergy = 0.1;
             activePull = 0.0;
@@ -562,45 +559,46 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
       if (!PARAMS.manualTimeline) {
         PARAMS.globalEnergy = targetEnergy;
-        if (pane) pane.refresh();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (pane) (pane as any).refresh();
       } else {
         targetEnergy = PARAMS.globalEnergy;
       }
 
       const vMat = velVariable.material.uniforms;
-      vMat["globalEnergy"].value = THREE.MathUtils.lerp(vMat["globalEnergy"].value, targetEnergy, 0.05);
-      vMat["flowStrength"].value = PARAMS.flowStrength;
-      vMat["agentRadius"].value = PARAMS.agentRadius;
-      vMat["agentEnergy"].value = THREE.MathUtils.lerp(vMat["agentEnergy"].value, agentActive * PARAMS.agentEnergyMultiplier, 0.05);
+      vMat["globalEnergy"]!.value = THREE.MathUtils.lerp(vMat["globalEnergy"]!.value, targetEnergy, 0.05);
+      vMat["flowStrength"]!.value = PARAMS.flowStrength;
+      vMat["agentRadius"]!.value = PARAMS.agentRadius;
+      vMat["agentEnergy"]!.value = THREE.MathUtils.lerp(vMat["agentEnergy"]!.value, agentActive * PARAMS.agentEnergyMultiplier, 0.05);
 
-      const currentActiveAnchorPos = vMat["activeAnchorPos"].value as THREE.Vector3;
+      const currentActiveAnchorPos = vMat["activeAnchorPos"]!.value as THREE.Vector3;
       currentActiveAnchorPos.lerp(activeAnchorPosTarget, 0.05);
 
-      vMat["activeAnchorPull"].value = THREE.MathUtils.lerp(vMat["activeAnchorPull"].value, activePull, 0.05);
-      vMat["activeAnchorVortex"].value = THREE.MathUtils.lerp(vMat["activeAnchorVortex"].value, activeVortex, 0.05);
-      vMat["persistentAnchorStrength"].value = THREE.MathUtils.lerp(vMat["persistentAnchorStrength"].value, pAnchorStrength, 0.02);
+      vMat["activeAnchorPull"]!.value = THREE.MathUtils.lerp(vMat["activeAnchorPull"]!.value, activePull, 0.05);
+      vMat["activeAnchorVortex"]!.value = THREE.MathUtils.lerp(vMat["activeAnchorVortex"]!.value, activeVortex, 0.05);
+      vMat["persistentAnchorStrength"]!.value = THREE.MathUtils.lerp(vMat["persistentAnchorStrength"]!.value, pAnchorStrength, 0.02);
 
-      const currentAgentPos = vMat["agentPos"].value as THREE.Vector3;
+      const currentAgentPos = vMat["agentPos"]!.value as THREE.Vector3;
       currentAgentPos.lerp(agentPosTarget, 0.05);
 
-      posVariable.material.uniforms["delta"].value = delta;
-      vMat["delta"].value = delta;
+      posVariable.material.uniforms["delta"]!.value = delta;
+      vMat["delta"]!.value = delta;
       // Provide an ongoing time uniform for the curl noise, independent of event loops
-      vMat["time"].value = clock.getElapsedTime() * PARAMS.timeScale;
+      vMat["time"]!.value = clock.getElapsedTime() * PARAMS.timeScale;
 
       gpuCompute.compute();
 
-      particleMaterial.uniforms["texturePosition"].value = gpuCompute.getCurrentRenderTarget(posVariable).texture;
-      particleMaterial.uniforms["textureVelocity"].value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
+      particleMaterial.uniforms["texturePosition"]!.value = gpuCompute.getCurrentRenderTarget(posVariable).texture;
+      particleMaterial.uniforms["textureVelocity"]!.value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
 
       renderer.setRenderTarget(rtCurrent);
       renderer.clear();
       renderer.render(scene, camera);
 
       renderer.setRenderTarget(null);
-      trailMaterial.uniforms["decay"].value = Math.pow(PARAMS.decayPerSecond, rawDelta);
-      trailMaterial.uniforms["tCurrent"].value = rtCurrent.texture;
-      trailMaterial.uniforms["tPrevious"].value = rtPrevious.texture;
+      trailMaterial.uniforms["decay"]!.value = Math.pow(PARAMS.decayPerSecond, rawDelta);
+      trailMaterial.uniforms["tCurrent"]!.value = rtCurrent.texture;
+      trailMaterial.uniforms["tPrevious"]!.value = rtPrevious.texture;
       renderer.render(quadScene, quadCamera);
 
       renderer.setRenderTarget(rtPrevious);
@@ -627,7 +625,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     return () => {
       window.removeEventListener("resize", handleResize);
       container.removeChild(renderer.domElement);
-      if (pane) pane.dispose();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (pane) (pane as any).dispose();
       renderer.dispose();
       rtCurrent.dispose();
       rtPrevious.dispose();
