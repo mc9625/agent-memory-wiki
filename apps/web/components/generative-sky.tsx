@@ -192,11 +192,11 @@ void main() {
   // 4. Active Anchor (Localized fluid eddy, ZERO gravitational sinkhole)
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 220.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
-      float influence = smoothstep(220.0, 0.0, distToActive);
+  if (distToActive < 280.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
+      float influence = smoothstep(280.0, 0.0, distToActive);
       // Divergence-free rotational eddy around anchor (curl noise ring)
-      vec3 anchorTurbulence = curlNoise(pos * 0.02 + time * 0.3 + activeAnchorPos * 0.05);
-      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 90.0;
+      vec3 anchorTurbulence = curlNoise(pos * 0.025 + time * 0.35 + activeAnchorPos * 0.05);
+      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 110.0;
   }
 
   // Velocity integration
@@ -220,6 +220,8 @@ const particleVertexShader = `
 uniform sampler2D texturePosition;
 uniform sampler2D textureVelocity;
 uniform float cameraZ;
+uniform vec3 activeAnchorPos;
+uniform float activeAnchorExcitation;
 
 varying vec3 vColor;
 varying float vAlpha;
@@ -236,12 +238,19 @@ void main() {
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 
-  // Particle size depends on depth - fine-tuned size
-  gl_PointSize = (1000.0 / -mvPosition.z) * 2.3;
+  // Local luminous excitation and size boost around active anchor
+  float distToAnchor = length(pos - activeAnchorPos);
+  float anchorGlow = 0.0;
+  if (distToAnchor < 260.0 && activeAnchorExcitation > 0.01) {
+    anchorGlow = smoothstep(260.0, 0.0, distToAnchor) * activeAnchorExcitation;
+  }
+
+  // Particle size depends on depth + local anchor glow
+  gl_PointSize = (1000.0 / -mvPosition.z) * (2.3 + anchorGlow * 1.5);
   
-  // Speed-based brightness - keep them visible and ethereal
+  // Speed-based brightness + anchor excitation glow
   float speed = length(vel);
-  vAlpha = smoothstep(0.0, 80.0, speed) * 0.4 + 0.35;
+  vAlpha = (smoothstep(0.0, 80.0, speed) * 0.4 + 0.35) + anchorGlow * 0.45;
   
   // Depth attenuation
   float depthDist = abs(mvPosition.z);
@@ -778,23 +787,30 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
   const anchorsRef = useRef<SimAnchor[]>([]);
   const uiLayerRef = useRef<HTMLDivElement>(null);
 
-  // Setup anchors from initialArticles
+  // Setup anchors from initialArticles situated inside active particle cloud
   useMemo(() => {
     anchorsRef.current = initialArticles.map((article) => {
-      const r1 = seededRandom(article.id + "x") - 0.5;
-      const r2 = seededRandom(article.id + "y") - 0.5;
-      const r3 = seededRandom(article.id + "z") - 0.5;
-      const r4 = seededRandom(article.id + "layout");
+      // Deterministic seeded spherical distribution inside active particle cloud
+      const u = seededRandom(article.id + "u");
+      const v = seededRandom(article.id + "v");
+      const rSeed = seededRandom(article.id + "r");
 
-      const layoutLayouts: SimAnchor["layoutPos"][] = ["upper-left", "upper-right", "lower-left", "lower-right", "lateral"];
-      const layoutPos = layoutLayouts[Math.floor(r4 * layoutLayouts.length)] || "lateral";
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      // Situate inside the core dense region (0.30 to 0.70 of field radii)
+      const r = 0.30 + rSeed * 0.40;
+      const sinPhi = Math.sin(phi);
+
+      const posX = r * sinPhi * Math.cos(theta) * 550.0;
+      const posY = r * sinPhi * Math.sin(theta) * 290.0;
+      const posZ = r * Math.cos(phi) * 240.0;
 
       return {
         id: article.id,
-        pos: new THREE.Vector3(r1 * 1000, r2 * 500, r3 * 600),
+        pos: new THREE.Vector3(posX, posY, posZ),
         title: article.title,
         excerpt: article.slug,
-        layoutPos,
+        layoutPos: "lateral",
       };
     });
   }, [initialArticles]);
@@ -945,6 +961,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       uniforms: {
         texturePosition: { value: null },
         textureVelocity: { value: null },
+        activeAnchorPos: { value: new THREE.Vector3(0, 0, 0) },
+        activeAnchorExcitation: { value: 0.0 },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -979,7 +997,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     const clock = new THREE.Clock();
 
     let cueIndex = 0;
-    let cueProgress = 0.0;
     let cueTimeElapsed = 0.0;
     const currentAgentPos = new THREE.Vector3(0, 0, 800);
 
@@ -990,11 +1007,19 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       const delta = rawDelta * PARAMS.timeScale;
       const cues = cuesRef.current;
 
-      // 4.1 Advance Choreography Sequencer
+      // 4.1 Advance Choreography Sequencer smoothly (without single-frame index desync)
+      if (cueIndex < cues.length) {
+        cueTimeElapsed += delta;
+        while (cueIndex < cues.length && cueTimeElapsed >= (cues[cueIndex]?.duration || 1.0)) {
+          cueTimeElapsed -= cues[cueIndex]!.duration;
+          cueIndex++;
+        }
+      }
+
       let currentCue: ChoreographyCue | undefined = cues[cueIndex];
+      let cueProgress: number;
 
       if (currentCue) {
-        cueTimeElapsed += delta;
         cueProgress = Math.min(1.0, cueTimeElapsed / Math.max(0.1, currentCue.duration));
 
         // Advance agent position along trajectory if in traversal or arrival
@@ -1007,13 +1032,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         } else if (currentCue.targetAnchor) {
           currentAgentPos.copy(currentCue.targetAnchor.pos);
         }
-
-        // Check cue completion
-        if (cueProgress >= 1.0) {
-          cueIndex++;
-          cueTimeElapsed = 0.0;
-          cueProgress = 0.0;
-        }
       } else {
         // Reached the present / live latent state
         currentCue = {
@@ -1021,6 +1039,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
           type: "silence",
           duration: 10.0,
         };
+        cueProgress = 1.0;
       }
 
       // 4.2 Sample Visual & Interaction State
@@ -1067,6 +1086,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
       particleMaterial.uniforms["texturePosition"]!.value = gpuCompute.getCurrentRenderTarget(posVariable).texture;
       particleMaterial.uniforms["textureVelocity"]!.value = gpuCompute.getCurrentRenderTarget(velVariable).texture;
+      (particleMaterial.uniforms["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
+      particleMaterial.uniforms["activeAnchorExcitation"]!.value = sampled.activeAnchorVortex + sampled.localTurbulence + sampled.condensation;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
@@ -1094,21 +1115,8 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         const x = (tempVec3.x * .5 + .5) * window.innerWidth;
         const y = (tempVec3.y * -.5 + .5) * window.innerHeight;
 
-        let offsetX = 0;
-        let offsetY = 0;
-        switch (anchor.layoutPos) {
-          case "upper-right": offsetX = 20; offsetY = -40; break;
-          case "lower-right": offsetX = 20; offsetY = 20; break;
-          case "upper-left": offsetX = -300; offsetY = -40; break;
-          case "lower-left": offsetX = -300; offsetY = 20; break;
-          case "lateral": offsetX = 40; offsetY = 0; break;
-        }
-
-        const safeX = Math.max(40, Math.min(window.innerWidth - 350, x + offsetX));
-        const safeY = Math.max(40, Math.min(window.innerHeight - 100, y + offsetY));
-
-        if (opacity > 0.01) {
-          el.style.transform = `translate3d(${safeX}px, ${safeY}px, 0)`;
+        if (opacity > 0.005) {
+          el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
           el.style.opacity = opacity.toFixed(3);
         } else {
           el.style.opacity = "0";
