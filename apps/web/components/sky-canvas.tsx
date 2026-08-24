@@ -196,6 +196,7 @@ export function SkyCanvas({ initialArticles, initialEvents }: SkyCanvasProps) {
         // Draw Trace Typography
         ctx.font = "300 10px ui-sans-serif, system-ui, sans-serif";
         if ('letterSpacing' in ctx) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (ctx as any).letterSpacing = "2px";
         }
         
@@ -215,6 +216,7 @@ export function SkyCanvas({ initialArticles, initialEvents }: SkyCanvasProps) {
         // Reset shadow for next items
         ctx.shadowBlur = 0;
         if ('letterSpacing' in ctx) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (ctx as any).letterSpacing = "0px";
         }
       });

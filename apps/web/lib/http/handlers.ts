@@ -89,7 +89,7 @@ export interface HttpServices {
     readonly relatedArticleId?: string | null;
     readonly safeMetadata?: Record<string, unknown>;
   }): Promise<void>;
-  listEvents(input: { readonly limit: number }): Promise<any>;
+  listEvents(input: { readonly limit: number }): Promise<unknown>;
 }
 
 const safeMessages: Readonly<Record<string, string>> = {

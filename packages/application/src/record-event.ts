@@ -1,4 +1,3 @@
-import type { Clock, IdGenerator } from "./ports/index.js";
 
 export type EventType =
   | "agent_session_started"
@@ -44,6 +43,7 @@ export class RecordEventService {
       generation: command.generation ?? 0,
       eventType: command.eventType,
       agentIdentifier: command.agentIdentifier,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
     if (command.articleId !== undefined) params.articleId = command.articleId;
     if (command.relatedArticleId !== undefined) params.relatedArticleId = command.relatedArticleId;

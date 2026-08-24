@@ -67,6 +67,7 @@ export const POST = async (request: Request) => {
       sessionId: parsed.data.sessionId,
       eventType: parsed.data.eventType,
       agentIdentifier: parsed.data.agentIdentifier,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
     if (parsed.data.generation !== undefined) params.generation = parsed.data.generation;
     if (parsed.data.articleId !== undefined) params.articleId = parsed.data.articleId;
