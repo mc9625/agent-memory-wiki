@@ -53,13 +53,10 @@ uniform vec3 agentPos;
 uniform float agentEnergy;
 uniform float agentRadius;
 
-// Article Anchors & Condensation
+// Article Anchors & Local Excitation (swirl + turbulence, zero gravitational collapse)
 uniform vec3 activeAnchorPos;
 uniform float activeAnchorPull;
 uniform float activeAnchorVortex;
-
-uniform vec3 persistentAnchorPos;
-uniform float persistentAnchorStrength;
 
 ${snoiseGLSL}
 
@@ -71,93 +68,57 @@ void main() {
   vec3 pos = tmpPos.xyz;
   vec3 vel = tmpVel.xyz;
 
-  // 1. Multi-scale Fluid Curl Noise (Organic internal morphology)
-  vec3 largeCurl = curlNoise(pos * 0.0018 + time * 0.035) * 0.55;
-  vec3 mediumCurl = curlNoise(pos * 0.008 + time * 0.075) * 0.30;
-  vec3 fineCurl = curlNoise(pos * 0.035 + time * 0.18) * 0.15;
+  // 1. Multi-scale Fluid Curl Noise (Organic internal morphology with continuous drift)
+  vec3 largeCurl = curlNoise(pos * 0.0028 + vec3(time * 0.04, time * 0.025, time * 0.03)) * 0.55;
+  vec3 mediumCurl = curlNoise(pos * 0.0085 + vec3(-time * 0.05, time * 0.055, time * 0.02)) * 0.30;
+  vec3 fineCurl = curlNoise(pos * 0.028 + vec3(time * 0.12, -time * 0.09, time * 0.06)) * 0.15;
   
   vec3 flow = (largeCurl + mediumCurl + fineCurl) * globalEnergy * flowStrength;
 
   // 2. Global Confinement Field (Ellipsoidal Equilibrium Shell)
+  vec3 toCenter = fieldCenter - pos;
+  float distToCenter = length(toCenter);
+  vec3 outwardDir = distToCenter > 0.001 ? -normalize(toCenter) : vec3(1.0, 0.0, 0.0);
+  
   vec3 normalizedPos = (pos - fieldCenter) / fieldRadii;
   float d = length(normalizedPos);
-  vec3 toCenter = fieldCenter - pos;
-  vec3 dir = length(toCenter) > 0.001 ? normalize(toCenter) : vec3(0.0);
 
+  // Equilibrium shell: outward push in core (d < 0.70) and inward return at perimeter (d > 0.95)
   float radialForce = 0.0;
-  if (d > outerRadius) {
-    // Gentle inward pressure outside the outer boundary
-    radialForce = smoothstep(outerRadius, outerRadius + falloff, d);
-  } else if (d < innerRadius) {
-    // Gentle outward pressure inside the core
-    radialForce = -smoothstep(innerRadius, 0.0, d);
+  if (d < 0.70) {
+    radialForce = smoothstep(0.70, 0.0, d) * (confinementStrength * 1.5);
+  } else if (d > 0.95) {
+    radialForce = -smoothstep(0.95, 0.95 + falloff, d) * confinementStrength;
   }
-  // Neutral zone between innerRadius and outerRadius has radialForce = 0.0
+  // Pushes along outwardDir: positive = outward, negative = inward
+  flow += outwardDir * radialForce;
 
-  // Weak homeostatic confinement (slow, weak, imperceptible long-term boundary)
-  flow += dir * radialForce * confinementStrength;
-
-  // 3. Agent Disturbance Field
+  // 3. Agent Disturbance Field (divergence-free fluid wake)
   vec3 toAgent = agentPos - pos;
   float distToAgent = length(toAgent);
   if (distToAgent < agentRadius && agentEnergy > 0.001) {
      float influence = smoothstep(agentRadius, 0.0, distToAgent);
-     vec3 agentTurbulence = curlNoise(pos * 0.08 + time * 1.2);
-     flow += agentTurbulence * influence * agentEnergy * 240.0;
-     flow += normalize(toAgent) * influence * agentEnergy * 40.0;
+     vec3 agentTurbulence = curlNoise(pos * 0.04 + time * 0.8 + agentPos * 0.01);
+     flow += agentTurbulence * influence * agentEnergy * 140.0;
   }
 
-  // 4. Active Anchor (Local condensation without singularity collapse)
+  // 4. Active Anchor (Localized fluid eddy, ZERO gravitational sinkhole)
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 450.0 && activeAnchorPull > 0.001) {
-      float influence = smoothstep(450.0, 0.0, distToActive);
-      vec3 activeDir = normalize(toActive);
-      
-      // Outer weak attraction + inner gentle repulsion to maintain balanced volume
-      float pullFactor = 0.0;
-      if (distToActive > 75.0) {
-          pullFactor = smoothstep(450.0, 110.0, distToActive);
-      } else {
-          pullFactor = -smoothstep(75.0, 10.0, distToActive) * 0.5;
-      }
-      flow += activeDir * pullFactor * activeAnchorPull * 120.0;
-
-      // Vortex swirl around anchor
-      vec3 vortexDir = cross(activeDir, vec3(0.0, 1.0, 0.15));
-      flow += normalize(vortexDir) * influence * activeAnchorVortex * 130.0;
-
-      // Local curl shear
-      vec3 localShear = curlNoise(pos * 0.02 + time * 0.35);
-      flow += localShear * influence * activeAnchorPull * 35.0;
-  }
-
-  // 5. Persistent Anchor (Structural memory trace)
-  vec3 toPersistent = persistentAnchorPos - pos;
-  float distToPersistent = length(toPersistent);
-  if (distToPersistent < 280.0 && persistentAnchorStrength > 0.001) {
-      float influence = smoothstep(280.0, 0.0, distToPersistent);
-      vec3 pDir = normalize(toPersistent);
-      
-      float pPullFactor = 0.0;
-      if (distToPersistent > 60.0) {
-          pPullFactor = smoothstep(280.0, 80.0, distToPersistent);
-      } else {
-          pPullFactor = -smoothstep(60.0, 5.0, distToPersistent) * 0.4;
-      }
-      flow += pDir * pPullFactor * persistentAnchorStrength * 25.0;
-
-      vec3 pVortexDir = cross(pDir, vec3(0.0, 1.0, 0.1));
-      flow += normalize(pVortexDir) * influence * persistentAnchorStrength * 35.0;
+  if (distToActive < 220.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
+      float influence = smoothstep(220.0, 0.0, distToActive);
+      // Divergence-free rotational eddy around anchor (curl noise ring)
+      vec3 anchorTurbulence = curlNoise(pos * 0.02 + time * 0.3 + activeAnchorPos * 0.05);
+      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 90.0;
   }
 
   // Velocity integration
   vel += flow * delta;
 
-  // 6. Frame-rate-independent exponential damping
+  // 5. Frame-rate-independent exponential damping
   vel *= exp(-damping * delta);
 
-  // 7. Soft velocity ceiling (smooth speed limiter)
+  // 6. Soft velocity ceiling (smooth speed limiter)
   float speed = length(vel);
   if (speed > maxSpeed) {
       float correction = maxSpeed / speed;
@@ -327,16 +288,16 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     container.appendChild(renderer.domElement);
 
     const PARAMS = {
-      globalEnergy: 0.15,
-      flowStrength: 75.0,
-      confinementStrength: 24.0,
-      innerRadius: 0.28,
-      outerRadius: 0.88,
-      falloff: 0.35,
-      damping: 3.8,
-      maxSpeed: 160.0,
-      agentEnergyMultiplier: 1.5,
-      agentRadius: 200.0,
+      globalEnergy: 0.40,
+      flowStrength: 110.0,
+      confinementStrength: 25.0,
+      innerRadius: 0.60,
+      outerRadius: 0.95,
+      falloff: 0.30,
+      damping: 3.0,
+      maxSpeed: 140.0,
+      agentEnergyMultiplier: 1.2,
+      agentRadius: 180.0,
       decayPerSecond: 0.046,
       timeScale: 1.0,
       manualTimeline: false,
@@ -348,15 +309,21 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     if (urlParams.get("debug") === "1") {
      pane = new Pane({ title: "Simulation Parameters" }) as unknown;
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "globalEnergy", { min: 0.0, max: 2.0 });
+     (pane as any).addBinding(PARAMS, "globalEnergy", { min: 0.0, max: 1.0, step: 0.01 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "confinementStrength", { min: 0.0, max: 80.0 });
+     (pane as any).addBinding(PARAMS, "flowStrength", { min: 10.0, max: 200.0, step: 1.0 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "damping", { min: 1.0, max: 10.0 });
+     (pane as any).addBinding(PARAMS, "confinementStrength", { min: 0.0, max: 80.0, step: 1.0 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "maxSpeed", { min: 50.0, max: 400.0 });
+     (pane as any).addBinding(PARAMS, "innerRadius", { min: 0.05, max: 0.60, step: 0.01 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "agentRadius", { min: 50, max: 500 });
+     (pane as any).addBinding(PARAMS, "outerRadius", { min: 0.50, max: 1.40, step: 0.01 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "damping", { min: 0.5, max: 8.0, step: 0.1 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "maxSpeed", { min: 40.0, max: 400.0, step: 5.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "agentRadius", { min: 50, max: 500, step: 10 });
     }
 
     const scene = new THREE.Scene();
@@ -426,8 +393,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     velUniforms["activeAnchorPos"] = { value: new THREE.Vector3(0, 0, 0) };
     velUniforms["activeAnchorPull"] = { value: 0.0 };
     velUniforms["activeAnchorVortex"] = { value: 0.0 };
-    velUniforms["persistentAnchorPos"] = { value: new THREE.Vector3(300, 150, 0) };
-    velUniforms["persistentAnchorStrength"] = { value: 0.0 };
 
     gpuCompute.init();
 
@@ -538,7 +503,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     const agentPosTarget = new THREE.Vector3(0, 0, 0);
     let activePull = 0.0;
     let activeVortex = 0.0;
-    let pAnchorStrength = 0.0;
     const activeAnchorPosTarget = new THREE.Vector3(0, 0, 0);
 
     // Playback State
@@ -581,29 +545,28 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
               agentPosTarget.copy(targetAnchor.pos);
 
               if (ev.eventType === "article_created") {
-                // Condensation Sequence
-                targetEnergy = 1.4;
+                // Localized Condensation impulse (gentle local vortex + glow)
+                targetEnergy = 0.55;
                 activeAnchorPosTarget.copy(targetAnchor.pos);
-                activePull = 1.5;
-                activeVortex = 1.0;
-                pAnchorStrength = 1.0;
+                activePull = 0.45;
+                activeVortex = 0.6;
                 // Excite typography
                 targetAnchor.energy = 0.95;
               } else if (ev.eventType === "article_opened" || ev.eventType === "article_revised") {
                 // Traversal and Reading
-                targetEnergy = 0.7;
-                activePull = 0.2;
-                activeVortex = 0.5;
+                targetEnergy = 0.45;
+                activeAnchorPosTarget.copy(targetAnchor.pos);
+                activePull = 0.25;
+                activeVortex = 0.4;
                 targetAnchor.energy = Math.max(targetAnchor.energy, 0.8);
               }
             }
           } else if (ev && ev.eventType === "agent_session_started") {
             agentActive = 1.0;
             targetEnergy = 0.45;
-            agentPosTarget.set(0, 0, 400); // Start far away
+            agentPosTarget.set(0, 0, 400);
           } else if (ev && ev.eventType === "agent_session_ended") {
             agentActive = 0.0;
-            targetEnergy = 0.1;
             activePull = 0.0;
             activeVortex = 0.0;
           }
@@ -618,15 +581,13 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
             currentEventIndex = 0;
             idleTimeAccumulator = 0;
         }
-
-        // Gentle homeostatic idle energy
-        targetEnergy = THREE.MathUtils.lerp(targetEnergy, 0.18, 0.005);
-
-        // Relax event forces back to neutral
-        activePull = THREE.MathUtils.lerp(activePull, 0.0, 0.01);
-        activeVortex = THREE.MathUtils.lerp(activeVortex, 0.0, 0.01);
-        agentActive = THREE.MathUtils.lerp(agentActive, 0.0, 0.01);
       }
+
+      // Continuous frame-by-frame relaxation of event impulses towards homeostatic equilibrium
+      activePull = THREE.MathUtils.lerp(activePull, 0.0, delta * 0.8);
+      activeVortex = THREE.MathUtils.lerp(activeVortex, 0.0, delta * 0.8);
+      agentActive = THREE.MathUtils.lerp(agentActive, 0.0, delta * 0.5);
+      targetEnergy = THREE.MathUtils.lerp(targetEnergy, PARAMS.globalEnergy, delta * 0.5);
 
       // Decay typography energy over time to create residual traces
       anchorsRef.current.forEach(anchor => {
@@ -661,7 +622,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
       vMat["activeAnchorPull"]!.value = THREE.MathUtils.lerp(vMat["activeAnchorPull"]!.value, activePull, 0.05);
       vMat["activeAnchorVortex"]!.value = THREE.MathUtils.lerp(vMat["activeAnchorVortex"]!.value, activeVortex, 0.05);
-      vMat["persistentAnchorStrength"]!.value = THREE.MathUtils.lerp(vMat["persistentAnchorStrength"]!.value, pAnchorStrength, 0.02);
 
       const currentAgentPos = vMat["agentPos"]!.value as THREE.Vector3;
       currentAgentPos.lerp(agentPosTarget, 0.05);
