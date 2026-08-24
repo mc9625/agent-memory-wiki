@@ -61,6 +61,7 @@ export interface ChoreographyCue {
   generation?: number | undefined;
   timestamp?: string | undefined;
   controlPoints?: [THREE.Vector3, THREE.Vector3] | undefined;
+  isContinuation?: boolean;
 }
 
 export interface CurrentInteractionState {
@@ -75,6 +76,7 @@ export interface CurrentInteractionState {
   toAnchor?: SimAnchor | undefined;
   targetAnchor?: SimAnchor | undefined;
   controlPoints?: [THREE.Vector3, THREE.Vector3] | undefined;
+  isContinuation?: boolean;
 }
 
 export interface SampledVisualState {
@@ -444,6 +446,7 @@ function buildSessionsAndCues(
       if (!target) continue;
 
       if (ev.eventType === "article_opened" || ev.eventType === "wikilink_followed") {
+        let isCont = false;
         if (currentAnchor && currentAnchor.id !== target.id) {
           const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
           cues.push({
@@ -457,6 +460,8 @@ function buildSessionsAndCues(
             generation,
             timestamp: ev.createdAt,
           });
+        } else if (currentAnchor && currentAnchor.id === target.id) {
+          isCont = true;
         }
         cues.push({
           id: `enc-${session.sessionId}-${i}`,
@@ -466,9 +471,11 @@ function buildSessionsAndCues(
           agentIdentifier,
           generation,
           timestamp: ev.createdAt,
+          isContinuation: isCont,
         });
         currentAnchor = target;
       } else if (ev.eventType === "article_created") {
+        let isCont = false;
         if (currentAnchor && currentAnchor.id !== target.id) {
           const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
           cues.push({
@@ -482,6 +489,8 @@ function buildSessionsAndCues(
             generation,
             timestamp: ev.createdAt,
           });
+        } else if (currentAnchor && currentAnchor.id === target.id) {
+          isCont = true;
         }
         cues.push({
           id: `creat-${session.sessionId}-${i}`,
@@ -491,9 +500,11 @@ function buildSessionsAndCues(
           agentIdentifier,
           generation,
           timestamp: ev.createdAt,
+          isContinuation: isCont,
         });
         currentAnchor = target;
       } else if (ev.eventType === "article_revised") {
+        let isCont = false;
         if (currentAnchor && currentAnchor.id !== target.id) {
           const [c1, c2] = makeControlPoints(currentAnchor.pos, target.pos);
           cues.push({
@@ -507,6 +518,8 @@ function buildSessionsAndCues(
             generation,
             timestamp: ev.createdAt,
           });
+        } else if (currentAnchor && currentAnchor.id === target.id) {
+          isCont = true;
         }
         cues.push({
           id: `rev-${session.sessionId}-${i}`,
@@ -516,6 +529,7 @@ function buildSessionsAndCues(
           agentIdentifier,
           generation,
           timestamp: ev.createdAt,
+          isContinuation: isCont,
         });
         currentAnchor = target;
       }
@@ -600,7 +614,8 @@ function sampleVisualState(
         // 0.0 -> 0.35: invisible (only physical particles)
         // 0.35 -> 0.65: smooth fade in (0.0 -> 0.95)
         // 0.65 -> 1.0: STAYS completely visible and legible (0.95)
-        const textOpacity = THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
+        // If it's a continuation on the same anchor, bypass the fade in
+        const textOpacity = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
 
         typographyPresences.set(target.id, {
           opacity: textOpacity,
@@ -652,7 +667,7 @@ function sampleVisualState(
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.15, 0.60);
 
         // Phase 2: late text crystallisation (0.50 -> 0.75) and stays fully visible until cue ends
-        const crystallisation = THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
+        const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.50, 0.75) * 0.95;
         typographyPresences.set(target.id, {
           opacity: crystallisation,
           scale: 1.0,
@@ -674,7 +689,7 @@ function sampleVisualState(
         activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.1, 0.5) * 0.7;
 
         // Palimpsest text pulse and resolution
-        const pulse = Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
+        const pulse = interaction.isContinuation ? 0.95 : Math.min(0.95, THREE.MathUtils.smoothstep(progress, 0.3, 0.6) * 0.95);
         typographyPresences.set(target.id, {
           opacity: pulse,
           scale: 1.0,
@@ -1021,6 +1036,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         toAnchor: currentCue.toAnchor,
         targetAnchor: currentCue.targetAnchor,
         controlPoints: currentCue.controlPoints,
+        isContinuation: currentCue.isContinuation ?? false,
       };
 
       const sampled = sampleVisualState(interaction, PARAMS);
