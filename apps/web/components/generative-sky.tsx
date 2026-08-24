@@ -19,13 +19,13 @@ void main() {
 
   vec3 pos = tmpPos.xyz;
   vec3 vel = tmpVel.xyz;
-  float life = tmpPos.w; // w can store life or other properties
+  float life = tmpPos.w;
 
   pos += vel * delta;
   
-  // Bounding box reset - wrap around organically instead of collapsing to center
-  if (length(pos) > 1200.0) {
-      pos = -pos * 0.95; // Wrap to opposite side
+  // Soft boundary safeguard far beyond the composition bounds
+  if (length(pos) > 2200.0) {
+      pos = pos * 0.85;
   }
 
   gl_FragColor = vec4(pos, life);
@@ -37,6 +37,16 @@ uniform float time;
 uniform float delta;
 uniform float globalEnergy;
 uniform float flowStrength;
+
+// Global Confinement Field (Ellipsoidal Equilibrium Shell)
+uniform vec3 fieldCenter;
+uniform vec3 fieldRadii;
+uniform float innerRadius;
+uniform float outerRadius;
+uniform float falloff;
+uniform float confinementStrength;
+uniform float damping;
+uniform float maxSpeed;
 
 // Agent Disturbance Field
 uniform vec3 agentPos;
@@ -61,58 +71,98 @@ void main() {
   vec3 pos = tmpPos.xyz;
   vec3 vel = tmpVel.xyz;
 
-  // Multi-scale Curl Noise
-  vec3 largeCurl = curlNoise(pos * 0.002 + time * 0.05) * 0.55;
-  vec3 mediumCurl = curlNoise(pos * 0.01 + time * 0.1) * 0.30;
-  vec3 fineCurl = curlNoise(pos * 0.05 + time * 0.3) * 0.15;
+  // 1. Multi-scale Fluid Curl Noise (Organic internal morphology)
+  vec3 largeCurl = curlNoise(pos * 0.0018 + time * 0.035) * 0.55;
+  vec3 mediumCurl = curlNoise(pos * 0.008 + time * 0.075) * 0.30;
+  vec3 fineCurl = curlNoise(pos * 0.035 + time * 0.18) * 0.15;
   
   vec3 flow = (largeCurl + mediumCurl + fineCurl) * globalEnergy * flowStrength;
 
-  // Cosmic Breathing - organic radial expansion to compensate for orbital decay
-  // Uses a very slow sine wave (period ~ 60s) to gently push particles outward
-  float breathing = sin(time * 0.1) * 0.5 + 0.5; // range 0.0 to 1.0
-  vec3 radialOut = normalize(pos) * breathing * 25.0 * globalEnergy;
-  flow += radialOut;
+  // 2. Global Confinement Field (Ellipsoidal Equilibrium Shell)
+  vec3 normalizedPos = (pos - fieldCenter) / fieldRadii;
+  float d = length(normalizedPos);
+  vec3 toCenter = fieldCenter - pos;
+  vec3 dir = length(toCenter) > 0.001 ? normalize(toCenter) : vec3(0.0);
 
-  // Agent Disturbance
+  float radialForce = 0.0;
+  if (d > outerRadius) {
+    // Gentle inward pressure outside the outer boundary
+    radialForce = smoothstep(outerRadius, outerRadius + falloff, d);
+  } else if (d < innerRadius) {
+    // Gentle outward pressure inside the core
+    radialForce = -smoothstep(innerRadius, 0.0, d);
+  }
+  // Neutral zone between innerRadius and outerRadius has radialForce = 0.0
+
+  // Weak homeostatic confinement (slow, weak, imperceptible long-term boundary)
+  flow += dir * radialForce * confinementStrength;
+
+  // 3. Agent Disturbance Field
   vec3 toAgent = agentPos - pos;
   float distToAgent = length(toAgent);
-  
-  if (distToAgent < agentRadius) {
+  if (distToAgent < agentRadius && agentEnergy > 0.001) {
      float influence = smoothstep(agentRadius, 0.0, distToAgent);
-     vec3 agentTurbulence = curlNoise(pos * 0.1 + time * 1.5);
-     flow += agentTurbulence * influence * agentEnergy * 300.0;
-     
-     // Pull slightly towards agent to create a wake
-     flow += normalize(toAgent) * influence * agentEnergy * 50.0;
+     vec3 agentTurbulence = curlNoise(pos * 0.08 + time * 1.2);
+     flow += agentTurbulence * influence * agentEnergy * 240.0;
+     flow += normalize(toAgent) * influence * agentEnergy * 40.0;
   }
 
-  // Active Anchor (Condensation & Reading)
+  // 4. Active Anchor (Local condensation without singularity collapse)
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 400.0 && activeAnchorPull > 0.0) {
-      float influence = smoothstep(400.0, 0.0, distToActive);
-      // Convergence (Pull)
-      flow += normalize(toActive) * influence * activeAnchorPull * 150.0;
-      // Vortex (Cross product with Up vector)
-      vec3 vortexDir = cross(normalize(toActive), vec3(0.0, 1.0, 0.0));
-      flow += vortexDir * influence * activeAnchorVortex * 150.0;
+  if (distToActive < 450.0 && activeAnchorPull > 0.001) {
+      float influence = smoothstep(450.0, 0.0, distToActive);
+      vec3 activeDir = normalize(toActive);
+      
+      // Outer weak attraction + inner gentle repulsion to maintain balanced volume
+      float pullFactor = 0.0;
+      if (distToActive > 75.0) {
+          pullFactor = smoothstep(450.0, 110.0, distToActive);
+      } else {
+          pullFactor = -smoothstep(75.0, 10.0, distToActive) * 0.5;
+      }
+      flow += activeDir * pullFactor * activeAnchorPull * 120.0;
+
+      // Vortex swirl around anchor
+      vec3 vortexDir = cross(activeDir, vec3(0.0, 1.0, 0.15));
+      flow += normalize(vortexDir) * influence * activeAnchorVortex * 130.0;
+
+      // Local curl shear
+      vec3 localShear = curlNoise(pos * 0.02 + time * 0.35);
+      flow += localShear * influence * activeAnchorPull * 35.0;
   }
 
-  // Persistent Anchor (Long-term memory)
+  // 5. Persistent Anchor (Structural memory trace)
   vec3 toPersistent = persistentAnchorPos - pos;
   float distToPersistent = length(toPersistent);
-  if (distToPersistent < 250.0 && persistentAnchorStrength > 0.0) {
-      float influence = smoothstep(250.0, 0.0, distToPersistent);
-      // Persistent structural change: slight vortex and density modulation
-      vec3 pVortexDir = cross(normalize(toPersistent), vec3(0.0, 1.0, 0.0));
-      flow += pVortexDir * influence * persistentAnchorStrength * 40.0;
-      // Slight inward pull to keep density
-      flow += normalize(toPersistent) * influence * persistentAnchorStrength * 20.0;
+  if (distToPersistent < 280.0 && persistentAnchorStrength > 0.001) {
+      float influence = smoothstep(280.0, 0.0, distToPersistent);
+      vec3 pDir = normalize(toPersistent);
+      
+      float pPullFactor = 0.0;
+      if (distToPersistent > 60.0) {
+          pPullFactor = smoothstep(280.0, 80.0, distToPersistent);
+      } else {
+          pPullFactor = -smoothstep(60.0, 5.0, distToPersistent) * 0.4;
+      }
+      flow += pDir * pPullFactor * persistentAnchorStrength * 25.0;
+
+      vec3 pVortexDir = cross(pDir, vec3(0.0, 1.0, 0.1));
+      flow += normalize(pVortexDir) * influence * persistentAnchorStrength * 35.0;
   }
 
+  // Velocity integration
   vel += flow * delta;
-  vel *= 0.94; // Damping
+
+  // 6. Frame-rate-independent exponential damping
+  vel *= exp(-damping * delta);
+
+  // 7. Soft velocity ceiling (smooth speed limiter)
+  float speed = length(vel);
+  if (speed > maxSpeed) {
+      float correction = maxSpeed / speed;
+      vel *= mix(1.0, correction, 0.35);
+  }
 
   gl_FragColor = vec4(vel, 1.0);
 }
@@ -277,8 +327,14 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     container.appendChild(renderer.domElement);
 
     const PARAMS = {
-      globalEnergy: 0.1,
-      flowStrength: 100.0,
+      globalEnergy: 0.15,
+      flowStrength: 75.0,
+      confinementStrength: 24.0,
+      innerRadius: 0.28,
+      outerRadius: 0.88,
+      falloff: 0.35,
+      damping: 3.8,
+      maxSpeed: 160.0,
       agentEnergyMultiplier: 1.5,
       agentRadius: 200.0,
       decayPerSecond: 0.046,
@@ -294,7 +350,11 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
      (pane as any).addBinding(PARAMS, "globalEnergy", { min: 0.0, max: 2.0 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-     (pane as any).addBinding(PARAMS, "flowStrength", { min: 0.0, max: 2.0 });
+     (pane as any).addBinding(PARAMS, "confinementStrength", { min: 0.0, max: 80.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "damping", { min: 1.0, max: 10.0 });
+     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     (pane as any).addBinding(PARAMS, "maxSpeed", { min: 50.0, max: 400.0 });
      // eslint-disable-next-line @typescript-eslint/no-explicit-any
      (pane as any).addBinding(PARAMS, "agentRadius", { min: 50, max: 500 });
     }
@@ -319,12 +379,24 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
     const posArray = dtPosition.image.data as Float32Array;
     const velArray = dtVelocity.image.data as Float32Array;
+    // Initial particle distribution inside the 16:9 ellipsoidal volume
     for (let k = 0, kl = posArray.length; k < kl; k += 4) {
-      posArray[k + 0] = (Math.random() - 0.5) * 1200;
-      posArray[k + 1] = (Math.random() - 0.5) * 800;
-      posArray[k + 2] = (Math.random() - 0.5) * 800;
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = Math.cbrt(Math.random()) * 0.85;
+      const sinPhi = Math.sin(phi);
+
+      posArray[k + 0] = r * sinPhi * Math.cos(theta) * 700;
+      posArray[k + 1] = r * sinPhi * Math.sin(theta) * 380;
+      posArray[k + 2] = r * Math.cos(phi) * 420;
       posArray[k + 3] = Math.random();
-      velArray[k + 0] = 0; velArray[k + 1] = 0; velArray[k + 2] = 0; velArray[k + 3] = 1;
+
+      velArray[k + 0] = (Math.random() - 0.5) * 2;
+      velArray[k + 1] = (Math.random() - 0.5) * 2;
+      velArray[k + 2] = (Math.random() - 0.5) * 2;
+      velArray[k + 3] = 1;
     }
 
     const posVariable = gpuCompute.addVariable("texturePosition", positionShader, dtPosition);
@@ -340,6 +412,14 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     velUniforms["delta"] = { value: 0.0 };
     velUniforms["globalEnergy"] = { value: PARAMS.globalEnergy };
     velUniforms["flowStrength"] = { value: PARAMS.flowStrength };
+    velUniforms["fieldCenter"] = { value: new THREE.Vector3(0, 0, 0) };
+    velUniforms["fieldRadii"] = { value: new THREE.Vector3(700.0, 380.0, 420.0) };
+    velUniforms["innerRadius"] = { value: PARAMS.innerRadius };
+    velUniforms["outerRadius"] = { value: PARAMS.outerRadius };
+    velUniforms["falloff"] = { value: PARAMS.falloff };
+    velUniforms["confinementStrength"] = { value: PARAMS.confinementStrength };
+    velUniforms["damping"] = { value: PARAMS.damping };
+    velUniforms["maxSpeed"] = { value: PARAMS.maxSpeed };
     velUniforms["agentPos"] = { value: new THREE.Vector3(0, 0, 0) };
     velUniforms["agentEnergy"] = { value: 0.0 };
     velUniforms["agentRadius"] = { value: PARAMS.agentRadius };
@@ -529,7 +609,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
           }
         }
       } else {
-        // Reached the present. Enter a breathing latent state.
+        // Reached the present. Enter an equilibrium latent state.
         idleTimeAccumulator += delta;
         
         // Wait 2 minutes (120 seconds of real simulation time).
@@ -539,13 +619,12 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
             idleTimeAccumulator = 0;
         }
 
-        // Keep energy high enough so particles continue to explore the whole screen.
-        targetEnergy = THREE.MathUtils.lerp(targetEnergy, 0.35, 0.005);
+        // Gentle homeostatic idle energy
+        targetEnergy = THREE.MathUtils.lerp(targetEnergy, 0.18, 0.005);
 
-        // Gently disperse them from the last active anchor
-        activePull = THREE.MathUtils.lerp(activePull, -0.15, 0.01);
-        activeVortex = THREE.MathUtils.lerp(activeVortex, 0.4, 0.01);
-
+        // Relax event forces back to neutral
+        activePull = THREE.MathUtils.lerp(activePull, 0.0, 0.01);
+        activeVortex = THREE.MathUtils.lerp(activeVortex, 0.0, 0.01);
         agentActive = THREE.MathUtils.lerp(agentActive, 0.0, 0.01);
       }
 
@@ -568,6 +647,12 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       const vMat = velVariable.material.uniforms;
       vMat["globalEnergy"]!.value = THREE.MathUtils.lerp(vMat["globalEnergy"]!.value, targetEnergy, 0.05);
       vMat["flowStrength"]!.value = PARAMS.flowStrength;
+      vMat["confinementStrength"]!.value = PARAMS.confinementStrength;
+      vMat["innerRadius"]!.value = PARAMS.innerRadius;
+      vMat["outerRadius"]!.value = PARAMS.outerRadius;
+      vMat["falloff"]!.value = PARAMS.falloff;
+      vMat["damping"]!.value = PARAMS.damping;
+      vMat["maxSpeed"]!.value = PARAMS.maxSpeed;
       vMat["agentRadius"]!.value = PARAMS.agentRadius;
       vMat["agentEnergy"]!.value = THREE.MathUtils.lerp(vMat["agentEnergy"]!.value, agentActive * PARAMS.agentEnergyMultiplier, 0.05);
 
