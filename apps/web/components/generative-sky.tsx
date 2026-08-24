@@ -198,7 +198,7 @@ void main() {
 // TYPES & MOCKS
 // --------------------------------------------------------
 
-import { SkyArticle, SkyEvent } from "./sky-canvas";
+import type { SkyArticle, SkyEvent } from "./sky-canvas";
 
 type SimAnchor = {
   id: string;
@@ -243,7 +243,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       const r4 = seededRandom(article.id + "layout");
 
       const layoutLayouts: SimAnchor["layoutPos"][] = ["upper-left", "upper-right", "lower-left", "lower-right", "lateral"];
-      const layoutPos = layoutLayouts[Math.floor(r4 * layoutLayouts.length)];
+      const layoutPos = layoutLayouts[Math.floor(r4 * layoutLayouts.length)] || "lateral";
 
       return {
         id: article.id,

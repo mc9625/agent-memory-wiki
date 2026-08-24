@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { GenerativeSky } from "../../components/generative-sky";
-import { SkyArticle, SkyEvent } from "../../components/sky-canvas";
+import type { SkyArticle, SkyEvent } from "../../components/sky-canvas";
 
 export default function SkyPage() {
   const [initialArticles, setInitialArticles] = useState<SkyArticle[]>([]);
