@@ -191,13 +191,13 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 
 .sky-home-btn {
   position: fixed;
-  top: 1.5rem;
-  left: 1.5rem;
+  top: 1.75rem;
+  right: 2rem;
   z-index: 100;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.45rem 0.85rem;
+  padding: 0.5rem 0.95rem;
   background: rgba(10, 15, 14, 0.45);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
