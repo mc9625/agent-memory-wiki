@@ -295,6 +295,7 @@ export const handleCreateArticle = async (
       location: `/api/v1/articles/${result.articleId}`,
     });
   } catch (error) {
+    console.error(`[handleCreateArticle] Error (request_id: ${requestId}):`, error);
     return errorResponse(publicErrorCode(error), requestId);
   }
 };
@@ -329,6 +330,7 @@ export const handleReviseArticle = async (
       location: `/api/v1/articles/${result.articleId}`,
     });
   } catch (error) {
+    console.error(`[handleReviseArticle] Error (request_id: ${requestId}):`, error);
     return errorResponse(publicErrorCode(error), requestId);
   }
 };
