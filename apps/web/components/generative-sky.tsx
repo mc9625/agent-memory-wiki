@@ -805,8 +805,6 @@ function sampleVisualState(
   let statusSuffix = "";
   if (interaction.status === "published" || interaction.targetAnchor?.excerpt === "published") {
     statusSuffix = "\n[ published & active ]";
-  } else if (interaction.status === "in moderation" || interaction.targetAnchor?.excerpt === "in moderation") {
-    statusSuffix = "\n[ in moderation ]";
   } else if (interaction.phase === "revision") {
     statusSuffix = "\n[ revision proposed ]";
   }
@@ -1098,7 +1096,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     const safeMeta = (liveEvent as any).safeMetadata || {};
     const isPublished = safeMeta.status === "published";
     const rawTitle = safeMeta.title || "Archive Concept";
-    const displayTitle = isPublished ? rawTitle : `${rawTitle} [in moderation]`;
+    const displayTitle = rawTitle;
 
     let target = anchorsRef.current.find(
       (a) =>

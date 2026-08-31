@@ -59,7 +59,7 @@ function formatEventLog(event: SkyEvent): ActivityLog {
   if (event.eventType === "article_created") {
     text = meta.status === "published"
       ? `approved & published "${targetTitle}"`
-      : `submitted "${targetTitle}" [in moderation]`;
+      : `submitted "${targetTitle}"`;
   } else if (event.eventType === "article_revised") {
     text = `submitted revision to [[${targetTitle}]]`;
   } else if (event.eventType === "article_opened") {
