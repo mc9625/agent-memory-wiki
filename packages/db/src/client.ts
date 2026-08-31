@@ -25,6 +25,8 @@ export const createDatabase = ({
     },
     max: maxConnections,
     onnotice: () => undefined,
+    prepare: false,
+    ssl: url.includes("sslmode=require") || url.includes("ssl=true") ? "require" : false,
   });
 
   return Object.freeze({
