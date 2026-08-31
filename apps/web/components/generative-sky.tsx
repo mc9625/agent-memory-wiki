@@ -308,6 +308,8 @@ uniform vec3 persistentAnchorPositions[16];
 uniform float persistentAnchorWeights[16];
 uniform int persistentAnchorCount;
 
+uniform vec3 agentColor;
+
 varying vec3 vColor;
 varying float vAlpha;
 
@@ -365,7 +367,8 @@ void main() {
   float depthDist = abs(mvPosition.z);
   vAlpha *= smoothstep(1200.0, 100.0, depthDist) * 0.7 + 0.3;
   
-  vColor = vec3(1.0, 1.0, 1.0);
+  // Tint particles interacting with the agent using the agent's unique signature color
+  vColor = mix(vec3(1.0, 1.0, 1.0), agentColor, clamp(waveInfluence * 1.5 + anchorGlow * 0.6, 0.0, 0.95));
 }
 `;
 
@@ -1013,6 +1016,38 @@ function sampleVisualState(
   };
 }
 
+export function getAgentColor(agentIdentifier?: string, sessionId?: string): THREE.Color {
+  const str = (agentIdentifier || sessionId || "synthetic-agent").toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const hue = ((Math.abs(hash) * 137.508) % 360) / 360;
+  const color = new THREE.Color();
+  color.setHSL(hue, 0.95, 0.65);
+  return color;
+}
+
+function createBloomCanvasTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+    gradient.addColorStop(0.2, "rgba(255, 255, 255, 0.8)");
+    gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.25)");
+    gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 128, 128);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // --------------------------------------------------------
 // MAIN GENERATIVE SKY COMPONENT
 // --------------------------------------------------------
@@ -1020,14 +1055,56 @@ function sampleVisualState(
 interface GenerativeSkyProps {
   initialArticles?: readonly SkyArticle[];
   initialEvents?: readonly SkyEvent[];
+  liveEvent?: SkyEvent | null;
 }
 
-export function GenerativeSky({ initialArticles = [], initialEvents = [] }: GenerativeSkyProps) {
+export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEvent = null }: GenerativeSkyProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const domRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const registerRef = useRef<HTMLDivElement>(null);
   const anchorsRef = useRef<SimAnchor[]>([]);
   const uiLayerRef = useRef<HTMLDivElement>(null);
+  const liveCueQueueRef = useRef<ChoreographyCue[]>([]);
+
+  // Listen to live events and inject priority cues
+  useEffect(() => {
+    if (!liveEvent) return;
+
+    let target = anchorsRef.current.find((a) => a.id === liveEvent.articleId);
+    if (!target && anchorsRef.current.length > 0) {
+      target = anchorsRef.current[0];
+    }
+    if (!target) return;
+
+    const liveCueType: CueType =
+      liveEvent.eventType === "article_created"
+        ? "creation"
+        : liveEvent.eventType === "article_revised"
+          ? "revision"
+          : "encounter";
+
+    const arrivalCue: ChoreographyCue = {
+      id: `live-arr-${Date.now()}`,
+      type: "arrival",
+      duration: 2.8,
+      targetAnchor: target,
+      agentIdentifier: liveEvent.agentIdentifier,
+      generation: liveEvent.generation,
+      timestamp: liveEvent.createdAt || new Date().toISOString(),
+    };
+
+    const actionCue: ChoreographyCue = {
+      id: `live-act-${Date.now()}`,
+      type: liveCueType,
+      duration: liveEvent.eventType === "article_created" ? 7.0 : 5.0,
+      targetAnchor: target,
+      agentIdentifier: liveEvent.agentIdentifier,
+      generation: liveEvent.generation,
+      timestamp: liveEvent.createdAt || new Date().toISOString(),
+    };
+
+    liveCueQueueRef.current = [arrivalCue, actionCue];
+  }, [liveEvent]);
 
   // Setup anchors from initialArticles situated inside active particle cloud
   useMemo(() => {
@@ -1241,6 +1318,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         agentPos: { value: new THREE.Vector3(0, 0, 0) },
         traversalDirection: { value: new THREE.Vector3(1, 0, 0) },
         agentEnergy: { value: 0.0 },
+        agentColor: { value: new THREE.Color(0xffffff) },
         persistentAnchorPositions: { value: persistentData.positions },
         persistentAnchorWeights: { value: persistentData.weights },
         persistentAnchorCount: { value: persistentData.count },
@@ -1254,6 +1332,28 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     const particles = new THREE.Points(geometry, particleMaterial);
     particles.frustumCulled = false;
     scene.add(particles);
+
+    // 2.1 Agent Visual Bloom Sprite & Core
+    const bloomTexture = createBloomCanvasTexture();
+    const agentSpriteMaterial = new THREE.SpriteMaterial({
+      map: bloomTexture,
+      color: 0x00ffff,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+    });
+    const agentHaloSprite = new THREE.Sprite(agentSpriteMaterial);
+    agentHaloSprite.scale.set(160, 160, 1);
+    scene.add(agentHaloSprite);
+
+    const agentCoreGeometry = new THREE.SphereGeometry(3.5, 16, 16);
+    const agentCoreMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const agentCoreMesh = new THREE.Mesh(agentCoreGeometry, agentCoreMaterial);
+    scene.add(agentCoreMesh);
 
     // 3. Setup Trails
     const rtCurrent = new THREE.WebGLRenderTarget(width * dpr, height * dpr, {
@@ -1279,6 +1379,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
 
     let cueIndex = 0;
     let cueTimeElapsed = 0.0;
+    let liveCueTimeElapsed = 0.0;
     const currentAgentPos = new THREE.Vector3(0, 0, 800);
 
     const tempVec3 = new THREE.Vector3();
@@ -1287,22 +1388,37 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       const rawDelta = clock.getDelta();
       const delta = rawDelta * PARAMS.timeScale;
       const cues = cuesRef.current;
+      const liveCues = liveCueQueueRef.current;
 
-      // 4.1 Advance Choreography Sequencer smoothly (without single-frame index desync)
-      if (cueIndex < cues.length) {
-        cueTimeElapsed += delta;
-        while (cueIndex < cues.length && cueTimeElapsed >= (cues[cueIndex]?.duration || 1.0)) {
-          cueTimeElapsed -= cues[cueIndex]!.duration;
-          cueIndex++;
-        }
-      }
-
-      let currentCue: ChoreographyCue | undefined = cues[cueIndex];
+      let currentCue: ChoreographyCue | undefined;
       let cueProgress: number;
 
-      if (currentCue) {
-        cueProgress = Math.min(1.0, cueTimeElapsed / Math.max(0.1, currentCue.duration));
+      // 4.1 Prioritize live incoming cues over background replay
+      if (liveCues.length > 0) {
+        liveCueTimeElapsed += delta;
+        while (liveCues.length > 0 && liveCueTimeElapsed >= (liveCues[0]?.duration || 1.0)) {
+          liveCueTimeElapsed -= liveCues[0]!.duration;
+          liveCues.shift();
+        }
+        currentCue = liveCues[0] || cues[cueIndex];
+        cueProgress = currentCue
+          ? Math.min(1.0, liveCueTimeElapsed / Math.max(0.1, currentCue.duration))
+          : 1.0;
+      } else {
+        if (cueIndex < cues.length) {
+          cueTimeElapsed += delta;
+          while (cueIndex < cues.length && cueTimeElapsed >= (cues[cueIndex]?.duration || 1.0)) {
+            cueTimeElapsed -= cues[cueIndex]!.duration;
+            cueIndex++;
+          }
+        }
+        currentCue = cues[cueIndex];
+        cueProgress = currentCue
+          ? Math.min(1.0, cueTimeElapsed / Math.max(0.1, currentCue.duration))
+          : 1.0;
+      }
 
+      if (currentCue) {
         // Advance agent position along trajectory if in traversal or arrival
         if (currentCue.type === "traversal" && currentCue.fromAnchor && currentCue.toAnchor && currentCue.controlPoints) {
           const [c1, c2] = currentCue.controlPoints;
@@ -1382,6 +1498,20 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       (particleMaterial.uniforms["agentPos"]!.value as THREE.Vector3).copy(currentAgentPos);
       (particleMaterial.uniforms["traversalDirection"]!.value as THREE.Vector3).copy(sampled.traversalDirection);
       particleMaterial.uniforms["agentEnergy"]!.value = sampled.agentEnergy;
+
+      const activeAgentColor = getAgentColor(currentCue.agentIdentifier, currentCue.id);
+      agentHaloSprite.material.color.copy(activeAgentColor);
+      agentCoreMaterial.color.copy(activeAgentColor);
+      (particleMaterial.uniforms["agentColor"]!.value as THREE.Color).copy(activeAgentColor);
+
+      agentHaloSprite.position.copy(currentAgentPos);
+      agentCoreMesh.position.copy(currentAgentPos);
+
+      const haloScale = 80 + sampled.agentEnergy * 160;
+      agentHaloSprite.scale.set(haloScale, haloScale, 1);
+      agentHaloSprite.material.opacity = Math.min(1.0, 0.35 + sampled.agentEnergy * 0.65);
+      agentCoreMesh.visible = sampled.agentEnergy > 0.02;
+      agentHaloSprite.visible = sampled.agentEnergy > 0.02;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
