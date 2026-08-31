@@ -129,7 +129,7 @@ const buildServices = async (): Promise<HttpServices> => {
   const recordEventService = new RecordEventService({ writer: eventsRepo });
   type WriteServices = Pick<HttpServices, "admitWrite" | "createArticle" | "reviseArticle">;
   const writeServicesPromise: Promise<WriteServices> = Promise.resolve()
-    .then(() => {
+    .then(async () => {
       const writer = new DrizzleArticleWriter(database.db);
       const credentials = new CredentialAuthenticator({
         digestKey: safeEnvironmentSecret("CREDENTIAL_HASH_SECRET", databaseUrl),
@@ -139,6 +139,8 @@ const buildServices = async (): Promise<HttpServices> => {
       const rateLimits = new RateLimitService({
         repository: new DrizzleRateLimitRepository(database.db),
       });
+      const settingsRepo = new DrizzleSettingsRepository(database.db);
+      await settingsRepo.ensureInitialized();
       const dependencies = {
         clock: { now: () => new Date() },
         credentials,
@@ -148,7 +150,7 @@ const buildServices = async (): Promise<HttpServices> => {
         },
         ids: { next: () => randomUUID() },
         readOnlyState: new SafeReadOnlyState(
-          new DrizzleSettingsRepository(database.db),
+          settingsRepo,
           strictBooleanEnvironment("GLOBAL_READ_ONLY", false),
         ),
         writer,
