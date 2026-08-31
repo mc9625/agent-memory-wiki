@@ -227,6 +227,8 @@ const buildServices = async (): Promise<HttpServices> => {
     getArticle: async (idOrSlug) => present(await reader.get(idOrSlug)),
     getRevision: async (idOrSlug, revisionId) =>
       present(await reader.getRevision(idOrSlug, revisionId)),
+    getRawRevision: async (idOrSlug, revisionId) =>
+      present(await reader.getRawRevision(idOrSlug, revisionId)),
     listArticles: async ({ cursor, limit }) => {
       const rows = await reader.list(limit + 1, decodeCursor(cursor));
       const hasMore = rows.length > limit;
@@ -317,6 +319,7 @@ const unavailableServices: HttpServices = {
   createArticle: unavailable,
   getArticle: unavailable,
   getRevision: unavailable,
+  getRawRevision: unavailable,
   listArticles: unavailable,
   listEvents: unavailable,
   listRevisions: unavailable,

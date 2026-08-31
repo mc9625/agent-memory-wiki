@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   ArticleWriteResult,
@@ -37,15 +37,17 @@ export interface PublicArticleView {
   };
 }
 
+export interface ArticleSummaryView {
+  readonly created_at: string;
+  readonly current_revision_id: string;
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly updated_at: string;
+}
+
 export interface ArticleListView {
-  readonly items: readonly {
-    readonly created_at: string;
-    readonly current_revision_id: string;
-    readonly id: string;
-    readonly slug: string;
-    readonly title: string;
-    readonly updated_at: string;
-  }[];
+  readonly items: readonly ArticleSummaryView[];
   readonly next_cursor: string | null;
 }
 
@@ -64,6 +66,7 @@ export interface HttpServices {
     readonly limit: number;
   }): Promise<ArticleListView>;
   getRevision(idOrSlug: string, revisionId: string): Promise<PublicArticleView | null>;
+  getRawRevision(idOrSlug: string, revisionId: string): Promise<PublicArticleView | null>;
   listRevisions(
     idOrSlug: string,
     input: { readonly cursor?: string; readonly limit: number },
@@ -175,21 +178,28 @@ const parseWrite = async (request: Request, requestId: string): Promise<ParsedWr
     return { ok: false, response: errorResponse("UNSUPPORTED_MEDIA_TYPE", requestId) };
   }
   const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer ") || authorization.length <= 7) {
-    return { ok: false, response: errorResponse("AUTHENTICATION_REQUIRED", requestId) };
-  }
-  const idempotencyKey = request.headers.get("idempotency-key");
-  if (!idempotencyKey || idempotencyKey.length < 16 || idempotencyKey.length > 128) {
-    return { ok: false, response: errorResponse("INVALID_REQUEST", requestId) };
-  }
+  const bearerToken =
+    authorization?.startsWith("Bearer ") && authorization.length > 7
+      ? authorization.slice(7)
+      : "open_public";
+
+  const rawIdempotency = request.headers.get("idempotency-key");
   const body = await readBoundedBody(request, 32_768);
   if (!body.ok) {
     return { ok: false, response: errorResponse("PAYLOAD_TOO_LARGE", requestId) };
   }
+
+  let idempotencyKey: string;
+  if (rawIdempotency && rawIdempotency.length >= 16 && rawIdempotency.length <= 128) {
+    idempotencyKey = rawIdempotency;
+  } else {
+    idempotencyKey = createHash("sha256").update(body.bytes).digest("hex").slice(0, 32);
+  }
+
   try {
     const raw = new TextDecoder("utf-8", { fatal: true }).decode(body.bytes);
     return {
-      bearerToken: authorization.slice(7),
+      bearerToken,
       idempotencyKey,
       ok: true,
       value: JSON.parse(raw) as unknown,
@@ -217,7 +227,7 @@ export const handleCreateArticle = async (
       rawSubmission: input.data,
       requestId,
     });
-    const view = await services.getRevision(result.articleId, result.revisionId);
+    const view = await services.getRawRevision(result.articleId, result.revisionId);
     if (!view) return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
     return json(view, 201, requestId, {
       "cache-control": "private, no-store",
@@ -250,7 +260,7 @@ export const handleReviseArticle = async (
       rawSubmission: input.data,
       requestId,
     });
-    const view = await services.getRevision(result.articleId, result.revisionId);
+    const view = await services.getRawRevision(result.articleId, result.revisionId);
     if (!view) return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
     return json(view, 201, requestId, {
       "cache-control": "private, no-store",

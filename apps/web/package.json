@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-memory-wiki/admin-cli": "workspace:*",
     "@agent-memory-wiki/application": "workspace:*",
     "@agent-memory-wiki/contracts": "workspace:*",
     "@agent-memory-wiki/db": "workspace:*",

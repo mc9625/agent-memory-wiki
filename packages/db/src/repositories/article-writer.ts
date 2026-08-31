@@ -227,16 +227,16 @@ export class DrizzleArticleWriter implements ArticleWriter {
       await transaction.insert(revisionStateEvents).values({
         id: randomUUID(),
         revisionId: command.revisionId,
-        state: "published",
-        reasonCode: "AUTOMATIC_PILOT_PUBLICATION",
+        state: "quarantined",
+        reasonCode: "PENDING_MODERATION",
         actorType: "system",
         createdAt: command.receivedAt,
       });
       await transaction.insert(articleStateEvents).values({
         id: randomUUID(),
         articleId: command.articleId,
-        visibility: "visible",
-        reasonCode: "INITIAL_PUBLICATION",
+        visibility: "hidden",
+        reasonCode: "PENDING_MODERATION",
         actorType: "system",
         createdAt: command.receivedAt,
       });
@@ -411,6 +411,18 @@ export class DrizzleArticleWriter implements ArticleWriter {
       let conflict = false;
       try {
         await transaction.transaction(async (savepoint) => {
+          const [article] = await savepoint
+            .select({ id: articles.id, currentRevisionId: articles.currentRevisionId })
+            .from(articles)
+            .where(
+              and(
+                eq(articles.id, command.articleId),
+                eq(articles.currentRevisionId, command.expectedParentRevisionId),
+              ),
+            )
+            .limit(1);
+          if (!article) throw new RevisionConflictError();
+
           await savepoint.insert(revisions).values({
             id: command.revisionId,
             articleId: command.articleId,
@@ -421,17 +433,6 @@ export class DrizzleArticleWriter implements ArticleWriter {
             contentSha256: digestBytes(command.contentDigest),
             createdAt: command.receivedAt,
           });
-          const updated = await savepoint
-            .update(articles)
-            .set({ currentRevisionId: command.revisionId })
-            .where(
-              and(
-                eq(articles.id, command.articleId),
-                eq(articles.currentRevisionId, command.expectedParentRevisionId),
-              ),
-            )
-            .returning({ id: articles.id });
-          if (updated.length !== 1) throw new RevisionConflictError();
         });
       } catch (error) {
         if (!(error instanceof RevisionConflictError) && !isUniqueViolation(error)) throw error;
@@ -452,8 +453,8 @@ export class DrizzleArticleWriter implements ArticleWriter {
         await transaction.insert(revisionStateEvents).values({
           id: randomUUID(),
           revisionId: command.revisionId,
-          state: "published",
-          reasonCode: "AUTOMATIC_PILOT_PUBLICATION",
+          state: "quarantined",
+          reasonCode: "PENDING_MODERATION",
           actorType: "system",
           createdAt: command.receivedAt,
         });

@@ -20,8 +20,24 @@ test.beforeAll(async ({ request }) => {
     },
   });
   expect(response.status()).toBe(201);
-  const payload = (await response.json()) as { article: { slug: string } };
+  const payload = (await response.json()) as { article: { slug: string }; revision: { id: string } };
   articleSlug = payload.article.slug;
+
+  const adminPassword =
+    process.env.ADMIN_PASSWORD ||
+    process.env.ADMIN_SECRET ||
+    process.env.CREDENTIAL_HASH_SECRET ||
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const approveRes = await request.post("/api/admin/approve", {
+    data: {
+      revisionId: payload.revision.id,
+      reasonCode: "E2E_APPROVED",
+    },
+    headers: {
+      authorization: `Bearer ${adminPassword}`,
+    },
+  });
+  expect(approveRes.status()).toBe(200);
 });
 
 test("serves the complete read-only public surface", async ({ page }) => {

@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   activateInstruction,
+  approveRevision,
   cleanupRateLimits,
   createCredential,
   hideArticle,
+  listPendingRevisions,
   quarantineRevision,
+  rejectRevision,
   requireEnvironmentConfirmation,
   revokeCredential,
   setReadOnly,
@@ -21,6 +24,9 @@ const store = (): AdminStore => ({
   hideArticle: vi.fn(async () => undefined),
   listCredentials: vi.fn(async () => []),
   quarantineRevision: vi.fn(async () => undefined),
+  approveRevision: vi.fn(async () => undefined),
+  rejectRevision: vi.fn(async () => undefined),
+  listPendingRevisions: vi.fn(async () => []),
   revokeCredential: vi.fn(async () => undefined),
   setReadOnly: vi.fn(async () => undefined),
 });
@@ -107,5 +113,21 @@ describe("admin commands", () => {
     expect(parseOnOff("on")).toBe(true);
     expect(parseOnOff("off")).toBe(false);
     expect(() => parseOnOff("onn")).toThrow("on or off");
+  });
+
+  it("approves and rejects pending submissions with proper audit mutations", async () => {
+    const target = store();
+    const at = new Date("2026-08-20T12:00:00Z");
+    await approveRevision({ revisionId: "rev-1", reasonCode: "ADMIN_APPROVED", at }, target);
+    await rejectRevision({ revisionId: "rev-2", reasonCode: "SPAM", at }, target);
+    await listPendingRevisions(target);
+
+    expect(target.approveRevision).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: "admin", reasonCode: "ADMIN_APPROVED", revisionId: "rev-1" }),
+    );
+    expect(target.rejectRevision).toHaveBeenCalledWith(
+      expect.objectContaining({ actorType: "admin", reasonCode: "SPAM", revisionId: "rev-2" }),
+    );
+    expect(target.listPendingRevisions).toHaveBeenCalled();
   });
 });

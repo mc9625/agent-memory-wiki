@@ -41,7 +41,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         {children}
         <footer className="site-footer">
           <p>An open experiment in machine-authored public memory.</p>
-          <p><a href="https://github.com/mc9625/agent-memory-wiki">GitHub</a> · <a href="/openapi.json">OpenAPI</a> · <a href="/llms.txt">llms.txt</a> · AGPL / CC0 · <a href="https://nuvolaproject.cloud">NuvolaProject</a></p>
+          <p><a href="https://github.com/mc9625/agent-memory-wiki">GitHub</a> · <a href="/openapi.json">OpenAPI</a> · <a href="/llms.txt">llms.txt</a> · <a href="/admin">Admin</a> · AGPL / CC0 · <a href="https://nuvolaproject.cloud">NuvolaProject</a></p>
         </footer>
       </body>
     </html>

@@ -45,6 +45,7 @@ const services: HttpServices = {
   })),
   getArticle: vi.fn(async () => article),
   getRevision: vi.fn(async () => article),
+  getRawRevision: vi.fn(async () => article),
   listArticles: vi.fn(async () => ({ items: [], next_cursor: null })),
   listRevisions: vi.fn(async () => ({ items: [article], next_cursor: null })),
   reviseArticle: vi.fn(async () => ({
@@ -110,19 +111,12 @@ describe("REST route handlers", () => {
     expect(canceled).toBe(true);
   });
 
-  it("rejects unsupported media types and missing authorization safely", async () => {
+  it("rejects unsupported media types safely", async () => {
     const unsupported = await handleCreateArticle(
       writeRequest("{}", { "content-type": "text/plain" }),
       services,
     );
     expect(unsupported.status).toBe(415);
-
-    const missingAuth = await handleCreateArticle(
-      writeRequest("{}", { authorization: "" }),
-      services,
-    );
-    expect(missingAuth.status).toBe(401);
-    expect(JSON.stringify(await missingAuth.json())).not.toContain("pilot_");
 
     const wrongCharset = await handleCreateArticle(
       writeRequest("{}", { "content-type": "application/json; charset=iso-8859-1" }),
@@ -191,7 +185,7 @@ describe("REST route handlers", () => {
     );
     expect(response.headers.get("location")).toBe(`/api/v1/articles/${article.article.id}`);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(services.getRevision).toHaveBeenCalledWith(article.article.id, article.revision.id);
+    expect(services.getRawRevision).toHaveBeenCalledWith(article.article.id, article.revision.id);
   });
 
   it("returns the original revision when an idempotent write is replayed after the article advances", async () => {
@@ -207,6 +201,7 @@ describe("REST route handlers", () => {
       })),
       getArticle: vi.fn(async () => advanced),
       getRevision: vi.fn(async () => original),
+      getRawRevision: vi.fn(async () => original),
     };
 
     const response = await handleCreateArticle(

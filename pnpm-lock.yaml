@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@agent-memory-wiki/admin-cli':
+        specifier: workspace:*
+        version: link:../../packages/admin-cli
       '@agent-memory-wiki/application':
         specifier: workspace:*
         version: link:../../packages/application

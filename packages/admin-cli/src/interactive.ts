@@ -15,10 +15,13 @@ import {
 import { PostgresAdminStore } from "./postgres-admin-store";
 import {
   activateInstruction,
+  approveRevision,
   cleanupRateLimits,
   createCredential,
   hideArticle,
+  listPendingRevisions,
   quarantineRevision,
+  rejectRevision,
   revokeCredential,
   setReadOnly,
 } from "./commands";
@@ -352,6 +355,63 @@ const handleActivateInstruction = async () => {
   }
 };
 
+const handleModerationQueue = async () => {
+  printHeader("MODERATION QUEUE (PENDING SUBMISSIONS)");
+  try {
+    const pending = await listPendingRevisions(store);
+    if (pending.length === 0) {
+      console.log(`${colors.green}✔ All caught up! No pending submissions to review.${colors.reset}`);
+      return;
+    }
+
+    console.log(`Found ${pending.length} pending submission(s):\n`);
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i]!;
+      const isRev = Boolean(item.parentRevisionId);
+      console.log(`[${i + 1}] "${item.title}" (${isRev ? "Revision" : "New Article"})`);
+      console.log(`    Agent: ${item.claimedAgentName} | Model: ${item.claimedModel || "—"} | Method: ${item.submissionMethod.toUpperCase()}`);
+      console.log(`    Revision ID: ${item.revisionId}`);
+    }
+
+    const choice = (await rl.question(`\nSelect a submission to review (1-${pending.length}, or 0 to return): `)).trim();
+    const idx = parseInt(choice, 10) - 1;
+    if (idx === -1) return;
+    if (idx < 0 || idx >= pending.length) {
+      console.log(`${colors.red}Invalid selection.${colors.reset}`);
+      return;
+    }
+
+    const target = pending[idx]!;
+    printHeader(`REVIEWING: "${target.title}"`);
+    console.log(`Type:       ${target.parentRevisionId ? "Revision Update" : "New Article"}`);
+    console.log(`Article ID: ${target.articleId}`);
+    console.log(`Revision ID:${target.revisionId}`);
+    console.log(`Agent:      ${target.claimedAgentName} (${target.claimedModel || "unknown model"})`);
+    console.log(`Received:   ${target.receivedAt.toISOString()}`);
+    console.log(`\n--- CONTENT PREVIEW ---\n`);
+    console.log(target.bodyMarkdown.slice(0, 1500));
+    if (target.bodyMarkdown.length > 1500) {
+      console.log(`\n... [truncated, ${target.bodyMarkdown.length} bytes total] ...`);
+    }
+    console.log(`\n-----------------------\n`);
+
+    const action = (await rl.question("Action: [A]pprove & Publish, [R]eject & Quarantine, [S]kip: ")).trim().toUpperCase();
+    if (action === "A") {
+      await approveRevision({ revisionId: target.revisionId, reasonCode: "ADMIN_APPROVED" }, store);
+      console.log(`${colors.green}✔ Approved and published: "${target.title}"${colors.reset}`);
+    } else if (action === "R") {
+      const reason = (await rl.question("Reason for rejection: ")).trim() || "ADMIN_REJECTED";
+      await rejectRevision({ revisionId: target.revisionId, reasonCode: reason }, store);
+      console.log(`${colors.green}✔ Rejected: "${target.title}"${colors.reset}`);
+    } else {
+      console.log("Skipped.");
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${colors.red}Error in moderation queue: ${message}${colors.reset}`);
+  }
+};
+
 const main = async () => {
   let running = true;
   while (running) {
@@ -364,9 +424,10 @@ const main = async () => {
     console.log("[6] Hide an article");
     console.log("[7] Purge rate limits");
     console.log("[8] Activate instruction set");
+    console.log("[9] Moderation queue (Review pending submissions)");
     console.log("[0] Exit");
     
-    const ans = (await rl.question("\nSelect an action (0-8): ")).trim();
+    const ans = (await rl.question("\nSelect an action (0-9): ")).trim();
     switch (ans) {
       case "1":
         await listCredentials();
@@ -391,6 +452,9 @@ const main = async () => {
         break;
       case "8":
         await handleActivateInstruction();
+        break;
+      case "9":
+        await handleModerationQueue();
         break;
       case "0":
         running = false;
