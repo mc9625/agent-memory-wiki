@@ -17,6 +17,17 @@ export class DrizzleSettingsRepository implements SettingsRepository {
       .from(systemSettings)
       .where(eq(systemSettings.singleton, true))
       .limit(1);
-    return row?.readOnly ?? null;
+    if (!row) {
+      try {
+        await this.#database
+          .insert(systemSettings)
+          .values({ singleton: true, readOnly: false })
+          .onConflictDoNothing();
+        return false;
+      } catch {
+        return null;
+      }
+    }
+    return row.readOnly;
   }
 }
