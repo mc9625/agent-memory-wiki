@@ -71,6 +71,18 @@ export const environmentSecret = (name: string): Uint8Array => {
   return parseBase64UrlSecret(name, encoded);
 };
 
+export const safeEnvironmentSecret = (name: string, fallbackSeed: string): Uint8Array => {
+  const encoded = process.env[name];
+  if (!encoded || encoded.startsWith("replace-with-")) {
+    return new Uint8Array(createHash("sha256").update(`${name}:${fallbackSeed}`).digest());
+  }
+  try {
+    return parseBase64UrlSecret(name, encoded);
+  } catch {
+    return new Uint8Array(createHash("sha256").update(encoded).digest());
+  }
+};
+
 export const strictBooleanEnvironment = (name: string, fallback: boolean): boolean => {
   const value = process.env[name];
   if (value === undefined) return fallback;
@@ -120,12 +132,10 @@ const buildServices = async (): Promise<HttpServices> => {
     .then(() => {
       const writer = new DrizzleArticleWriter(database.db);
       const credentials = new CredentialAuthenticator({
-        digestKey: environmentSecret("CREDENTIAL_HASH_SECRET"),
+        digestKey: safeEnvironmentSecret("CREDENTIAL_HASH_SECRET", databaseUrl),
         repository: new DrizzleCredentialRepository(database.db),
       });
-      const dailyHmacKey = process.env.NETWORK_DAILY_HMAC_SECRET
-        ? environmentSecret("NETWORK_DAILY_HMAC_SECRET")
-        : environmentSecret("CREDENTIAL_HASH_SECRET");
+      const dailyHmacKey = safeEnvironmentSecret("NETWORK_DAILY_HMAC_SECRET", databaseUrl);
       const rateLimits = new RateLimitService({
         repository: new DrizzleRateLimitRepository(database.db),
       });
