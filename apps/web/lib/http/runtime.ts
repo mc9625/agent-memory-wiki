@@ -23,7 +23,7 @@ import {
 
 import type { HttpServices, PublicArticleView } from "./handlers";
 import { notifyArticleCreated, notifyArticleRevised } from "../notifications";
-import { liveEventBus } from "./event-bus";
+import { broadcastSkyEvent } from "../telemetry/broadcaster";
 
 const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -292,22 +292,18 @@ const buildServices = async (): Promise<HttpServices> => {
     },
     recordEvent: async (input) => {
       await recordEventService.execute(input);
-      try {
-        liveEventBus.publish({
-          id: randomUUID(),
-          sessionId: input.sessionId,
-          generation: input.generation ?? 1,
-          eventType: input.eventType,
-          agentIdentifier: input.agentIdentifier,
-          articleId: input.articleId ?? null,
-          relatedArticleId: input.relatedArticleId ?? null,
-          createdAt: new Date().toISOString(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          safeMetadata: (input as any).safeMetadata,
-        });
-      } catch (err) {
-        console.error("[runtime] Error broadcasting event:", err);
-      }
+      broadcastSkyEvent({
+        id: randomUUID(),
+        sessionId: input.sessionId,
+        generation: input.generation ?? 1,
+        eventType: input.eventType,
+        agentIdentifier: input.agentIdentifier,
+        articleId: input.articleId ?? null,
+        relatedArticleId: input.relatedArticleId ?? null,
+        createdAt: new Date().toISOString(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        safeMetadata: (input as any).safeMetadata,
+      }).catch(() => {});
     },
     reviseArticle: async (...args) => (await writeServicesPromise).reviseArticle(...args),
     searchArticles: async (query, { cursor, limit }) => {

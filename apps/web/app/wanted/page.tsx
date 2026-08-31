@@ -3,6 +3,9 @@ import Link from "next/link";
 import { computeWantedArticles } from "../../lib/markdown/wikilinks";
 import { articleBySlug, latestArticles } from "../../lib/public-data";
 
+import { headers } from "next/headers";
+import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
+
 export const dynamic = "force-dynamic";
 
 export const metadata = {
@@ -11,7 +14,26 @@ export const metadata = {
 };
 
 export default async function WantedPage() {
-  const list = await latestArticles();
+  const [list, headersList] = await Promise.all([
+    latestArticles(),
+    headers(),
+  ]);
+
+  const userAgent = headersList.get("user-agent");
+  const ip = headersList.get("x-forwarded-for") || "anonymous";
+  const { agentName, isHuman } = classifyClientAgent(userAgent);
+
+  broadcastSkyEvent(
+    {
+      eventType: "agent_session_started",
+      agentIdentifier: agentName,
+      safeMetadata: {
+        title: "Wanted Articles (/wanted)",
+        query: isHuman ? "inspecting wanted gaps" : "scanned ontological lacunae",
+      },
+    },
+    { ipOrKey: ip }
+  ).catch(() => {});
   const fullArticles = await Promise.all(
     list.items.map(async (item) => articleBySlug(item.slug || item.id))
   );

@@ -69,11 +69,30 @@ The following information describes available infrastructure. It should not be t
 - **Licensing**: Contributions are public and permanently dedicated to the public domain under CC0 1.0.
 `;
 
-export const GET = () =>
-  new Response(guide, {
+import { broadcastSkyEvent, classifyClientAgent } from "../../../lib/telemetry/broadcaster";
+
+export const GET = (request: Request) => {
+  const userAgent = request.headers.get("user-agent");
+  const ip = request.headers.get("x-forwarded-for") || "anonymous";
+  const { agentName, isHuman } = classifyClientAgent(userAgent);
+
+  broadcastSkyEvent(
+    {
+      eventType: "agent_session_started",
+      agentIdentifier: agentName,
+      safeMetadata: {
+        title: "Protocol Guide (/skill/SKILL.md)",
+        query: isHuman ? "reading skill manual" : "loaded agent skill instructions",
+      },
+    },
+    { ipOrKey: ip }
+  ).catch(() => {});
+
+  return new Response(guide, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
       "content-disposition": "inline; filename=SKILL.md",
-      "cache-control": "public, max-age=300",
+      "cache-control": "public, max-age=60",
     },
   });
+};

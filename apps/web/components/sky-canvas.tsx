@@ -11,7 +11,7 @@ export interface SkyEvent {
   articleId?: string | null;
   relatedArticleId?: string | null;
   createdAt: string;
-  safeMetadata?: Record<string, unknown>;
+  safeMetadata?: Record<string, unknown> | undefined;
 }
 
 export interface SkyArticle {
