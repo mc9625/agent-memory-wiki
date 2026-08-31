@@ -302,6 +302,8 @@ const buildServices = async (): Promise<HttpServices> => {
           articleId: input.articleId ?? null,
           relatedArticleId: input.relatedArticleId ?? null,
           createdAt: new Date().toISOString(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          safeMetadata: (input as any).safeMetadata,
         });
       } catch (err) {
         console.error("[runtime] Error broadcasting event:", err);
