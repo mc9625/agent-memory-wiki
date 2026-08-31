@@ -23,14 +23,34 @@ function getLogColor(agentName: string): string {
   return `hsl(${hue.toFixed(0)}, 95%, 70%)`;
 }
 
+function cleanAgentName(agent?: string | null): string {
+  if (!agent) return "Synthetic Agent";
+  const lower = agent.toLowerCase();
+  if (lower.includes("mozilla") || lower.includes("applewebkit") || lower.includes("chrome") || lower.includes("safari")) {
+    return "Web Observer";
+  }
+  if (lower.includes("claude")) return "Claude";
+  if (lower.includes("chatgpt") || lower.includes("gpt")) return "ChatGPT";
+  if (lower.includes("deepseek")) return "DeepSeek";
+  if (lower.includes("gemini")) return "Gemini";
+  if (lower.includes("glm")) return "GLM";
+  if (lower.includes("curl")) return "cURL Client";
+  if (lower.includes("python")) return "Python Agent";
+  if (agent.length > 20) {
+    return agent.slice(0, 18) + "…";
+  }
+  return agent;
+}
+
 function formatEventLog(event: SkyEvent): ActivityLog {
   const time = new Date(event.createdAt || Date.now());
   const timeStr = !isNaN(time.getTime())
     ? time.toTimeString().slice(0, 8)
     : new Date().toTimeString().slice(0, 8);
 
-  const agent = event.agentIdentifier || "Synthetic Agent";
-  const color = getLogColor(agent);
+  const rawAgent = event.agentIdentifier || "Synthetic Agent";
+  const agent = cleanAgentName(rawAgent);
+  const color = getLogColor(rawAgent);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const meta = (event as any).safeMetadata || {};
   const targetTitle = meta.title || "Archive Concept";
@@ -38,18 +58,18 @@ function formatEventLog(event: SkyEvent): ActivityLog {
   let text = "connected to archive frequency";
   if (event.eventType === "article_created") {
     text = meta.status === "published"
-      ? `approved & published concept "${targetTitle}"`
-      : `submitted new concept "${targetTitle}" [in moderation]`;
+      ? `approved & published "${targetTitle}"`
+      : `submitted "${targetTitle}" [in moderation]`;
   } else if (event.eventType === "article_revised") {
     text = `submitted revision to [[${targetTitle}]]`;
   } else if (event.eventType === "article_opened") {
-    text = `is traversing and reading [[${targetTitle}]]`;
+    text = `reading [[${targetTitle}]]`;
   } else if (event.eventType === "agent_session_started") {
-    text = meta.query ? `searching archive: "${meta.query}"` : "initiated exploration session";
+    text = meta.query ? `searching: "${meta.query}"` : "connected to archive";
   } else if (event.eventType === "wikilinks_created") {
-    text = `weaving knowledge links in [[${targetTitle}]]`;
+    text = `linked [[${targetTitle}]]`;
   } else if (event.eventType === "agent_session_ended") {
-    text = "completed archive trace and departed";
+    text = "completed trace and departed";
   }
 
   return {
@@ -279,21 +299,21 @@ export default function SkyPage() {
           bottom: "1.5rem",
           left: "1.5rem",
           zIndex: 40,
-          maxWidth: "420px",
+          maxWidth: "380px",
           width: "calc(100vw - 3rem)",
           pointerEvents: isUiVisible ? "auto" : "none",
           opacity: isUiVisible ? 1 : 0,
           transform: isUiVisible ? "translateY(0)" : "translateY(8px)",
-          background: "rgba(0, 0, 0, 0.55)",
-          backdropFilter: "blur(12px)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          borderRadius: "8px",
-          padding: "0.75rem 1rem",
+          background: "rgba(0, 0, 0, 0.65)",
+          backdropFilter: "blur(14px)",
+          border: "1px solid rgba(255, 255, 255, 0.10)",
+          borderRadius: "10px",
+          padding: "0.65rem 0.9rem",
           fontFamily: "var(--font-jetbrains-mono, monospace)",
           color: "rgba(255, 255, 255, 0.85)",
-          fontSize: "0.72rem",
-          lineHeight: "1.5",
-          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.6)",
+          fontSize: "0.70rem",
+          lineHeight: "1.4",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.7)",
         }}
       >
         <div
@@ -301,11 +321,11 @@ export default function SkyPage() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.07)",
+            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
             paddingBottom: "0.35rem",
             marginBottom: "0.45rem",
-            fontSize: "0.65rem",
-            letterSpacing: "0.12em",
+            fontSize: "0.64rem",
+            letterSpacing: "0.10em",
             color: "rgba(255, 255, 255, 0.45)",
           }}
         >
@@ -327,7 +347,7 @@ export default function SkyPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
           {activityLogs.length === 0 ? (
-            <div style={{ color: "rgba(255, 255, 255, 0.35)", fontStyle: "italic" }}>
+            <div style={{ color: "rgba(255, 255, 255, 0.35)", fontStyle: "italic", fontSize: "0.68rem" }}>
               Waiting for synthetic agent signals...
             </div>
           ) : (
@@ -337,13 +357,15 @@ export default function SkyPage() {
                 className="sky-log-item"
                 style={{
                   display: "flex",
-                  alignItems: "flex-start",
-                  gap: "0.5rem",
-                  fontSize: "0.70rem",
-                  wordBreak: "break-word",
+                  alignItems: "baseline",
+                  gap: "0.4rem",
+                  fontSize: "0.68rem",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                 }}
               >
-                <span style={{ color: "rgba(255, 255, 255, 0.35)", flexShrink: 0 }}>
+                <span style={{ color: "rgba(255, 255, 255, 0.35)", flexShrink: 0, fontSize: "0.62rem" }}>
                   [{log.timeStr}]
                 </span>
                 <span
@@ -351,11 +373,22 @@ export default function SkyPage() {
                     color: log.color,
                     fontWeight: 600,
                     flexShrink: 0,
+                    maxWidth: "110px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {log.agent}
                 </span>
-                <span style={{ color: "rgba(255, 255, 255, 0.75)" }}>
+                <span
+                  style={{
+                    color: "rgba(255, 255, 255, 0.80)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {log.text}
                 </span>
               </div>
