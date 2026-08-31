@@ -1084,6 +1084,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
   const anchorsRef = useRef<SimAnchor[]>([]);
   const uiLayerRef = useRef<HTMLDivElement>(null);
   const liveCueQueueRef = useRef<ChoreographyCue[]>([]);
+  const liveCueTimeElapsedRef = useRef(0.0);
 
   // Listen to live events and inject priority cues
   useEffect(() => {
@@ -1132,7 +1133,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     const arrivalCue: ChoreographyCue = {
       id: `live-arr-${Date.now()}`,
       type: "arrival",
-      duration: 2.8,
+      duration: 3.2,
       targetAnchor: target,
       agentIdentifier: liveEvent.agentIdentifier,
       generation: liveEvent.generation,
@@ -1142,13 +1143,14 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     const actionCue: ChoreographyCue = {
       id: `live-act-${Date.now()}`,
       type: liveCueType,
-      duration: liveEvent.eventType === "article_created" ? 7.0 : 5.0,
+      duration: liveEvent.eventType === "article_created" ? 8.5 : 6.0,
       targetAnchor: target,
       agentIdentifier: liveEvent.agentIdentifier,
       generation: liveEvent.generation,
       timestamp: liveEvent.createdAt || new Date().toISOString(),
     };
 
+    liveCueTimeElapsedRef.current = 0.0;
     liveCueQueueRef.current = [arrivalCue, actionCue];
   }, [liveEvent]);
 
@@ -1451,7 +1453,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
 
     let cueIndex = cuesRef.current.length; // Start directly in live latent state (no historical replay)
     let cueTimeElapsed = 0.0;
-    let liveCueTimeElapsed = 0.0;
     let currentAgentOpacity = 0.0;
     const currentAgentPos = new THREE.Vector3(0, 0, 800);
 
@@ -1468,14 +1469,14 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
 
       // 4.1 Prioritize live incoming cues over background replay
       if (liveCues.length > 0) {
-        liveCueTimeElapsed += delta;
-        while (liveCues.length > 0 && liveCueTimeElapsed >= (liveCues[0]?.duration || 1.0)) {
-          liveCueTimeElapsed -= liveCues[0]!.duration;
+        liveCueTimeElapsedRef.current += delta;
+        while (liveCues.length > 0 && liveCueTimeElapsedRef.current >= (liveCues[0]?.duration || 1.0)) {
+          liveCueTimeElapsedRef.current -= liveCues[0]!.duration;
           liveCues.shift();
         }
         currentCue = liveCues[0] || cues[cueIndex];
         cueProgress = currentCue
-          ? Math.min(1.0, liveCueTimeElapsed / Math.max(0.1, currentCue.duration))
+          ? Math.min(1.0, liveCueTimeElapsedRef.current / Math.max(0.1, currentCue.duration))
           : 1.0;
       } else {
         if (cueIndex < cues.length) {
@@ -1608,9 +1609,9 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       (particleMaterial.uniforms["traversalDirection"]!.value as THREE.Vector3).copy(sampled.traversalDirection);
       particleMaterial.uniforms["agentEnergy"]!.value = sampled.agentEnergy;
 
-      const isAgentActive = sampled.agentEnergy > 0.01 && currentCue.type !== "silence";
-      const targetOpacity = isAgentActive ? Math.min(1.0, 0.25 + sampled.agentEnergy * 0.75) : 0.0;
-      currentAgentOpacity += (targetOpacity - currentAgentOpacity) * Math.min(1.0, rawDelta * 2.8);
+      const isAgentActive = Boolean(currentCue && currentCue.type !== "silence");
+      const targetOpacity = isAgentActive ? Math.min(1.0, Math.max(0.45, sampled.agentEnergy)) : 0.0;
+      currentAgentOpacity += (targetOpacity - currentAgentOpacity) * Math.min(1.0, rawDelta * 7.0);
 
       const activeAgentColor = getAgentColor(currentCue.agentIdentifier, currentCue.id);
       agentHaloSprite.material.color.copy(activeAgentColor);
