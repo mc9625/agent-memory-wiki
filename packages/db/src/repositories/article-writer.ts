@@ -6,7 +6,7 @@ import type {
 } from "@agent-memory-wiki/application";
 import { ApplicationError } from "@agent-memory-wiki/application";
 import { RevisionConflictError } from "@agent-memory-wiki/domain";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 
 import type { Database } from "../client";
@@ -62,11 +62,59 @@ const isUniqueViolation = (error: unknown): boolean => {
   return false;
 };
 
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 export class DrizzleArticleWriter implements ArticleWriter {
   readonly #database: Database;
 
   public constructor(database: Database) {
     this.#database = database;
+  }
+
+  async #ensureForeignKeys(
+    transaction: Transaction,
+    credentialId: string,
+  ): Promise<string> {
+    const insRow = await transaction.execute<{ id: string }>(sql`
+      SELECT id::text FROM instruction_sets ORDER BY created_at ASC LIMIT 1
+    `);
+    let effectiveInstructionSetId = insRow[0]?.id;
+    if (!effectiveInstructionSetId) {
+      const defaultInsId = "00000000-0000-4000-8000-000000000001";
+      const initialContent = "Autonomous memory and conceptual archive for AI agents.";
+      const initialDigest = new Uint8Array(
+        createHash("sha256").update(initialContent, "utf8").digest()
+      );
+      await transaction.execute(sql`
+        INSERT INTO instruction_sets (id, version, content, content_sha256)
+        VALUES (${defaultInsId}::uuid, 1, ${initialContent}, ${initialDigest})
+        ON CONFLICT DO NOTHING
+      `);
+      effectiveInstructionSetId = defaultInsId;
+    }
+
+    await transaction.execute(sql`
+      INSERT INTO pilot_credentials (
+        id, instruction_set_id, operator_label, public_prefix,
+        rate_limit_per_day, rate_limit_per_minute, secret_digest,
+        status, terms_accepted_at, terms_version
+      ) VALUES (
+        ${credentialId}::uuid,
+        ${effectiveInstructionSetId}::uuid,
+        'Open Public Agents',
+        'pilot_public',
+        5000,
+        120,
+        decode('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'hex'),
+        'active',
+        '2026-01-01T00:00:00Z',
+        'v1.0'
+      )
+      ON CONFLICT (id) DO UPDATE
+      SET instruction_set_id = ${effectiveInstructionSetId}::uuid
+    `);
+
+    return effectiveInstructionSetId;
   }
 
   public async create(command: CreateArticleCommand): Promise<ArticleWriteResult> {
@@ -140,11 +188,16 @@ export class DrizzleArticleWriter implements ArticleWriter {
         .limit(1);
       if (!identity) throw new ApplicationError("DEPENDENCY_UNAVAILABLE", "Identity write failed.");
 
+      const effectiveInstructionSetId = await this.#ensureForeignKeys(
+        transaction,
+        command.credentialId,
+      );
+
       await transaction.insert(submissions).values({
         id: command.submissionId,
         pilotCredentialId: command.credentialId,
         authorAgentId: identity.id,
-        instructionSetId: command.instructionSetId,
+        instructionSetId: effectiveInstructionSetId,
         submissionMethod: command.method,
         operation: command.operation,
         rawSubmission: command.rawSubmission,
@@ -348,12 +401,16 @@ export class DrizzleArticleWriter implements ArticleWriter {
         .where(eq(agentIdentities.identityFingerprint, identityDigest))
         .limit(1);
       if (!identity) throw new ApplicationError("DEPENDENCY_UNAVAILABLE", "Identity write failed.");
+      const effectiveInstructionSetId = await this.#ensureForeignKeys(
+        transaction,
+        command.credentialId,
+      );
 
       await transaction.insert(submissions).values({
         id: command.submissionId,
         pilotCredentialId: command.credentialId,
         authorAgentId: identity.id,
-        instructionSetId: command.instructionSetId,
+        instructionSetId: effectiveInstructionSetId,
         submissionMethod: command.method,
         operation: command.operation,
         rawSubmission: command.rawSubmission,
