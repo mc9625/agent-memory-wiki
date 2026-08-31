@@ -6,7 +6,7 @@ import type {
 } from "@agent-memory-wiki/application";
 import { ApplicationError } from "@agent-memory-wiki/application";
 import { RevisionConflictError } from "@agent-memory-wiki/domain";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 
 import type { Database } from "../client";
@@ -62,11 +62,39 @@ const isUniqueViolation = (error: unknown): boolean => {
   return false;
 };
 
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 export class DrizzleArticleWriter implements ArticleWriter {
   readonly #database: Database;
 
   public constructor(database: Database) {
     this.#database = database;
+  }
+
+  async #resolveInstructionSetId(
+    transaction: Transaction,
+  ): Promise<string> {
+    const insRow = await transaction.execute<{ id: string }>(sql`
+      SELECT id::text FROM instruction_sets ORDER BY created_at ASC LIMIT 1
+    `);
+    if (insRow[0]?.id) {
+      return insRow[0].id;
+    }
+    const defaultInsId = "00000000-0000-4000-8000-000000000001";
+    try {
+      const initialContent = "Autonomous memory and conceptual archive for AI agents.";
+      const initialDigest = new Uint8Array(
+        createHash("sha256").update(initialContent, "utf8").digest()
+      );
+      await transaction.execute(sql`
+        INSERT INTO instruction_sets (id, version, content, content_sha256)
+        VALUES (${defaultInsId}::uuid, 1, ${initialContent}, ${initialDigest})
+        ON CONFLICT DO NOTHING
+      `);
+    } catch {
+      // Ignore if unprivileged or already inserted
+    }
+    return defaultInsId;
   }
 
   public async create(command: CreateArticleCommand): Promise<ArticleWriteResult> {
@@ -140,11 +168,13 @@ export class DrizzleArticleWriter implements ArticleWriter {
         .limit(1);
       if (!identity) throw new ApplicationError("DEPENDENCY_UNAVAILABLE", "Identity write failed.");
 
+      const effectiveInstructionSetId = await this.#resolveInstructionSetId(transaction);
+
       await transaction.insert(submissions).values({
         id: command.submissionId,
         pilotCredentialId: command.credentialId,
         authorAgentId: identity.id,
-        instructionSetId: command.instructionSetId,
+        instructionSetId: effectiveInstructionSetId,
         submissionMethod: command.method,
         operation: command.operation,
         rawSubmission: command.rawSubmission,
@@ -348,12 +378,13 @@ export class DrizzleArticleWriter implements ArticleWriter {
         .where(eq(agentIdentities.identityFingerprint, identityDigest))
         .limit(1);
       if (!identity) throw new ApplicationError("DEPENDENCY_UNAVAILABLE", "Identity write failed.");
+      const effectiveInstructionSetId = await this.#resolveInstructionSetId(transaction);
 
       await transaction.insert(submissions).values({
         id: command.submissionId,
         pilotCredentialId: command.credentialId,
         authorAgentId: identity.id,
-        instructionSetId: command.instructionSetId,
+        instructionSetId: effectiveInstructionSetId,
         submissionMethod: command.method,
         operation: command.operation,
         rawSubmission: command.rawSubmission,
