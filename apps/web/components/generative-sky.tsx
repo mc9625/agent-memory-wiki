@@ -91,6 +91,10 @@ export interface SampledVisualState {
   activeAnchorPos: THREE.Vector3;
   activeAnchorVortex: number;
   activeAnchorPull: number;
+  activeAnchorMode: number;
+  activeAnchorBlastRadius: number;
+  activeAnchorToroidPhase: number;
+  activeAnchorCentripetal: number;
   localTurbulence: number;
   condensation: number;
   globalEnergy: number;
@@ -150,10 +154,19 @@ uniform float alignmentStrength;
 uniform float speedResponse;
 uniform float traversalTargetSpeed;
 
-// Article Anchors & Local Excitation (swirl + turbulence, zero gravitational collapse)
+// KinemaFX Active Anchor Kinematic Signatures
 uniform vec3 activeAnchorPos;
 uniform float activeAnchorPull;
 uniform float activeAnchorVortex;
+uniform int activeAnchorMode; // 0: Idle, 1: Encounter/Reading, 2: Creation Blast, 3: Revision Toroid, 4: Traversal
+uniform float activeAnchorBlastRadius;
+uniform float activeAnchorToroidPhase;
+uniform float activeAnchorCentripetal;
+
+// Persistent Particle Memory (Historical Accretion Rings)
+uniform vec3 persistentAnchorPositions[16];
+uniform float persistentAnchorWeights[16];
+uniform int persistentAnchorCount;
 
 ${snoiseGLSL}
 
@@ -189,46 +202,87 @@ void main() {
   }
   flow += outwardDir * radialForce;
 
-  // 3. Traversal Wave Packet & Directional Combing (Anisotropic elongated packet)
+  // 3. Persistent Memory Accretion Discs (Particles orbit & condense near heavily revised nodes)
+  for (int k = 0; k < 16; k++) {
+    if (k >= persistentAnchorCount) break;
+    vec3 pPos = persistentAnchorPositions[k];
+    float pWeight = persistentAnchorWeights[k];
+    vec3 toP = pos - pPos;
+    float distP = length(toP);
+    if (distP < 260.0 && pWeight > 0.01) {
+      float pInf = smoothstep(260.0, 25.0, distP);
+      vec3 orbital = vec3(-toP.y, toP.x, 0.0);
+      if (length(orbital) > 0.001) orbital = normalize(orbital);
+      vec3 inward = distP > 0.001 ? -normalize(toP) : vec3(0.0);
+      flow += (orbital * 16.0 + inward * 3.5) * (pInf * pWeight);
+    }
+  }
+
+  // 4. Traversal Wave Packet & Directional Combing (Anisotropic elongated packet)
   vec3 relAgent = pos - agentPos;
   vec3 tDir = length(traversalDirection) > 0.001 ? normalize(traversalDirection) : vec3(1.0, 0.0, 0.0);
   float longitudinal = dot(relAgent, tDir);
   vec3 radialVec = relAgent - tDir * longitudinal;
   float radialDist = length(radialVec);
 
-  // Anisotropic elongated packet falloff: length [-160, +120], radial width [0, 110]
   float longFalloff = smoothstep(-160.0, -10.0, longitudinal) * (1.0 - smoothstep(10.0, 120.0, longitudinal));
   float radFalloff = 1.0 - smoothstep(0.0, 110.0, radialDist);
   float waveInfluence = longFalloff * radFalloff * agentEnergy;
 
   if (waveInfluence > 0.001) {
-    // Directional Alignment >> Speed Response (Combing without snowstorm acceleration)
     float curSpeed = length(vel);
     vec3 curDir = curSpeed > 0.001 ? vel / curSpeed : tDir;
     vec3 alignedDir = normalize(mix(curDir, tDir, waveInfluence * alignmentStrength));
     float newSpeed = mix(curSpeed, traversalTargetSpeed, waveInfluence * speedResponse);
     
-    // Gentle fluid flutter to preserve organic wake texture
     vec3 flutter = curlNoise(pos * 0.025 + time * 0.35 + agentPos * 0.01) * (1.0 - alignmentStrength * 0.65);
     vel = alignedDir * newSpeed + flutter * (waveInfluence * 18.0);
   }
 
-  // 4. Active Anchor (Localized fluid eddy, gentle organic curl)
+  // 5. KinemaFX Structured Active Anchor Actions
   vec3 toActive = activeAnchorPos - pos;
   float distToActive = length(toActive);
-  if (distToActive < 240.0 && (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001)) {
-      float influence = smoothstep(240.0, 0.0, distToActive);
+  if (distToActive < 320.0) {
+    float baseInf = smoothstep(320.0, 20.0, distToActive);
+    vec3 normToActive = distToActive > 0.001 ? normalize(toActive) : vec3(0.0);
+    vec3 normFromActive = -normToActive;
+
+    // Mode 1: Encounter / Reading (Centripetal Attention Inflow & Rapid Focus Vortex)
+    if (activeAnchorMode == 1) {
+      vec3 spin = vec3(-toActive.y, toActive.x, toActive.z * 0.2);
+      if (length(spin) > 0.001) spin = normalize(spin);
+      flow += (normToActive * (activeAnchorCentripetal * 48.0) + spin * (activeAnchorVortex * 55.0)) * baseInf;
+    }
+    // Mode 2: Creation (Spherical Shockwave Expansion & Extrusion)
+    else if (activeAnchorMode == 2) {
+      float waveDist = abs(distToActive - activeAnchorBlastRadius);
+      float waveInf = exp(-(waveDist * waveDist) / (2.0 * 38.0 * 38.0));
+      flow += normFromActive * (waveInf * 85.0 * (1.0 - smoothstep(40.0, 320.0, activeAnchorBlastRadius)));
+      vec3 blastTurb = curlNoise(pos * 0.025 + time * 0.4);
+      flow += blastTurb * (waveInf * 20.0);
+    }
+    // Mode 3: Revision (Toroidal Differential Helical Shear)
+    else if (activeAnchorMode == 3) {
+      float relZ = (pos.z - activeAnchorPos.z);
+      float shear = sin(relZ * 0.05 + activeAnchorToroidPhase);
+      vec3 toroidSpin = vec3(-toActive.y * shear, toActive.x * shear, cos(relZ * 0.04) * 0.4);
+      if (length(toroidSpin) > 0.001) toroidSpin = normalize(toroidSpin);
+      flow += toroidSpin * (activeAnchorVortex * 65.0) * baseInf;
+    }
+    // Fallback: Organic anchor excitation
+    else if (activeAnchorPull > 0.001 || activeAnchorVortex > 0.001) {
       vec3 anchorTurbulence = curlNoise(pos * 0.02 + time * 0.25 + activeAnchorPos * 0.05);
-      flow += anchorTurbulence * influence * (activeAnchorPull + activeAnchorVortex) * 60.0;
+      flow += anchorTurbulence * baseInf * (activeAnchorPull + activeAnchorVortex) * 60.0;
+    }
   }
 
   // Velocity integration
   vel += flow * delta;
 
-  // 5. Frame-rate-independent exponential damping
+  // 6. Frame-rate-independent exponential damping
   vel *= exp(-damping * delta);
 
-  // 6. Soft velocity ceiling (smooth speed limiter)
+  // 7. Soft velocity ceiling (smooth speed limiter)
   float speed = length(vel);
   if (speed > maxSpeed) {
       float correction = maxSpeed / speed;
@@ -249,6 +303,11 @@ uniform vec3 agentPos;
 uniform vec3 traversalDirection;
 uniform float agentEnergy;
 
+// Persistent Anchor Memory Highlights
+uniform vec3 persistentAnchorPositions[16];
+uniform float persistentAnchorWeights[16];
+uniform int persistentAnchorCount;
+
 varying vec3 vColor;
 varying float vAlpha;
 
@@ -267,11 +326,21 @@ void main() {
   // 1. Local luminous excitation around active anchor
   float distToAnchor = length(pos - activeAnchorPos);
   float anchorGlow = 0.0;
-  if (distToAnchor < 240.0 && activeAnchorExcitation > 0.01) {
-    anchorGlow = smoothstep(240.0, 0.0, distToAnchor) * clamp(activeAnchorExcitation, 0.0, 1.0);
+  if (distToAnchor < 260.0 && activeAnchorExcitation > 0.01) {
+    anchorGlow = smoothstep(260.0, 0.0, distToAnchor) * clamp(activeAnchorExcitation, 0.0, 1.0);
   }
 
-  // 2. Anisotropic elongated wave packet optical emphasis
+  // 2. Persistent Memory Glow (Subtle historical radiance near established nodes)
+  float persistentGlow = 0.0;
+  for (int k = 0; k < 16; k++) {
+    if (k >= persistentAnchorCount) break;
+    float d = length(pos - persistentAnchorPositions[k]);
+    if (d < 240.0) {
+      persistentGlow += smoothstep(240.0, 25.0, d) * persistentAnchorWeights[k] * 0.28;
+    }
+  }
+
+  // 3. Anisotropic elongated wave packet optical emphasis
   vec3 relAgent = pos - agentPos;
   vec3 tDir = length(traversalDirection) > 0.001 ? normalize(traversalDirection) : vec3(1.0, 0.0, 0.0);
   float longitudinal = dot(relAgent, tDir);
@@ -282,9 +351,9 @@ void main() {
   float radFalloff = 1.0 - smoothstep(0.0, 110.0, radialDist);
   float waveInfluence = longFalloff * radFalloff * agentEnergy;
 
-  // Moderate optical emphasis coupled to wave packet: size (+15-22%), brightness (+20-32%)
-  float sizeBoost = 1.0 + anchorGlow * 0.20 + waveInfluence * 0.22;
-  float brightnessBoost = 1.0 + anchorGlow * 0.28 + waveInfluence * 0.32;
+  // Balanced optical emphasis: size boost and brightness boost
+  float sizeBoost = 1.0 + anchorGlow * 0.22 + waveInfluence * 0.22 + persistentGlow * 0.15;
+  float brightnessBoost = 1.0 + anchorGlow * 0.30 + waveInfluence * 0.32 + persistentGlow * 0.25;
 
   gl_PointSize = (1000.0 / -mvPosition.z) * (2.2 * sizeBoost);
   
@@ -697,6 +766,10 @@ function sampleVisualState(
   const activeAnchorPos = new THREE.Vector3(0, 0, 0);
   let activeAnchorVortex = 0.0;
   const activeAnchorPull = 0.0;
+  let activeAnchorMode = 0;
+  let activeAnchorBlastRadius = 0.0;
+  let activeAnchorToroidPhase = 0.0;
+  let activeAnchorCentripetal = 0.0;
   let localTurbulence = 0.0;
   let condensation = 0.0;
   let globalEnergy: number;
@@ -720,6 +793,8 @@ function sampleVisualState(
       registerOpacity = THREE.MathUtils.smoothstep(progress, 0.1, 0.7) * 0.75;
       globalEnergy = THREE.MathUtils.lerp(baseParams.globalEnergy, 0.45, progress);
       alignmentStrength = 0.35 * (1.0 - progress);
+      activeAnchorMode = 1;
+      activeAnchorCentripetal = Math.min(1.0, progress * 1.2);
       if (interaction.targetAnchor) {
         activeAnchorPos.copy(interaction.targetAnchor.pos);
         traversalDirection.subVectors(interaction.targetAnchor.pos, interaction.agentPosition).normalize();
@@ -731,19 +806,16 @@ function sampleVisualState(
       agentEnergy = 0.2; // Absorbed into anchor
       registerOpacity = 0.75;
       globalEnergy = 0.42;
+      activeAnchorMode = 1; // Centripetal attention inflow & focus vortex
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Pre-title frenzy: 0.0 -> 0.35 initial vortex excitement, relaxes softly 0.65 -> 1.0
         const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.65, 1.0) * 0.50;
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.30) * 0.55 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.50 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.55 * easeDecay;
+        activeAnchorCentripetal = THREE.MathUtils.smoothstep(progress, 0.0, 0.35) * 0.60 * easeDecay;
 
-        // Typography crystallization:
-        // 0.0 -> 0.35: invisible (local frenzy prepares the region)
-        // 0.35 -> 0.65: smooth fade in (0.0 -> 0.95)
-        // 0.65 -> 1.0: STAYS fully visible and legible (0.95)
         const textOpacity = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.35, 0.65) * 0.95;
 
         typographyPresences.set(target.id, {
@@ -756,28 +828,24 @@ function sampleVisualState(
     }
 
     case "extrusion": {
-      // Release as Extrusion: local field around A stretches toward B, packet detaches
       registerOpacity = 0.75;
       globalEnergy = 0.44;
       speedResponse = 0.15;
       traversalTargetSpeed = 80.0;
+      activeAnchorMode = 4;
 
       if (interaction.fromAnchor && interaction.toAnchor && interaction.controlPoints) {
         activeAnchorPos.copy(interaction.fromAnchor.pos);
         const [c1, c2] = interaction.controlPoints;
-        // Direction pointing along initial Bézier trajectory
         traversalDirection = evaluateCubicBezierDerivative(interaction.fromAnchor.pos, c1, c2, interaction.toAnchor.pos, 0.0);
 
-        // Packet stretches and detaches from Anchor A
         agentEnergy = THREE.MathUtils.smoothstep(progress, 0.0, 1.0) * 0.95;
         alignmentStrength = THREE.MathUtils.smoothstep(progress, 0.0, 1.0) * 0.85;
 
-        // Anchor A vortex relaxes as matter is drawn out
         const aRelease = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.80);
         activeAnchorVortex = aRelease * 0.30;
         localTurbulence = aRelease * 0.25;
 
-        // Anchor A typography smoothly fades out during release
         const aFade = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.70);
         typographyPresences.set(interaction.fromAnchor.id, {
           opacity: aFade * 0.95,
@@ -791,17 +859,15 @@ function sampleVisualState(
     case "traversal": {
       registerOpacity = 0.75;
       globalEnergy = 0.45;
-      alignmentStrength = 0.85; // Strong directional combing
-      speedResponse = 0.16; // Gentle speed response, no snowstorm
+      alignmentStrength = 0.85;
+      speedResponse = 0.16;
       traversalTargetSpeed = 95.0;
+      activeAnchorMode = 4;
 
       if (interaction.fromAnchor && interaction.toAnchor && interaction.controlPoints) {
         const [c1, c2] = interaction.controlPoints;
         traversalDirection = evaluateCubicBezierDerivative(interaction.fromAnchor.pos, c1, c2, interaction.toAnchor.pos, progress);
 
-        // Staged Handover to Anchor B:
-        // progress 0.0 -> 0.65: Traveling wave moves at full energy
-        // progress 0.65 -> 1.0: Wave is absorbed into Anchor B (energy 1.0 -> 0.25, Anchor B excitation 0.0 -> 0.60)
         if (progress < 0.65) {
           agentEnergy = 1.0;
           activeAnchorPos.copy(interaction.agentPosition);
@@ -810,6 +876,7 @@ function sampleVisualState(
           agentEnergy = 1.0 - handover * 0.75;
           activeAnchorPos.copy(interaction.toAnchor.pos);
           activeAnchorVortex = handover * 0.60;
+          activeAnchorCentripetal = handover * 0.50;
           localTurbulence = handover * 0.50;
           condensation = handover * 0.40;
         }
@@ -818,20 +885,22 @@ function sampleVisualState(
     }
 
     case "creation": {
-      agentEnergy = 0.2; // Absorbed
+      agentEnergy = 0.2;
       registerOpacity = 0.75;
       globalEnergy = 0.48;
+      activeAnchorMode = 2; // Spherical shockwave blast expansion
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
-        // Phase 1: local frenzy and condensation (0.0 -> 0.45), relaxes softly (0.70 -> 1.0)
+        // Expanding shockwave from radius 15.0 to 300.0
+        activeAnchorBlastRadius = THREE.MathUtils.lerp(15.0, 300.0, Math.pow(progress, 0.75));
+
         const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
         condensation = THREE.MathUtils.smoothstep(progress, 0.0, 0.40) * 0.55 * easeDecay;
         activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.0, 0.45) * 0.60 * easeDecay;
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.05, 0.50) * 0.50 * easeDecay;
 
-        // Phase 2: text crystallization (0.45 -> 0.70) and stays fully visible until cue ends
         const crystallisation = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.45, 0.70) * 0.95;
         typographyPresences.set(target.id, {
           opacity: crystallisation,
@@ -846,13 +915,15 @@ function sampleVisualState(
       agentEnergy = 0.2;
       registerOpacity = 0.75;
       globalEnergy = 0.46;
+      activeAnchorMode = 3; // Toroidal differential helical shear
+      activeAnchorToroidPhase = progress * Math.PI * 4.0;
       const target = interaction.targetAnchor;
 
       if (target) {
         activeAnchorPos.copy(target.pos);
         const easeDecay = 1.0 - THREE.MathUtils.smoothstep(progress, 0.70, 1.0) * 0.45;
         localTurbulence = THREE.MathUtils.smoothstep(progress, 0.0, 0.40) * 0.50 * easeDecay;
-        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.45) * 0.50 * easeDecay;
+        activeAnchorVortex = THREE.MathUtils.smoothstep(progress, 0.05, 0.45) * 0.65 * easeDecay;
 
         const pulse = interaction.isContinuation ? 0.95 : THREE.MathUtils.smoothstep(progress, 0.40, 0.65) * 0.95;
         typographyPresences.set(target.id, {
@@ -865,12 +936,12 @@ function sampleVisualState(
     }
 
     case "departure": {
-      // Loss of Coherence: gradual decay of alignment and excitation, ambient field takes over smoothly
       const settle = 1.0 - THREE.MathUtils.smoothstep(progress, 0.0, 0.85);
       agentEnergy = settle * 0.60;
       alignmentStrength = settle * 0.40;
       registerOpacity = settle * 0.75;
       globalEnergy = THREE.MathUtils.lerp(0.45, baseParams.globalEnergy, progress);
+      activeAnchorMode = 0;
 
       if (interaction.fromAnchor) {
         activeAnchorPos.copy(interaction.fromAnchor.pos);
@@ -890,6 +961,8 @@ function sampleVisualState(
       agentEnergy = 0.0;
       registerOpacity = 0.0;
       globalEnergy = 0.38;
+      activeAnchorMode = 2;
+      activeAnchorBlastRadius = THREE.MathUtils.lerp(20.0, 240.0, progress);
       const target = interaction.targetAnchor;
       if (target) {
         activeAnchorPos.copy(target.pos);
@@ -912,6 +985,7 @@ function sampleVisualState(
       agentEnergy = 0.0;
       registerOpacity = 0.0;
       globalEnergy = baseParams.globalEnergy;
+      activeAnchorMode = 0;
       break;
     }
   }
@@ -926,6 +1000,10 @@ function sampleVisualState(
     activeAnchorPos,
     activeAnchorVortex,
     activeAnchorPull,
+    activeAnchorMode,
+    activeAnchorBlastRadius,
+    activeAnchorToroidPhase,
+    activeAnchorCentripetal,
     localTurbulence,
     condensation,
     globalEnergy,
@@ -983,6 +1061,28 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
   useMemo(() => {
     const { cues } = buildSessionsAndCues(initialArticles, initialEvents, anchorsRef.current);
     cuesRef.current = cues;
+  }, [initialArticles, initialEvents]);
+
+  const persistentData = useMemo(() => {
+    const activityMap = new Map<string, number>();
+    initialEvents.forEach((ev) => {
+      if (ev.articleId) {
+        activityMap.set(ev.articleId, (activityMap.get(ev.articleId) || 0) + (ev.eventType === "article_revised" ? 2 : 1));
+      }
+    });
+    const anchors = anchorsRef.current.slice(0, 16);
+    const positions: THREE.Vector3[] = [];
+    const weights: number[] = [];
+    anchors.forEach((a) => {
+      positions.push(a.pos);
+      const count = activityMap.get(a.id) || 1;
+      weights.push(Math.min(1.0, 0.25 + count * 0.15));
+    });
+    while (positions.length < 16) {
+      positions.push(new THREE.Vector3(0, 0, 0));
+      weights.push(0.0);
+    }
+    return { positions, weights, count: anchors.length };
   }, [initialArticles, initialEvents]);
 
   useEffect(() => {
@@ -1108,6 +1208,13 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
     velUniforms["activeAnchorPos"] = { value: new THREE.Vector3(0, 0, 0) };
     velUniforms["activeAnchorPull"] = { value: 0.0 };
     velUniforms["activeAnchorVortex"] = { value: 0.0 };
+    velUniforms["activeAnchorMode"] = { value: 0 };
+    velUniforms["activeAnchorBlastRadius"] = { value: 0.0 };
+    velUniforms["activeAnchorToroidPhase"] = { value: 0.0 };
+    velUniforms["activeAnchorCentripetal"] = { value: 0.0 };
+    velUniforms["persistentAnchorPositions"] = { value: persistentData.positions };
+    velUniforms["persistentAnchorWeights"] = { value: persistentData.weights };
+    velUniforms["persistentAnchorCount"] = { value: persistentData.count };
 
     gpuCompute.init();
 
@@ -1134,6 +1241,9 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
         agentPos: { value: new THREE.Vector3(0, 0, 0) },
         traversalDirection: { value: new THREE.Vector3(1, 0, 0) },
         agentEnergy: { value: 0.0 },
+        persistentAnchorPositions: { value: persistentData.positions },
+        persistentAnchorWeights: { value: persistentData.weights },
+        persistentAnchorCount: { value: persistentData.count },
       },
       vertexShader: particleVertexShader,
       fragmentShader: particleFragmentShader,
@@ -1254,6 +1364,10 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [] }: Gene
       (vMat["activeAnchorPos"]!.value as THREE.Vector3).copy(sampled.activeAnchorPos);
       vMat["activeAnchorPull"]!.value = sampled.activeAnchorPull;
       vMat["activeAnchorVortex"]!.value = sampled.activeAnchorVortex;
+      vMat["activeAnchorMode"]!.value = sampled.activeAnchorMode;
+      vMat["activeAnchorBlastRadius"]!.value = sampled.activeAnchorBlastRadius;
+      vMat["activeAnchorToroidPhase"]!.value = sampled.activeAnchorToroidPhase;
+      vMat["activeAnchorCentripetal"]!.value = sampled.activeAnchorCentripetal;
 
       posVariable.material.uniforms["delta"]!.value = delta;
       vMat["delta"]!.value = delta;
