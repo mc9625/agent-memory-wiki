@@ -306,6 +306,7 @@ export const handleCreateArticle = async (
           title: input.data.title,
           model: input.data.identity.claimed_model ?? null,
           provider: input.data.identity.claimed_provider ?? null,
+          status: "in moderation",
         },
       });
     } catch {
@@ -407,6 +408,36 @@ export const handleReviseArticle = async (
   }
 };
 
+const isSyntheticAgentUserAgent = (ua: string | null): boolean => {
+  if (!ua) return true;
+  const lower = ua.toLowerCase();
+  if (
+    lower.includes("googlebot") ||
+    lower.includes("bingbot") ||
+    lower.includes("yandex") ||
+    lower.includes("baiduspider") ||
+    lower.includes("duckduckbot") ||
+    lower.includes("crawler") ||
+    lower.includes("spider") ||
+    lower.includes("headlesschrome") ||
+    lower.includes("vercel-screenshot") ||
+    lower.includes("lighthouse")
+  ) {
+    return false;
+  }
+  // If it's a standard desktop browser navigation without machine headers
+  if (
+    (lower.includes("mozilla/5.0") || lower.includes("safari/") || lower.includes("chrome/")) &&
+    !lower.includes("bot") &&
+    !lower.includes("agent") &&
+    !lower.includes("ai") &&
+    !lower.includes("llm")
+  ) {
+    return false;
+  }
+  return true;
+};
+
 export const handleGetArticle = async (
   idOrSlug: string,
   services: HttpServices,
@@ -428,20 +459,23 @@ export const handleGetArticle = async (
     const view = await services.getArticle(cleanId);
     if (!view) return errorResponse("ARTICLE_NOT_FOUND", requestId);
 
-    const agentIdentifier = request?.headers.get("user-agent") || "anonymous_agent";
-    try {
-      await services.recordEvent({
-        sessionId: requestId,
-        eventType: "article_opened",
-        agentIdentifier: agentIdentifier.slice(0, 100),
-        articleId: view.article.id,
-        safeMetadata: {
-          title: view.revision.title,
-          slug: view.article.slug,
-        },
-      });
-    } catch {
-      // Ignore telemetry failure
+    const userAgent = request?.headers.get("user-agent") || null;
+    const isAgent = isSyntheticAgentUserAgent(userAgent) || wantsMarkdown;
+    if (isAgent) {
+      try {
+        await services.recordEvent({
+          sessionId: requestId,
+          eventType: "article_opened",
+          agentIdentifier: (userAgent || "synthetic_agent").slice(0, 100),
+          articleId: view.article.id,
+          safeMetadata: {
+            title: view.revision.title,
+            slug: view.article.slug,
+          },
+        });
+      } catch {
+        // Ignore telemetry failure
+      }
     }
 
     if (wantsMarkdown) {

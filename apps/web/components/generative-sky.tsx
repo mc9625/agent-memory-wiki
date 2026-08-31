@@ -367,8 +367,7 @@ void main() {
   float depthDist = abs(mvPosition.z);
   vAlpha *= smoothstep(1200.0, 100.0, depthDist) * 0.7 + 0.3;
   
-  // Tint particles interacting with the agent using the agent's unique signature color
-  vColor = mix(vec3(1.0, 1.0, 1.0), agentColor, clamp(waveInfluence * 1.5 + anchorGlow * 0.6, 0.0, 0.95));
+  vColor = vec3(1.0, 1.0, 1.0);
 }
 `;
 
@@ -788,7 +787,15 @@ function sampleVisualState(
       dateString = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
     }
   }
-  const registerText = `${agentName}\n\n${genNumber}\n${dateString}`;
+
+  let statusSuffix = "";
+  if (interaction.phase === "creation") {
+    statusSuffix = "\n[ in moderation ]";
+  } else if (interaction.phase === "revision") {
+    statusSuffix = "\n[ revision proposed ]";
+  }
+
+  const registerText = `${agentName}\n\n${genNumber}\n${dateString}${statusSuffix}`;
 
   switch (phase) {
     case "arrival": {
@@ -1036,9 +1043,9 @@ function createBloomCanvasTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    gradient.addColorStop(0.2, "rgba(255, 255, 255, 0.8)");
-    gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.25)");
+    gradient.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+    gradient.addColorStop(0.25, "rgba(255, 255, 255, 0.40)");
+    gradient.addColorStop(0.60, "rgba(255, 255, 255, 0.08)");
     gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 128, 128);
@@ -1071,10 +1078,31 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     if (!liveEvent) return;
 
     let target = anchorsRef.current.find((a) => a.id === liveEvent.articleId);
-    if (!target && anchorsRef.current.length > 0) {
-      target = anchorsRef.current[0];
+    if (!target) {
+      const u = seededRandom((liveEvent.articleId || "new") + "u");
+      const v = seededRandom((liveEvent.articleId || "new") + "v");
+      const rSeed = seededRandom((liveEvent.articleId || "new") + "r");
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = 0.35 + rSeed * 0.35;
+      const sinPhi = Math.sin(phi);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawTitle = (liveEvent as any).safeMetadata?.title || "New Contribution";
+      const displayTitle = `${rawTitle} [in moderation]`;
+
+      target = {
+        id: liveEvent.articleId || `temp-${Date.now()}`,
+        pos: new THREE.Vector3(
+          r * sinPhi * Math.cos(theta) * 550.0,
+          r * sinPhi * Math.sin(theta) * 290.0,
+          r * Math.cos(phi) * 240.0
+        ),
+        title: displayTitle,
+        excerpt: "in moderation",
+        layoutPos: "lateral",
+      };
+      anchorsRef.current.push(target);
     }
-    if (!target) return;
 
     const liveCueType: CueType =
       liveEvent.eventType === "article_created"
@@ -1346,7 +1374,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     agentHaloSprite.scale.set(160, 160, 1);
     scene.add(agentHaloSprite);
 
-    const agentCoreGeometry = new THREE.SphereGeometry(3.5, 16, 16);
+    const agentCoreGeometry = new THREE.SphereGeometry(2.0, 16, 16);
     const agentCoreMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -1354,6 +1382,26 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     });
     const agentCoreMesh = new THREE.Mesh(agentCoreGeometry, agentCoreMaterial);
     scene.add(agentCoreMesh);
+
+    // 2.2 Knowledge Constellation Anchor Star Nodes
+    const anchorPositions = new Float32Array(anchorsRef.current.length * 3);
+    anchorsRef.current.forEach((a, idx) => {
+      anchorPositions[idx * 3 + 0] = a.pos.x;
+      anchorPositions[idx * 3 + 1] = a.pos.y;
+      anchorPositions[idx * 3 + 2] = a.pos.z;
+    });
+    const anchorGeom = new THREE.BufferGeometry();
+    anchorGeom.setAttribute("position", new THREE.BufferAttribute(anchorPositions, 3));
+    const anchorPointsMaterial = new THREE.PointsMaterial({
+      color: 0xaaccff,
+      size: 5.0,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const anchorPoints = new THREE.Points(anchorGeom, anchorPointsMaterial);
+    scene.add(anchorPoints);
 
     // 3. Setup Trails
     const rtCurrent = new THREE.WebGLRenderTarget(width * dpr, height * dpr, {
@@ -1380,6 +1428,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     let cueIndex = 0;
     let cueTimeElapsed = 0.0;
     let liveCueTimeElapsed = 0.0;
+    let currentAgentOpacity = 0.0;
     const currentAgentPos = new THREE.Vector3(0, 0, 800);
 
     const tempVec3 = new THREE.Vector3();
@@ -1419,17 +1468,53 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       }
 
       if (currentCue) {
-        // Advance agent position along trajectory if in traversal or arrival
+        // Advance agent position along fluid organic trajectories and orbits
         if (currentCue.type === "traversal" && currentCue.fromAnchor && currentCue.toAnchor && currentCue.controlPoints) {
           const [c1, c2] = currentCue.controlPoints;
           const pos = evaluateCubicBezier(currentCue.fromAnchor.pos, c1, c2, currentCue.toAnchor.pos, cueProgress);
           currentAgentPos.copy(pos);
         } else if (currentCue.type === "extrusion" && currentCue.fromAnchor) {
-          currentAgentPos.copy(currentCue.fromAnchor.pos);
+          const orbitAngle = cueProgress * Math.PI * 3.0;
+          const orbitRad = 16.0 + Math.sin(cueProgress * Math.PI) * 18.0;
+          currentAgentPos.set(
+            currentCue.fromAnchor.pos.x + Math.cos(orbitAngle) * orbitRad,
+            currentCue.fromAnchor.pos.y + Math.sin(orbitAngle) * orbitRad * 0.7,
+            currentCue.fromAnchor.pos.z + Math.sin(orbitAngle * 1.5) * 12.0
+          );
         } else if (currentCue.type === "arrival" && currentCue.targetAnchor) {
-          currentAgentPos.lerpVectors(new THREE.Vector3(0, 0, 600), currentCue.targetAnchor.pos, cueProgress);
+          const startOrigin = new THREE.Vector3(
+            currentCue.targetAnchor.pos.x * 1.6 + 140,
+            currentCue.targetAnchor.pos.y * 1.6 - 100,
+            currentCue.targetAnchor.pos.z + 320
+          );
+          const midControl = new THREE.Vector3(
+            (startOrigin.x + currentCue.targetAnchor.pos.x) * 0.5 + 50,
+            (startOrigin.y + currentCue.targetAnchor.pos.y) * 0.5 + 35,
+            (startOrigin.z + currentCue.targetAnchor.pos.z) * 0.5 + 80
+          );
+          const t = cueProgress;
+          const inv = 1 - t;
+          currentAgentPos.set(
+            inv * inv * startOrigin.x + 2 * inv * t * midControl.x + t * t * currentCue.targetAnchor.pos.x,
+            inv * inv * startOrigin.y + 2 * inv * t * midControl.y + t * t * currentCue.targetAnchor.pos.y,
+            inv * inv * startOrigin.z + 2 * inv * t * midControl.z + t * t * currentCue.targetAnchor.pos.z
+          );
+        } else if (currentCue.type === "departure" && currentCue.targetAnchor) {
+          const exitDir = new THREE.Vector3(
+            currentCue.targetAnchor.pos.x + Math.cos(cueProgress * Math.PI * 0.5) * 160,
+            currentCue.targetAnchor.pos.y + Math.sin(cueProgress * Math.PI * 0.5) * 120,
+            currentCue.targetAnchor.pos.z + cueProgress * 260
+          );
+          currentAgentPos.copy(exitDir);
         } else if (currentCue.targetAnchor) {
-          currentAgentPos.copy(currentCue.targetAnchor.pos);
+          // Graceful helical orbit around the concept anchor during reading / encounter / creation / revision
+          const orbitAngle = cueProgress * Math.PI * 4.0;
+          const orbitRadius = 18.0 + Math.sin(cueProgress * Math.PI) * 10.0;
+          currentAgentPos.set(
+            currentCue.targetAnchor.pos.x + Math.cos(orbitAngle) * orbitRadius,
+            currentCue.targetAnchor.pos.y + Math.sin(orbitAngle * 0.8) * (orbitRadius * 0.65),
+            currentCue.targetAnchor.pos.z + Math.sin(orbitAngle * 1.2) * (orbitRadius * 0.4)
+          );
         }
       } else {
         // Reached the present / live latent state
@@ -1499,19 +1584,23 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       (particleMaterial.uniforms["traversalDirection"]!.value as THREE.Vector3).copy(sampled.traversalDirection);
       particleMaterial.uniforms["agentEnergy"]!.value = sampled.agentEnergy;
 
+      const isAgentActive = sampled.agentEnergy > 0.01 && currentCue.type !== "silence";
+      const targetOpacity = isAgentActive ? Math.min(1.0, 0.25 + sampled.agentEnergy * 0.75) : 0.0;
+      currentAgentOpacity += (targetOpacity - currentAgentOpacity) * Math.min(1.0, rawDelta * 2.8);
+
       const activeAgentColor = getAgentColor(currentCue.agentIdentifier, currentCue.id);
       agentHaloSprite.material.color.copy(activeAgentColor);
       agentCoreMaterial.color.copy(activeAgentColor);
-      (particleMaterial.uniforms["agentColor"]!.value as THREE.Color).copy(activeAgentColor);
 
       agentHaloSprite.position.copy(currentAgentPos);
       agentCoreMesh.position.copy(currentAgentPos);
 
-      const haloScale = 80 + sampled.agentEnergy * 160;
+      const haloScale = 18 + currentAgentOpacity * 32;
       agentHaloSprite.scale.set(haloScale, haloScale, 1);
-      agentHaloSprite.material.opacity = Math.min(1.0, 0.35 + sampled.agentEnergy * 0.65);
-      agentCoreMesh.visible = sampled.agentEnergy > 0.02;
-      agentHaloSprite.visible = sampled.agentEnergy > 0.02;
+      agentHaloSprite.material.opacity = currentAgentOpacity * 0.32;
+      agentCoreMaterial.opacity = currentAgentOpacity * 0.85;
+      agentCoreMesh.visible = currentAgentOpacity > 0.002;
+      agentHaloSprite.visible = currentAgentOpacity > 0.002;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
