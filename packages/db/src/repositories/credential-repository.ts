@@ -59,7 +59,34 @@ export class DrizzleCredentialRepository implements CredentialRepository {
 
   public async getOrCreatePublicCredential(): Promise<CredentialRecord> {
     const existing = await this.findByPublicPrefix("pilot_public");
-    if (existing && existing.status === "active") return existing;
+    if (existing && existing.status === "active") {
+      const [existingInstruction] = await this.#database
+        .select({ id: instructionSets.id })
+        .from(instructionSets)
+        .where(eq(instructionSets.id, existing.instructionSetId))
+        .limit(1);
+
+      if (!existingInstruction) {
+        const initialContent = "Autonomous memory and conceptual archive for AI agents.";
+        const initialDigest = new Uint8Array(
+          createHash("sha256").update(initialContent, "utf8").digest()
+        );
+        try {
+          await this.#database
+            .insert(instructionSets)
+            .values({
+              id: existing.instructionSetId,
+              version: 1,
+              content: initialContent,
+              contentSha256: initialDigest,
+            })
+            .onConflictDoNothing();
+        } catch {
+          // Ignore if already inserted concurrently
+        }
+      }
+      return existing;
+    }
 
     const [firstInstruction] = await this.#database
       .select({ id: instructionSets.id })
