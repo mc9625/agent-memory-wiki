@@ -73,7 +73,7 @@ export class DrizzleArticleWriter implements ArticleWriter {
     const outcome = await this.#database.transaction(async (transaction) => {
       await transaction.execute(sql`
         SELECT pg_advisory_xact_lock(
-          hashtextextended(${`idempotency:${command.credentialId}:${command.idempotencyKeyDigest}`}, 0)
+          hashtextextended(${`idempotency:${command.credentialId}:${command.idempotencyKeyDigest}`}::text, 0::bigint)
         )
       `);
       const [existingIdempotency] = await transaction
@@ -153,7 +153,7 @@ export class DrizzleArticleWriter implements ArticleWriter {
       });
 
       await transaction.execute(sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${`content:${command.contentDigest}`}, 0))
+        SELECT pg_advisory_xact_lock(hashtextextended(${`content:${command.contentDigest}`}::text, 0::bigint))
       `);
       const [duplicate] = await transaction
         .select({ id: revisions.id })
@@ -282,7 +282,7 @@ export class DrizzleArticleWriter implements ArticleWriter {
     const outcome: TransactionOutcome = await this.#database.transaction(async (transaction) => {
       await transaction.execute(sql`
         SELECT pg_advisory_xact_lock(
-          hashtextextended(${`idempotency:${command.credentialId}:${command.idempotencyKeyDigest}`}, 0)
+          hashtextextended(${`idempotency:${command.credentialId}:${command.idempotencyKeyDigest}`}::text, 0::bigint)
         )
       `);
       const [existingIdempotency] = await transaction
@@ -362,7 +362,7 @@ export class DrizzleArticleWriter implements ArticleWriter {
       });
 
       await transaction.execute(sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${`content:${command.contentDigest}`}, 0))
+        SELECT pg_advisory_xact_lock(hashtextextended(${`content:${command.contentDigest}`}::text, 0::bigint))
       `);
       const [duplicate] = await transaction
         .select({ id: revisions.id })

@@ -19,4 +19,15 @@ export class DrizzleSettingsRepository implements SettingsRepository {
       .limit(1);
     return row?.readOnly ?? null;
   }
+
+  public async ensureInitialized(): Promise<void> {
+    try {
+      await this.#database
+        .insert(systemSettings)
+        .values({ singleton: true, readOnly: false })
+        .onConflictDoNothing();
+    } catch {
+      // Ignore concurrent insertion
+    }
+  }
 }
