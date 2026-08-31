@@ -63,6 +63,7 @@ export interface ChoreographyCue {
   timestamp?: string | undefined;
   controlPoints?: [THREE.Vector3, THREE.Vector3] | undefined;
   isContinuation?: boolean;
+  status?: string | undefined;
 }
 
 export interface CurrentInteractionState {
@@ -79,6 +80,7 @@ export interface CurrentInteractionState {
   targetAnchor?: SimAnchor | undefined;
   controlPoints?: [THREE.Vector3, THREE.Vector3] | undefined;
   isContinuation?: boolean;
+  status?: string | undefined;
 }
 
 export interface SampledVisualState {
@@ -801,8 +803,10 @@ function sampleVisualState(
   }
 
   let statusSuffix = "";
-  if (interaction.phase === "creation") {
-    statusSuffix = interaction.targetAnchor?.excerpt === "published" ? "\n[ published & active ]" : "\n[ in moderation ]";
+  if (interaction.status === "published" || interaction.targetAnchor?.excerpt === "published") {
+    statusSuffix = "\n[ published & active ]";
+  } else if (interaction.status === "in moderation" || interaction.targetAnchor?.excerpt === "in moderation") {
+    statusSuffix = "\n[ in moderation ]";
   } else if (interaction.phase === "revision") {
     statusSuffix = "\n[ revision proposed ]";
   }
@@ -1096,7 +1100,13 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     const rawTitle = safeMeta.title || "Archive Concept";
     const displayTitle = isPublished ? rawTitle : `${rawTitle} [in moderation]`;
 
-    let target = anchorsRef.current.find((a) => a.id === liveEvent.articleId);
+    let target = anchorsRef.current.find(
+      (a) =>
+        a.id === liveEvent.articleId ||
+        a.title.toLowerCase().includes(rawTitle.toLowerCase()) ||
+        rawTitle.toLowerCase().includes(a.title.toLowerCase())
+    );
+
     if (target) {
       target.title = displayTitle;
       target.excerpt = isPublished ? "published" : "in moderation";
@@ -1138,6 +1148,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       agentIdentifier: liveEvent.agentIdentifier,
       generation: liveEvent.generation,
       timestamp: liveEvent.createdAt || new Date().toISOString(),
+      status: isPublished ? "published" : "in moderation",
     };
 
     const actionCue: ChoreographyCue = {
@@ -1148,6 +1159,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       agentIdentifier: liveEvent.agentIdentifier,
       generation: liveEvent.generation,
       timestamp: liveEvent.createdAt || new Date().toISOString(),
+      status: isPublished ? "published" : "in moderation",
     };
 
     liveCueTimeElapsedRef.current = 0.0;
@@ -1565,6 +1577,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
         targetAnchor: currentCue.targetAnchor,
         controlPoints: currentCue.controlPoints,
         isContinuation: currentCue.isContinuation ?? false,
+        status: currentCue.status,
       };
 
       const sampled = sampleVisualState(interaction, PARAMS);
