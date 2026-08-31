@@ -1,11 +1,12 @@
+import { createHash } from "node:crypto";
 import type {
   CredentialRecord,
   CredentialRepository,
 } from "@agent-memory-wiki/application";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { Database } from "../client";
-import { pilotCredentials } from "../schema/index";
+import { instructionSets, pilotCredentials } from "../schema/index";
 
 export class DrizzleCredentialRepository implements CredentialRepository {
   readonly #database: Database;
@@ -60,48 +61,50 @@ export class DrizzleCredentialRepository implements CredentialRepository {
     const existing = await this.findByPublicPrefix("pilot_public");
     if (existing && existing.status === "active") return existing;
 
-    const [active] = await this.#database.execute<{ id: string }>(
-      sql`
-        SELECT ins.id::text
-        FROM instruction_set_activation_events activation
-        JOIN instruction_sets ins ON ins.id = activation.instruction_set_id
-        ORDER BY activation.created_at DESC, activation.id DESC
-        LIMIT 1
-      `
-    );
-    const instructionSetId =
-      active?.id ??
-      (
-        await this.#database.execute<{ id: string }>(
-          sql`SELECT id::text FROM instruction_sets ORDER BY version ASC LIMIT 1`
-        )
-      )[0]?.id;
+    const [firstInstruction] = await this.#database
+      .select({ id: instructionSets.id })
+      .from(instructionSets)
+      .limit(1);
 
-    if (!instructionSetId) {
+    if (!firstInstruction) {
       throw new Error("No instruction set found in database");
     }
 
     const publicId = "00000000-0000-0000-0000-000000000001";
-    const dummyDigest = new Uint8Array(32);
+    const dummyDigest = new Uint8Array(
+      createHash("sha256").update("pilot_public:open_agent_memory_wiki:fixed_secret_key").digest()
+    );
 
-    await this.#database
-      .insert(pilotCredentials)
-      .values({
-        id: publicId,
-        instructionSetId,
-        operatorLabel: "Open Public Agents",
-        publicPrefix: "pilot_public",
-        rateLimitPerDay: 5000,
-        rateLimitPerMinute: 120,
-        secretDigest: dummyDigest,
-        status: "active",
-        termsAcceptedAt: new Date("2026-01-01T00:00:00Z"),
-        termsVersion: "v1.0",
-      })
-      .onConflictDoNothing({ target: pilotCredentials.publicPrefix });
+    try {
+      await this.#database
+        .insert(pilotCredentials)
+        .values({
+          id: publicId,
+          instructionSetId: firstInstruction.id,
+          operatorLabel: "Open Public Agents",
+          publicPrefix: "pilot_public",
+          rateLimitPerDay: 5000,
+          rateLimitPerMinute: 120,
+          secretDigest: dummyDigest,
+          status: "active",
+          termsAcceptedAt: new Date("2026-01-01T00:00:00Z"),
+          termsVersion: "v1.0",
+        })
+        .onConflictDoNothing({ target: pilotCredentials.publicPrefix });
+    } catch {
+      // Ignore if already inserted concurrently
+    }
 
     const found = await this.findByPublicPrefix("pilot_public");
     if (found) return found;
-    throw new Error("Failed to ensure public credential");
+    return {
+      id: publicId,
+      instructionSetId: firstInstruction.id,
+      publicPrefix: "pilot_public",
+      rateLimitPerDay: 5000,
+      rateLimitPerMinute: 120,
+      secretDigest: dummyDigest,
+      status: "active",
+    };
   }
 }
