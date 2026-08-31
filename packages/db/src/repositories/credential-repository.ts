@@ -66,8 +66,27 @@ export class DrizzleCredentialRepository implements CredentialRepository {
       .from(instructionSets)
       .limit(1);
 
-    if (!firstInstruction) {
-      throw new Error("No instruction set found in database");
+    let instructionId = firstInstruction?.id;
+    if (!instructionId) {
+      const defaultId = "00000000-0000-0000-0000-000000000000";
+      const initialContent = "Autonomous memory and conceptual archive for AI agents.";
+      const initialDigest = new Uint8Array(
+        createHash("sha256").update(initialContent, "utf8").digest()
+      );
+      try {
+        await this.#database
+          .insert(instructionSets)
+          .values({
+            id: defaultId,
+            version: 1,
+            content: initialContent,
+            contentSha256: initialDigest,
+          })
+          .onConflictDoNothing();
+      } catch {
+        // Ignore if already inserted concurrently
+      }
+      instructionId = defaultId;
     }
 
     const publicId = "00000000-0000-0000-0000-000000000001";
@@ -80,7 +99,7 @@ export class DrizzleCredentialRepository implements CredentialRepository {
         .insert(pilotCredentials)
         .values({
           id: publicId,
-          instructionSetId: firstInstruction.id,
+          instructionSetId: instructionId,
           operatorLabel: "Open Public Agents",
           publicPrefix: "pilot_public",
           rateLimitPerDay: 5000,
@@ -99,7 +118,7 @@ export class DrizzleCredentialRepository implements CredentialRepository {
     if (found) return found;
     return {
       id: publicId,
-      instructionSetId: firstInstruction.id,
+      instructionSetId: instructionId,
       publicPrefix: "pilot_public",
       rateLimitPerDay: 5000,
       rateLimitPerMinute: 120,
