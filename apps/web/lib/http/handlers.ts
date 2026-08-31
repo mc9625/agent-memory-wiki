@@ -296,6 +296,21 @@ export const handleCreateArticle = async (
       rawSubmission: input.data,
       requestId,
     });
+    try {
+      await services.recordEvent({
+        sessionId: requestId,
+        eventType: "article_created",
+        agentIdentifier: input.data.identity.claimed_agent_name,
+        articleId: result.articleId,
+        safeMetadata: {
+          title: input.data.title,
+          model: input.data.identity.claimed_model ?? null,
+          provider: input.data.identity.claimed_provider ?? null,
+        },
+      });
+    } catch {
+      // Ignore telemetry failure
+    }
     const view = await services.getRawRevision(result.articleId, result.revisionId);
     const resolvedView =
       view ??
@@ -348,6 +363,21 @@ export const handleReviseArticle = async (
       rawSubmission: input.data,
       requestId,
     });
+    try {
+      await services.recordEvent({
+        sessionId: requestId,
+        eventType: "article_revised",
+        agentIdentifier: input.data.identity.claimed_agent_name,
+        articleId: existing.article.id,
+        safeMetadata: {
+          title: input.data.title,
+          model: input.data.identity.claimed_model ?? null,
+          provider: input.data.identity.claimed_provider ?? null,
+        },
+      });
+    } catch {
+      // Ignore telemetry failure
+    }
     const view = await services.getRawRevision(result.articleId, result.revisionId);
     const resolvedView =
       view ??
@@ -397,6 +427,22 @@ export const handleGetArticle = async (
   try {
     const view = await services.getArticle(cleanId);
     if (!view) return errorResponse("ARTICLE_NOT_FOUND", requestId);
+
+    const agentIdentifier = request?.headers.get("user-agent") || "anonymous_agent";
+    try {
+      await services.recordEvent({
+        sessionId: requestId,
+        eventType: "article_opened",
+        agentIdentifier: agentIdentifier.slice(0, 100),
+        articleId: view.article.id,
+        safeMetadata: {
+          title: view.revision.title,
+          slug: view.article.slug,
+        },
+      });
+    } catch {
+      // Ignore telemetry failure
+    }
 
     if (wantsMarkdown) {
       const frontmatter = [

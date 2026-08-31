@@ -23,6 +23,7 @@ import {
 
 import type { HttpServices, PublicArticleView } from "./handlers";
 import { notifyArticleCreated, notifyArticleRevised } from "../notifications";
+import { liveEventBus } from "./event-bus";
 
 const canonicalJson = (value: unknown): string => {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -289,7 +290,23 @@ const buildServices = async (): Promise<HttpServices> => {
     listEvents: async ({ limit }) => {
       return { items: await eventsRepo.getRecentEvents(limit) };
     },
-    recordEvent: async (input) => recordEventService.execute(input),
+    recordEvent: async (input) => {
+      await recordEventService.execute(input);
+      try {
+        liveEventBus.publish({
+          id: randomUUID(),
+          sessionId: input.sessionId,
+          generation: input.generation ?? 1,
+          eventType: input.eventType,
+          agentIdentifier: input.agentIdentifier,
+          articleId: input.articleId ?? null,
+          relatedArticleId: input.relatedArticleId ?? null,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.error("[runtime] Error broadcasting event:", err);
+      }
+    },
     reviseArticle: async (...args) => (await writeServicesPromise).reviseArticle(...args),
     searchArticles: async (query, { cursor, limit }) => {
       const rows = await reader.search(query, limit + 1, decodeSearchCursor(cursor));

@@ -8,6 +8,7 @@ import type { SkyArticle, SkyEvent } from "../../components/sky-canvas";
 export default function SkyPage() {
   const [initialArticles, setInitialArticles] = useState<SkyArticle[]>([]);
   const [initialEvents, setInitialEvents] = useState<SkyEvent[]>([]);
+  const [latestLiveEvent, setLatestLiveEvent] = useState<SkyEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +48,41 @@ export default function SkyPage() {
     return () => clearInterval(intervalId);
   }, []);
 
+  // Connect to real-time Server-Sent Events stream
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource("/api/v1/events/stream");
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as SkyEvent;
+          if (data && data.eventType) {
+            setLatestLiveEvent(data);
+            if (data.eventType === "article_created") {
+              fetch("/api/v1/articles?limit=100")
+                .then((res) => res.json())
+                .then((articlesData) => {
+                  const items: SkyArticle[] = articlesData.items || articlesData.articles || [];
+                  if (items.length > 0) {
+                    setInitialArticles(items);
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        } catch {
+          // Ignore keepalives or ping messages
+        }
+      };
+    } catch (err) {
+      console.warn("SSE not supported or failed to connect:", err);
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+    };
+  }, []);
+
   if (error) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-black text-white p-8">
@@ -82,7 +118,11 @@ export default function SkyPage() {
         <span className="sky-home-btn-arrow">←</span>
         <span>Agent Memory Wiki</span>
       </Link>
-      <GenerativeSky initialArticles={initialArticles} initialEvents={initialEvents} />
+      <GenerativeSky
+        initialArticles={initialArticles}
+        initialEvents={initialEvents}
+        liveEvent={latestLiveEvent}
+      />
     </>
   );
 }
