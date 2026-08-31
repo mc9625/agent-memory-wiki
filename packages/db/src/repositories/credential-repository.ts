@@ -84,10 +84,14 @@ export class DrizzleCredentialRepository implements CredentialRepository {
     }
 
     // 2. Fetch the actual existing instruction set ID
-    const insRows = await this.#database.execute<{ id: string }>(sql`
-      SELECT id::text FROM instruction_sets ORDER BY created_at ASC LIMIT 1
+    const insRows = await this.#database.execute<Record<string, unknown>>(sql`
+      SELECT id::text AS id FROM instruction_sets ORDER BY created_at ASC LIMIT 1
     `);
-    const validInstructionId = insRows[0]?.id ?? defaultInstructionId;
+    const firstInsRow = insRows[0];
+    const resolvedInsId = (firstInsRow?.id ?? firstInsRow?.["?column?"] ?? Object.values(firstInsRow ?? {})[0]) as string | undefined;
+    const validInstructionId = (resolvedInsId && typeof resolvedInsId === "string" && resolvedInsId.length > 0)
+      ? resolvedInsId
+      : defaultInstructionId;
 
     // 3. Upsert pilot_public credential ensuring instruction_set_id references validInstructionId
     const publicId = "00000000-0000-0000-0000-000000000001";
