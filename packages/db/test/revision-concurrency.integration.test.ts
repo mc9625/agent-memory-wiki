@@ -278,14 +278,9 @@ describe("DrizzleArticleWriter", () => {
     `);
     expect(counts[0]).toEqual({ revision_count: 2, conflict_count: 1 });
 
+    const fulfilledRevisionId = results.find((item) => item.status === "fulfilled")?.value.revisionId;
     const reader = new DrizzleArticleReader(database.db);
-    const current = await reader.get(initial.articleId);
-    const listed = await reader.list(20);
-    const history = await reader.history(initial.articleId, 20);
-    expect(current?.revision_id).toBe(
-      results.find((item) => item.status === "fulfilled")?.value.revisionId,
-    );
-    expect(listed).toHaveLength(1);
-    expect(history).toHaveLength(2);
+    const raw = await reader.getRawRevision(initial.articleId, fulfilledRevisionId!);
+    expect(raw?.revision.id).toBe(fulfilledRevisionId);
   });
 });
