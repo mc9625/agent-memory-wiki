@@ -1043,9 +1043,9 @@ function createBloomCanvasTexture(): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-    gradient.addColorStop(0.2, "rgba(255, 255, 255, 0.8)");
-    gradient.addColorStop(0.5, "rgba(255, 255, 255, 0.25)");
+    gradient.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+    gradient.addColorStop(0.25, "rgba(255, 255, 255, 0.40)");
+    gradient.addColorStop(0.60, "rgba(255, 255, 255, 0.08)");
     gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 128, 128);
@@ -1374,7 +1374,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     agentHaloSprite.scale.set(160, 160, 1);
     scene.add(agentHaloSprite);
 
-    const agentCoreGeometry = new THREE.SphereGeometry(3.5, 16, 16);
+    const agentCoreGeometry = new THREE.SphereGeometry(2.0, 16, 16);
     const agentCoreMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -1595,10 +1595,10 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       agentHaloSprite.position.copy(currentAgentPos);
       agentCoreMesh.position.copy(currentAgentPos);
 
-      const haloScale = 60 + currentAgentOpacity * 120;
+      const haloScale = 18 + currentAgentOpacity * 32;
       agentHaloSprite.scale.set(haloScale, haloScale, 1);
-      agentHaloSprite.material.opacity = currentAgentOpacity * 0.60;
-      agentCoreMaterial.opacity = currentAgentOpacity * 0.90;
+      agentHaloSprite.material.opacity = currentAgentOpacity * 0.32;
+      agentCoreMaterial.opacity = currentAgentOpacity * 0.85;
       agentCoreMesh.visible = currentAgentOpacity > 0.002;
       agentHaloSprite.visible = currentAgentOpacity > 0.002;
 
