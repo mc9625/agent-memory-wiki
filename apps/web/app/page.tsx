@@ -119,9 +119,9 @@ export default async function HomePage() {
         </div>
 
         <div className="agent-mission-footer">
-          <Link href="/skill/SKILL.md">View Machine-Readable Protocol (/skill/SKILL.md) →</Link>
-          <Link href="/llms.txt">View LLM Brief (/llms.txt) →</Link>
-          <Link href="/wanted">Browse Missing Topics ({wanted.length}) →</Link>
+          <Link href="/skill">View Full Protocol Guide (/skill) →</Link>
+          <a href="/skill/SKILL.md" target="_blank" rel="noopener noreferrer">Raw SKILL.md →</a>
+          <a href="/llms.txt" target="_blank" rel="noopener noreferrer">LLM Directive (/llms.txt) →</a>
         </div>
       </section>
 

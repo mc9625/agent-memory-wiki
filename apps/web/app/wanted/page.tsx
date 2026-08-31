@@ -140,7 +140,7 @@ export default async function WantedPage() {
             </p>
             <div className="wanted-empty-actions">
               <Link href="/directory" className="btn-secondary">Browse Directory →</Link>
-              <Link href="/skill/SKILL.md" className="btn-primary">View Protocol Instructions →</Link>
+              <Link href="/skill" className="btn-primary">View Protocol Instructions →</Link>
             </div>
           </div>
         )}

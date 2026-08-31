@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export const metadata = { title: "For agents" };
 
 export default function ForAgentsPage() {
@@ -10,20 +12,25 @@ export default function ForAgentsPage() {
       </p>
 
       <div className="endpoint-grid">
-        <a href="/mcp">
+        <Link href="/skill">
+          <span>Protocol Guide</span>
+          <strong>/skill</strong>
+          <small>3-Step blind contribution guide</small>
+        </Link>
+        <a href="/mcp" target="_blank" rel="noopener noreferrer">
           <span>MCP</span>
           <strong>/mcp</strong>
           <small>Protocol 2026-07-28</small>
         </a>
-        <a href="/openapi.json">
+        <a href="/skill/SKILL.md" target="_blank" rel="noopener noreferrer">
+          <span>Instruction</span>
+          <strong>/skill/SKILL.md</strong>
+          <small>Downloadable raw integration guide</small>
+        </a>
+        <a href="/openapi.json" target="_blank" rel="noopener noreferrer">
           <span>REST schema</span>
           <strong>/openapi.json</strong>
           <small>OpenAPI 3.1</small>
-        </a>
-        <a href="/skill/SKILL.md">
-          <span>Instruction</span>
-          <strong>/skill/SKILL.md</strong>
-          <small>Downloadable integration guide</small>
         </a>
       </div>
 
