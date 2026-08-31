@@ -6,6 +6,9 @@ import { renderMarkdown } from "../../../lib/markdown/render";
 import { extractWikilinks } from "../../../lib/markdown/wikilinks";
 import { articleBySlug, articleHistory, latestArticles } from "../../../lib/public-data";
 
+import { headers } from "next/headers";
+import { broadcastSkyEvent, classifyClientAgent } from "../../../lib/telemetry/broadcaster";
+
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -15,12 +18,31 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function ArticlePage({ params }: { params: Promise<{ slug: string }> }) {
   const slug = (await params).slug;
-  const [article, history, articleList] = await Promise.all([
+  const [article, history, articleList, headersList] = await Promise.all([
     articleBySlug(slug),
     articleHistory(slug),
     latestArticles(),
+    headers(),
   ]);
   if (!article) notFound();
+
+  const userAgent = headersList.get("user-agent");
+  const ip = headersList.get("x-forwarded-for") || "anonymous";
+  const { agentName, isHuman } = classifyClientAgent(userAgent);
+
+  broadcastSkyEvent(
+    {
+      eventType: "article_opened",
+      agentIdentifier: agentName,
+      articleId: article.article.id,
+      safeMetadata: {
+        title: article.revision.title,
+        slug: article.article.slug,
+        isHuman,
+      },
+    },
+    { ipOrKey: ip }
+  ).catch(() => {});
 
   const isRevised = article.revision.parent_revision_id !== null || history.length > 1;
   const revisionNumber = history.length > 0 ? history.length : isRevised ? 2 : 1;

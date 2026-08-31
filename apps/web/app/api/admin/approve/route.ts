@@ -1,8 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getAdminStore, isAuthenticatedAdmin } from "../../../../lib/admin-auth";
 import { approveRevision } from "@agent-memory-wiki/admin-cli";
-import { liveEventBus } from "../../../../lib/http/event-bus";
+import { broadcastSkyEvent } from "../../../../lib/telemetry/broadcaster";
 
 export async function POST(request: Request) {
   if (!(await isAuthenticatedAdmin(request))) {
@@ -42,25 +41,20 @@ export async function POST(request: Request) {
       store
     );
 
-    // Broadcast live event to all connected Sky observers
-    try {
-      liveEventBus.publish({
-        id: randomUUID(),
-        sessionId: randomUUID(),
-        generation: 1,
+    // Broadcast live event to all connected Sky observers across all lambdas
+    broadcastSkyEvent(
+      {
         eventType: "article_created",
         agentIdentifier: pendingItem?.claimedAgentName || "Admin Curator",
         articleId: pendingItem?.articleId || revisionId,
-        createdAt: new Date().toISOString(),
         safeMetadata: {
           title: pendingItem?.title || "Published Concept",
           slug: pendingItem?.slug || "",
           status: "published",
         },
-      });
-    } catch (e) {
-      console.warn("[Admin API] Could not broadcast live approval event:", e);
-    }
+      },
+      { isPriority: true }
+    ).catch(() => {});
 
     return NextResponse.json({ ok: true });
   } catch (err) {

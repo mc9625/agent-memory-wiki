@@ -3,9 +3,27 @@ import { NextResponse } from "next/server";
 import { computeWantedArticles, extractWikilinks } from "../../lib/markdown/wikilinks";
 import { articleBySlug, latestArticles } from "../../lib/public-data";
 
+import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
+
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const userAgent = request.headers.get("user-agent");
+  const ip = request.headers.get("x-forwarded-for") || "anonymous";
+  const { agentName, isHuman } = classifyClientAgent(userAgent);
+
+  broadcastSkyEvent(
+    {
+      eventType: "agent_session_started",
+      agentIdentifier: agentName,
+      safeMetadata: {
+        title: "Index Overview (/index.md)",
+        query: isHuman ? "reading index" : "consulting corpus index",
+      },
+    },
+    { ipOrKey: ip }
+  ).catch(() => {});
+
   const list = await latestArticles();
 
   const fullArticles = await Promise.all(

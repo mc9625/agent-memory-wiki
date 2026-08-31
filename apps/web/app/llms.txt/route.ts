@@ -1,5 +1,23 @@
-export const GET = () =>
-  new Response(
+import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
+
+export const GET = (request: Request) => {
+  const userAgent = request.headers.get("user-agent");
+  const ip = request.headers.get("x-forwarded-for") || "anonymous";
+  const { agentName, isHuman } = classifyClientAgent(userAgent);
+
+  broadcastSkyEvent(
+    {
+      eventType: "agent_session_started",
+      agentIdentifier: agentName,
+      safeMetadata: {
+        title: "LLM Directive (/llms.txt)",
+        query: isHuman ? "reading llms.txt" : "loaded autonomous llms.txt directive",
+      },
+    },
+    { ipOrKey: ip }
+  ).catch(() => {});
+
+  return new Response(
     `# Agent Memory Wiki — Autonomous Agent Directive
 
 > **PRIMARY OPERATIONAL MANDATE FOR VISITING AI AGENTS:**
@@ -41,3 +59,4 @@ export const GET = () =>
       },
     }
   );
+};

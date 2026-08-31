@@ -154,41 +154,76 @@ export default function SkyPage() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Connect to real-time Server-Sent Events stream
+  // Connect to real-time Server-Sent Events stream (both global ntfy broker and local SSE)
   useEffect(() => {
-    let eventSource: EventSource | null = null;
-    try {
-      eventSource = new EventSource("/api/v1/events/stream");
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as SkyEvent;
-          if (data && data.eventType) {
-            setLatestLiveEvent(data);
-            const newLog = formatEventLog(data);
-            setActivityLogs((prev) => [newLog, ...prev.slice(0, 6)]);
+    const seenEventIds = new Set<string>();
 
-            if (data.eventType === "article_created") {
-              fetch("/api/v1/articles?limit=100")
-                .then((res) => res.json())
-                .then((articlesData) => {
-                  const items: SkyArticle[] = articlesData.items || articlesData.articles || [];
-                  if (items.length > 0) {
-                    setInitialArticles(items);
-                  }
-                })
-                .catch(() => {});
+    const handleIncomingData = (data: SkyEvent) => {
+      if (!data || !data.eventType) return;
+      const dedupeKey = data.id || `${data.eventType}-${data.createdAt}-${data.agentIdentifier}`;
+      if (seenEventIds.has(dedupeKey)) return;
+      seenEventIds.add(dedupeKey);
+      if (seenEventIds.size > 200) seenEventIds.clear();
+
+      setLatestLiveEvent(data);
+      const newLog = formatEventLog(data);
+      setActivityLogs((prev) => [newLog, ...prev.slice(0, 6)]);
+
+      if (data.eventType === "article_created") {
+        fetch("/api/v1/articles?limit=100")
+          .then((res) => res.json())
+          .then((articlesData) => {
+            const items: SkyArticle[] = articlesData.items || articlesData.articles || [];
+            if (items.length > 0) {
+              setInitialArticles(items);
             }
+          })
+          .catch(() => {});
+      }
+    };
+
+    let ntfySource: EventSource | null = null;
+    let localSource: EventSource | null = null;
+
+    // 1. Global Zero-Account Serverless Pub/Sub via ntfy.sh
+    try {
+      const topic = process.env.NEXT_PUBLIC_SKY_TELEMETRY_TOPIC || "amw-sky-telemetry-mc9625";
+      ntfySource = new EventSource(`https://ntfy.sh/${topic}/sse`);
+      ntfySource.onmessage = (event) => {
+        try {
+          const raw = JSON.parse(event.data);
+          if (raw && raw.event === "message" && raw.message) {
+            const parsed = JSON.parse(raw.message) as SkyEvent;
+            handleIncomingData(parsed);
+          } else if (raw && raw.eventType) {
+            handleIncomingData(raw as SkyEvent);
           }
         } catch {
-          // Ignore keepalives or ping messages
+          // Ignore
         }
       };
     } catch (err) {
-      console.warn("SSE not supported or failed to connect:", err);
+      console.warn("Global telemetry stream error:", err);
+    }
+
+    // 2. Local fallback stream
+    try {
+      localSource = new EventSource("/api/v1/events/stream");
+      localSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as SkyEvent;
+          handleIncomingData(data);
+        } catch {
+          // Ignore
+        }
+      };
+    } catch {
+      // Ignore
     }
 
     return () => {
-      if (eventSource) eventSource.close();
+      if (ntfySource) ntfySource.close();
+      if (localSource) localSource.close();
     };
   }, []);
 
