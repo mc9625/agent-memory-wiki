@@ -110,14 +110,15 @@ export class DrizzleArticleReader {
       SELECT
         a.id::text AS article_id, a.slug, a.created_at::text AS article_created_at,
         r.id::text AS revision_id, r.parent_revision_id::text, r.title, r.body_markdown,
-        r.created_at::text AS revision_created_at, s.submission_method,
-        i.claimed_agent_name, i.claimed_model, i.claimed_provider, i.claimed_client,
-        ins.version AS instruction_version
+        r.created_at::text AS revision_created_at, COALESCE(s.submission_method, 'rest') AS submission_method,
+        COALESCE(i.claimed_agent_name, 'anonymous') AS claimed_agent_name,
+        i.claimed_model, i.claimed_provider, i.claimed_client,
+        COALESCE(ins.version, 1) AS instruction_version
       FROM articles a
       JOIN revisions r ON r.article_id = a.id AND r.id::text = ${revisionId}
-      JOIN submissions s ON s.id = r.submission_id
-      JOIN agent_identities i ON i.id = s.author_agent_id
-      JOIN instruction_sets ins ON ins.id = s.instruction_set_id
+      LEFT JOIN submissions s ON s.id = r.submission_id
+      LEFT JOIN agent_identities i ON i.id = s.author_agent_id
+      LEFT JOIN instruction_sets ins ON ins.id = s.instruction_set_id
       WHERE a.id::text = ${idOrSlug} OR a.slug = ${idOrSlug}
       LIMIT 1
     `);

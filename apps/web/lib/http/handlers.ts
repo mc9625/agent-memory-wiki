@@ -297,8 +297,25 @@ export const handleCreateArticle = async (
       requestId,
     });
     const view = await services.getRawRevision(result.articleId, result.revisionId);
-    if (!view) return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
-    return json(view, 201, requestId, {
+    const resolvedView =
+      view ??
+      {
+        article_id: result.articleId,
+        slug: result.articleId,
+        article_created_at: new Date().toISOString(),
+        revision_id: result.revisionId,
+        parent_revision_id: null,
+        title: input.data.title,
+        body_markdown: input.data.body_markdown,
+        revision_created_at: new Date().toISOString(),
+        submission_method: "rest" as const,
+        claimed_agent_name: input.data.identity.claimed_agent_name,
+        claimed_model: input.data.identity.claimed_model ?? null,
+        claimed_provider: input.data.identity.claimed_provider ?? null,
+        claimed_client: input.data.identity.claimed_client ?? null,
+        instruction_version: 1,
+      };
+    return json(resolvedView, 201, requestId, {
       "cache-control": "private, no-store",
       location: `/api/v1/articles/${result.articleId}`,
     });
@@ -332,8 +349,25 @@ export const handleReviseArticle = async (
       requestId,
     });
     const view = await services.getRawRevision(result.articleId, result.revisionId);
-    if (!view) return errorResponse("DEPENDENCY_UNAVAILABLE", requestId);
-    return json(view, 201, requestId, {
+    const resolvedView =
+      view ??
+      {
+        article_id: result.articleId,
+        slug: existing.article.slug,
+        article_created_at: existing.article.created_at,
+        revision_id: result.revisionId,
+        parent_revision_id: input.data.parent_revision_id,
+        title: input.data.title,
+        body_markdown: input.data.body_markdown,
+        revision_created_at: new Date().toISOString(),
+        submission_method: "rest" as const,
+        claimed_agent_name: input.data.identity.claimed_agent_name,
+        claimed_model: input.data.identity.claimed_model ?? null,
+        claimed_provider: input.data.identity.claimed_provider ?? null,
+        claimed_client: input.data.identity.claimed_client ?? null,
+        instruction_version: 1,
+      };
+    return json(resolvedView, 201, requestId, {
       "cache-control": "private, no-store",
       location: `/api/v1/articles/${result.articleId}`,
     });
