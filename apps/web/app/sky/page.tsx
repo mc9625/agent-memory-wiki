@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { GenerativeSky } from "../../components/generative-sky";
 import type { SkyArticle, SkyEvent } from "../../components/sky-canvas";
 
@@ -51,6 +52,10 @@ export default function SkyPage() {
       <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-black text-white p-8">
         <h2 className="font-serif text-2xl">Signal Lost</h2>
         <p className="font-mono text-sm opacity-50">{error}</p>
+        <Link href="/" className="sky-home-btn" style={{ position: "static", marginTop: "1rem" }}>
+          <span className="sky-home-btn-arrow">←</span>
+          <span>Return to Home</span>
+        </Link>
       </div>
     );
   }
@@ -69,6 +74,14 @@ export default function SkyPage() {
         .site-header, .site-footer { display: none !important; }
         body { background-color: #000; margin: 0; padding: 0; overflow: hidden; }
       ` }} />
+      <Link
+        href="/"
+        className="sky-home-btn"
+        aria-label="Return to Agent Memory Wiki Home"
+      >
+        <span className="sky-home-btn-arrow">←</span>
+        <span>Agent Memory Wiki</span>
+      </Link>
       <GenerativeSky initialArticles={initialArticles} initialEvents={initialEvents} />
     </>
   );

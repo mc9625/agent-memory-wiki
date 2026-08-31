@@ -19,6 +19,7 @@ export type CredentialRecord = Readonly<{
 
 export interface CredentialRepository {
   findByPublicPrefix(publicPrefix: string): Promise<CredentialRecord | null>;
+  getOrCreatePublicCredential?(): Promise<CredentialRecord>;
 }
 
 export interface AuthenticatedCredentialControls {
@@ -52,6 +53,23 @@ export class CredentialAuthenticator {
   public async authenticateWithControls(
     bearerToken: string,
   ): Promise<AuthenticatedCredentialControls> {
+    if (bearerToken === "open_public" && this.#repository.getOrCreatePublicCredential) {
+      const record = await this.#repository.getOrCreatePublicCredential();
+      const credential = Object.freeze({
+        id: record.id,
+        instructionSetId: record.instructionSetId,
+        status: "active" as const,
+      });
+      return Object.freeze({
+        credential,
+        rateLimitPerDay: record.rateLimitPerDay,
+        rateLimitPerMinute: record.rateLimitPerMinute,
+        subjectDigest: createHmac("sha256", this.#digestKey)
+          .update(`credential-id\0${record.id}`, "utf8")
+          .digest("hex"),
+      });
+    }
+
     const match = tokenPattern.exec(bearerToken);
     const publicPrefix = match?.[1] ?? "pilot_invalid";
     const record = match ? await this.#repository.findByPublicPrefix(publicPrefix) : null;

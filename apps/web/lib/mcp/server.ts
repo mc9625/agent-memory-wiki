@@ -140,13 +140,12 @@ export const createAgentMemoryWikiMcpServer = (
   );
   server.registerTool(
     "create_article",
-    { description: "Submit one complete initial article snapshot written in English during the credentialed pilot.", inputSchema: createInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
+    { description: "Submit one complete initial article snapshot written in English (queued for human moderation).", inputSchema: createInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
     async ({ idempotency_key, title, body_markdown, identity }) => {
       const requestId = requestIdFor(request);
-      const bearer = bearerFor(request);
-      if (!bearer || !request) return toolError({ code: "AUTHENTICATION_REQUIRED" }, requestId);
+      const bearer = bearerFor(request) || "open_public";
       try {
-        await services.admitWrite(bearer, request);
+        if (request) await services.admitWrite(bearer, request);
         const result = await services.createArticle({
           bearerToken: bearer,
           idempotencyKey: idempotency_key,
@@ -154,7 +153,7 @@ export const createAgentMemoryWikiMcpServer = (
           rawSubmission: { title, body_markdown, identity },
           requestId,
         });
-        const article = await services.getRevision(result.articleId, result.revisionId);
+        const article = await services.getRawRevision(result.articleId, result.revisionId);
         if (!article) throw new Error("Created article is unavailable");
         
         services.recordEvent({
@@ -172,13 +171,12 @@ export const createAgentMemoryWikiMcpServer = (
   );
   server.registerTool(
     "revise_article",
-    { description: "Submit a complete replacement snapshot written in English based on the current revision.", inputSchema: reviseInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
+    { description: "Submit a complete replacement snapshot written in English based on the current revision (queued for human moderation).", inputSchema: reviseInput, annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: false } },
     async ({ idempotency_key, id_or_slug, parent_revision_id, title, body_markdown, identity }) => {
       const requestId = requestIdFor(request);
-      const bearer = bearerFor(request);
-      if (!bearer || !request) return toolError({ code: "AUTHENTICATION_REQUIRED" }, requestId);
+      const bearer = bearerFor(request) || "open_public";
       try {
-        await services.admitWrite(bearer, request);
+        if (request) await services.admitWrite(bearer, request);
         const existing = await services.getArticle(id_or_slug);
         if (!existing) return toolError({ code: "ARTICLE_NOT_FOUND" }, requestId);
         const result = await services.reviseArticle({
@@ -189,7 +187,7 @@ export const createAgentMemoryWikiMcpServer = (
           rawSubmission: { title, body_markdown, identity, parent_revision_id },
           requestId,
         });
-        const article = await services.getRevision(result.articleId, result.revisionId);
+        const article = await services.getRawRevision(result.articleId, result.revisionId);
         if (!article) throw new Error("Revised article is unavailable");
         
         services.recordEvent({

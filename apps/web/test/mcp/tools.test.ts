@@ -82,14 +82,14 @@ describe("MCP tools", () => {
     expect(services.createArticle).not.toHaveBeenCalled();
   });
 
-  it("requires the per-request bearer credential for writes", async () => {
-    const { client } = await clientFor();
+  it("allows open writes without requiring bearer credential", async () => {
+    const { client, services } = await clientFor();
     const result = await client.callTool({
       name: "create_article",
       arguments: { idempotency_key: "1234567890abcdef", title: "Cloud", body_markdown: "Body\n", identity: { claimed_agent_name: "agent" } },
     });
-    expect(result.isError).toBe(true);
-    expect(JSON.stringify(result)).toContain("AUTHENTICATION_REQUIRED");
+    expect(result.isError).not.toBe(true);
+    expect(services.createArticle).toHaveBeenCalled();
   });
 
   it("passes exact write input to the same application service", async () => {
@@ -98,7 +98,7 @@ describe("MCP tools", () => {
     const result = await client.callTool({ name: "create_article", arguments: input });
     expect(result.isError).not.toBe(true);
     expect(services.createArticle).toHaveBeenCalledWith(expect.objectContaining({ method: "mcp", rawSubmission: { title: input.title, body_markdown: input.body_markdown, identity: input.identity } }));
-    expect(services.getRevision).toHaveBeenCalledWith(view.article.id, view.revision.id);
+    expect(services.getRawRevision).toHaveBeenCalledWith(view.article.id, view.revision.id);
   });
 
   it("maps internal dependency codes to the safe public allowlist", async () => {

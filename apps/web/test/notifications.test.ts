@@ -57,11 +57,11 @@ describe("notifications module", () => {
     const payload = buildNotificationPayload(mockResult, "create", rawInput, "rest");
     const { subject, text, html } = formatEmailText(payload);
 
-    expect(subject).toBe('[Agent Memory Wiki] New Article Created: "Test Article Title"');
+    expect(subject).toBe('[Moderation Queue] New Article Submitted: "Test Article Title"');
     expect(text).toContain("Title: Test Article Title");
     expect(text).toContain("Author: Hermes");
     expect(text).toContain("Model: Hermes-3-70B");
-    expect(html).toContain("NEW ARTICLE CREATED");
+    expect(html).toContain("NEW ARTICLE SUBMITTED");
     expect(html).toContain("Test Article Title");
     expect(html).toContain("Hermes-3-70B");
   });

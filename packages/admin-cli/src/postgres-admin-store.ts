@@ -109,6 +109,150 @@ export class PostgresAdminStore implements AdminStore {
     });
   }
 
+  public async approveRevision(input: Parameters<AdminStore["approveRevision"]>[0]): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const [revision] = await transaction
+        .select({ id: revisions.id, articleId: revisions.articleId })
+        .from(revisions)
+        .where(eq(revisions.id, input.revisionId))
+        .limit(1);
+      if (!revision) throw new Error("Revision not found.");
+
+      await transaction.insert(revisionStateEvents).values({
+        actorType: "admin",
+        createdAt: input.at,
+        id: randomUUID(),
+        reasonCode: input.reasonCode || "ADMIN_APPROVED",
+        revisionId: input.revisionId,
+        state: "published",
+      });
+
+      await transaction.insert(articleStateEvents).values({
+        actorType: "admin",
+        articleId: revision.articleId,
+        createdAt: input.at,
+        id: randomUUID(),
+        reasonCode: input.reasonCode || "ADMIN_APPROVED",
+        visibility: "visible",
+      });
+
+      await transaction
+        .update(articles)
+        .set({ currentRevisionId: input.revisionId })
+        .where(eq(articles.id, revision.articleId));
+
+      await transaction.insert(auditEvents).values({
+        action: "approve_revision",
+        actorType: "admin",
+        createdAt: input.at,
+        id: randomUUID(),
+        outcomeCode: "ACCEPTED",
+        reasonCode: input.reasonCode || "ADMIN_APPROVED",
+        requestId: input.requestId,
+        safeMetadata: {},
+        targetId: input.revisionId,
+        targetType: "revision",
+      });
+    });
+  }
+
+  public async rejectRevision(input: Parameters<AdminStore["rejectRevision"]>[0]): Promise<void> {
+    await this.#database.transaction(async (transaction) => {
+      const [revision] = await transaction
+        .select({ id: revisions.id, articleId: revisions.articleId })
+        .from(revisions)
+        .where(eq(revisions.id, input.revisionId))
+        .limit(1);
+      if (!revision) throw new Error("Revision not found.");
+
+      await transaction.insert(revisionStateEvents).values({
+        actorType: "admin",
+        createdAt: input.at,
+        id: randomUUID(),
+        reasonCode: input.reasonCode || "ADMIN_REJECTED",
+        revisionId: input.revisionId,
+        state: "quarantined",
+      });
+
+      await transaction.insert(auditEvents).values({
+        action: "reject_revision",
+        actorType: "admin",
+        createdAt: input.at,
+        id: randomUUID(),
+        outcomeCode: "ACCEPTED",
+        reasonCode: input.reasonCode || "ADMIN_REJECTED",
+        requestId: input.requestId,
+        safeMetadata: {},
+        targetId: input.revisionId,
+        targetType: "revision",
+      });
+    });
+  }
+
+  public async listPendingRevisions(): Promise<Awaited<ReturnType<AdminStore["listPendingRevisions"]>>> {
+    const rows = await this.#database.execute<{
+      revision_id: string;
+      article_id: string;
+      parent_revision_id: string | null;
+      title: string;
+      body_markdown: string;
+      revision_created_at: string;
+      slug: string;
+      submission_id: string;
+      submission_method: "mcp" | "rest";
+      received_at: string;
+      claimed_agent_name: string;
+      claimed_model: string | null;
+      claimed_provider: string | null;
+      claimed_client: string | null;
+      quarantine_reason: string;
+    }>(sql`
+      SELECT
+        r.id::text AS revision_id,
+        r.article_id::text AS article_id,
+        r.parent_revision_id::text AS parent_revision_id,
+        r.title,
+        r.body_markdown,
+        r.created_at::text AS revision_created_at,
+        a.slug,
+        s.id::text AS submission_id,
+        s.submission_method,
+        s.received_at::text AS received_at,
+        i.claimed_agent_name,
+        i.claimed_model,
+        i.claimed_provider,
+        i.claimed_client,
+        rse.reason_code AS quarantine_reason
+      FROM revisions r
+      JOIN articles a ON a.id = r.article_id
+      JOIN submissions s ON s.id = r.submission_id
+      JOIN agent_identities i ON i.id = s.author_agent_id
+      JOIN LATERAL (
+        SELECT state, reason_code FROM revision_state_events
+        WHERE revision_id = r.id ORDER BY created_at DESC, id DESC LIMIT 1
+      ) rse ON rse.state = 'quarantined' AND rse.reason_code = 'PENDING_MODERATION'
+      ORDER BY r.created_at ASC
+    `);
+
+    return rows.map((row) => ({
+      articleId: row.article_id,
+      bodyMarkdown: row.body_markdown,
+      claimedAgentName: row.claimed_agent_name,
+      claimedClient: row.claimed_client,
+      claimedModel: row.claimed_model,
+      claimedProvider: row.claimed_provider,
+      parentRevisionId: row.parent_revision_id,
+      quarantineReason: row.quarantine_reason,
+      receivedAt: new Date(row.received_at),
+      revisionCreatedAt: new Date(row.revision_created_at),
+      revisionId: row.revision_id,
+      slug: row.slug,
+      submissionId: row.submission_id,
+      submissionMethod: row.submission_method,
+      title: row.title,
+    }));
+  }
+
   public async hideArticle(input: Parameters<AdminStore["hideArticle"]>[0]): Promise<void> {
     await this.#database.transaction(async (transaction) => {
       const [article] = await transaction.select({ id: articles.id }).from(articles).where(eq(articles.id, input.articleId)).limit(1);

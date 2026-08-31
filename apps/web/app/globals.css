@@ -189,6 +189,50 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
   font-size: 0.8em;
 }
 
+.sky-home-btn {
+  position: fixed;
+  top: 1.5rem;
+  left: 1.5rem;
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  background: rgba(10, 15, 14, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.72);
+  font-family: var(--font-jetbrains-mono, monospace);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: auto;
+}
+
+.sky-home-btn:hover {
+  background: rgba(10, 15, 14, 0.8);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(11, 116, 95, 0.3);
+  transform: translateX(-2px);
+}
+
+.sky-home-btn-arrow {
+  display: inline-block;
+  transition: transform 0.2s ease;
+  color: var(--signal-soft, #c7ded6);
+}
+
+.sky-home-btn:hover .sky-home-btn-arrow {
+  transform: translateX(-2px);
+  color: #ffffff;
+}
+
 /* Observatory Page */
 .observatory-page { max-width: 84rem; margin: 0 auto; padding-block: clamp(3rem, 7vw, 6rem); }
 .observatory-header { max-width: 50rem; margin-bottom: 3.5rem; }

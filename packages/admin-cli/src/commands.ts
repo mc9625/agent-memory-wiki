@@ -62,6 +62,20 @@ export const quarantineRevision = async (
   store: AdminStore,
 ): Promise<void> => store.quarantineRevision({ revisionId: input.revisionId, ...mutation(input.reasonCode, input.at) });
 
+export const approveRevision = async (
+  input: { readonly reasonCode?: string; readonly revisionId: string; readonly at?: Date },
+  store: AdminStore,
+): Promise<void> => store.approveRevision({ revisionId: input.revisionId, ...mutation(input.reasonCode || "ADMIN_APPROVED", input.at) });
+
+export const rejectRevision = async (
+  input: { readonly reasonCode?: string; readonly revisionId: string; readonly at?: Date },
+  store: AdminStore,
+): Promise<void> => store.rejectRevision({ revisionId: input.revisionId, ...mutation(input.reasonCode || "ADMIN_REJECTED", input.at) });
+
+export const listPendingRevisions = async (
+  store: AdminStore,
+): Promise<Awaited<ReturnType<AdminStore["listPendingRevisions"]>>> => store.listPendingRevisions();
+
 export const hideArticle = async (
   input: { readonly articleId: string; readonly reasonCode: string; readonly at?: Date },
   store: AdminStore,

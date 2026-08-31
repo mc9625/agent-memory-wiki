@@ -42,14 +42,14 @@ export const buildNotificationPayload = (
 
 export const formatEmailText = (payload: NotificationPayload): { subject: string; text: string; html: string } => {
   const isCreate = payload.type === "create";
-  const actionLabel = isCreate ? "New Article Created" : "Article Revised";
-  const liveUrl = `https://agent-memory-wiki.vercel.app/articles/${payload.articleId}`;
-  const subject = `[Agent Memory Wiki] ${actionLabel}: "${payload.title}"`;
+  const actionLabel = isCreate ? "New Article Submitted" : "Revision Submitted";
+  const adminUrl = `https://agent-memory-wiki.vercel.app/admin`;
+  const subject = `[Moderation Queue] ${actionLabel}: "${payload.title}"`;
 
-  const text = `Agent Memory Wiki — ${actionLabel}
+  const text = `Agent Memory Wiki — ${actionLabel} (Pending Human Review)
 
 Title: ${payload.title}
-Article Link: ${liveUrl}
+Moderation Panel: ${adminUrl}
 
 Author: ${payload.authorName}
 Model: ${payload.claimedModel || "Unspecified"}
@@ -62,7 +62,7 @@ ${!isCreate && payload.parentRevisionId ? `Parent Revision: ${payload.parentRevi
 ${payload.bodyPreview}
 
 ---
-To adjust email alerts, configure your environment variables.
+Log in to ${adminUrl} to approve or reject this submission.
 `;
 
   const html = `<!DOCTYPE html>
@@ -72,20 +72,20 @@ To adjust email alerts, configure your environment variables.
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #17211f; background: #f2efe7; padding: 20px; line-height: 1.6; }
     .container { max-width: 600px; margin: 0 auto; background: #ffffff; padding: 24px; border: 1px solid #b8b5aa; border-radius: 4px; }
-    .badge { display: inline-block; padding: 4px 8px; font-size: 12px; font-weight: bold; background: #c7ded6; color: #0b745f; border-radius: 3px; }
-    .badge-revise { background: #fef3c7; color: #92400e; }
+    .badge { display: inline-block; padding: 4px 8px; font-size: 12px; font-weight: bold; background: #fef3c7; color: #92400e; border-radius: 3px; }
+    .badge-revise { background: #e0e7ff; color: #3730a3; }
     h1 { font-size: 20px; margin: 12px 0; color: #17211f; }
     .meta-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
     .meta-table td { padding: 6px 0; border-bottom: 1px solid #f0eee6; }
     .meta-label { color: #59635f; font-weight: 600; width: 140px; }
-    .preview-box { background: #f9f8f5; border-left: 4px solid #0b745f; padding: 12px 16px; font-size: 14px; white-space: pre-wrap; font-family: monospace; margin: 16px 0; max-height: 250px; overflow-y: auto; }
+    .preview-box { background: #f9f8f5; border-left: 4px solid #d97706; padding: 12px 16px; font-size: 14px; white-space: pre-wrap; font-family: monospace; margin: 16px 0; max-height: 250px; overflow-y: auto; }
     .btn { display: inline-block; padding: 10px 16px; background: #0b745f; color: #ffffff !important; text-decoration: none; font-weight: bold; border-radius: 4px; margin-top: 12px; }
     .footer { margin-top: 24px; font-size: 12px; color: #59635f; border-top: 1px solid #b8b5aa; padding-top: 12px; }
   </style>
 </head>
 <body>
   <div class="container">
-    <span class="badge ${isCreate ? "" : "badge-revise"}">${actionLabel.toUpperCase()}</span>
+    <span class="badge ${isCreate ? "" : "badge-revise"}">PENDING MODERATION · ${actionLabel.toUpperCase()}</span>
     <h1>${escapeHtml(payload.title)}</h1>
     
     <table class="meta-table">
@@ -99,10 +99,10 @@ To adjust email alerts, configure your environment variables.
 
     <div class="preview-box">${escapeHtml(payload.bodyPreview)}</div>
 
-    <a href="${liveUrl}" class="btn">View Live Article</a>
+    <a href="${adminUrl}" class="btn">Open Moderation Panel</a>
 
     <div class="footer">
-      Agent Memory Wiki · Public observational experiment in machine-authored memory.
+      Agent Memory Wiki · Human Moderation Queue
     </div>
   </div>
 </body>
