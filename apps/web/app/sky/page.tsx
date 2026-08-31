@@ -213,8 +213,10 @@ export default function SkyPage() {
     );
   }
 
-  const isUiVisible = mouseActive && !isProjectionMode;
-  const isToggleVisible = mouseActive;
+  // In standard mode (HUD ON), UI is permanently visible.
+  // In cinema mode (HUD OFF), UI is hidden and the toggle fades out on mouse stillness.
+  const isUiVisible = !isProjectionMode;
+  const isToggleVisible = !isProjectionMode || mouseActive;
 
   return (
     <>
@@ -223,15 +225,15 @@ export default function SkyPage() {
         body { background-color: #000; margin: 0; padding: 0; overflow: hidden; }
         
         .sky-hud-element {
-          transition: opacity 0.8s ease-in-out, transform 0.8s ease-in-out;
+          transition: opacity 0.6s ease-in-out, transform 0.6s ease-in-out;
         }
 
         .sky-log-item {
-          animation: skyLogSlide 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+          animation: skyLogSlide 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
         @keyframes skyLogSlide {
-          from { opacity: 0; transform: translateY(6px); }
+          from { opacity: 0; transform: translateY(4px); }
           to { opacity: 1; transform: translateY(0); }
         }
       ` }} />
@@ -250,45 +252,45 @@ export default function SkyPage() {
         <span>Agent Memory Wiki</span>
       </Link>
 
-      {/* Discrete Projection / HUD Visibility Toggle (Bottom Right) */}
+      {/* Discreet Cinema / HUD Toggle (Bottom Right) */}
       <button
         type="button"
         onClick={() => setIsProjectionMode((prev) => !prev)}
         className="sky-hud-element"
-        title={isProjectionMode ? "Show HUD / Exit Projection Mode" : "Hide HUD / Projection Mode"}
+        title={isProjectionMode ? "Exit Cinema Mode (Show HUD)" : "Enter Cinema Mode (Hide HUD for Projection)"}
         style={{
           position: "fixed",
-          bottom: "1.5rem",
-          right: "1.5rem",
+          bottom: "1.25rem",
+          right: "1.25rem",
           zIndex: 50,
-          background: isProjectionMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.45)",
-          backdropFilter: "blur(8px)",
-          border: "1px solid rgba(255, 255, 255, 0.12)",
+          background: isProjectionMode ? "rgba(20, 20, 20, 0.45)" : "rgba(0, 0, 0, 0.35)",
+          backdropFilter: "blur(6px)",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
           borderRadius: "9999px",
-          padding: "0.4rem 0.8rem",
-          color: "rgba(255, 255, 255, 0.75)",
+          padding: "0.22rem 0.55rem",
+          color: isProjectionMode ? "rgba(255, 255, 255, 0.45)" : "rgba(255, 255, 255, 0.70)",
           fontFamily: "var(--font-jetbrains-mono, monospace)",
-          fontSize: "0.68rem",
+          fontSize: "0.58rem",
           letterSpacing: "0.08em",
           cursor: "pointer",
           opacity: isToggleVisible ? 1 : 0,
           pointerEvents: isToggleVisible ? "auto" : "none",
           display: "flex",
           alignItems: "center",
-          gap: "0.4rem",
+          gap: "0.35rem",
         }}
       >
         <span
           style={{
             display: "inline-block",
-            width: "6px",
-            height: "6px",
+            width: "4px",
+            height: "4px",
             borderRadius: "50%",
-            backgroundColor: isProjectionMode ? "#555" : "#00ffcc",
-            boxShadow: isProjectionMode ? "none" : "0 0 6px #00ffcc",
+            backgroundColor: isProjectionMode ? "rgba(255, 255, 255, 0.3)" : "#00ffcc",
+            boxShadow: isProjectionMode ? "none" : "0 0 4px #00ffcc",
           }}
         />
-        <span>{isProjectionMode ? "HUD: OFF (CINEMA)" : "HUD: ON"}</span>
+        <span>{isProjectionMode ? "CINEMA" : "HUD"}</span>
       </button>
 
       {/* Live Activity Console Box (Bottom Left) */}
