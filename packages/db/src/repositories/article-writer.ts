@@ -74,11 +74,13 @@ export class DrizzleArticleWriter implements ArticleWriter {
   async #resolveInstructionSetId(
     transaction: Transaction,
   ): Promise<string> {
-    const insRow = await transaction.execute<{ id: string }>(sql`
-      SELECT id::text FROM instruction_sets ORDER BY created_at ASC LIMIT 1
+    const insRow = await transaction.execute<Record<string, unknown>>(sql`
+      SELECT id::text AS id FROM instruction_sets ORDER BY created_at ASC LIMIT 1
     `);
-    if (insRow[0]?.id) {
-      return insRow[0].id;
+    const firstRow = insRow[0];
+    const resolvedId = (firstRow?.id ?? firstRow?.["?column?"] ?? Object.values(firstRow ?? {})[0]) as string | undefined;
+    if (resolvedId && typeof resolvedId === "string" && resolvedId.length > 0) {
+      return resolvedId;
     }
     const defaultInsId = "00000000-0000-4000-8000-000000000001";
     try {
