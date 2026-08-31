@@ -1354,6 +1354,26 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     const agentCoreMesh = new THREE.Mesh(agentCoreGeometry, agentCoreMaterial);
     scene.add(agentCoreMesh);
 
+    // 2.2 Knowledge Constellation Anchor Star Nodes
+    const anchorPositions = new Float32Array(anchorsRef.current.length * 3);
+    anchorsRef.current.forEach((a, idx) => {
+      anchorPositions[idx * 3 + 0] = a.pos.x;
+      anchorPositions[idx * 3 + 1] = a.pos.y;
+      anchorPositions[idx * 3 + 2] = a.pos.z;
+    });
+    const anchorGeom = new THREE.BufferGeometry();
+    anchorGeom.setAttribute("position", new THREE.BufferAttribute(anchorPositions, 3));
+    const anchorPointsMaterial = new THREE.PointsMaterial({
+      color: 0xaaccff,
+      size: 5.0,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const anchorPoints = new THREE.Points(anchorGeom, anchorPointsMaterial);
+    scene.add(anchorPoints);
+
     // 3. Setup Trails
     const rtCurrent = new THREE.WebGLRenderTarget(width * dpr, height * dpr, {
       format: THREE.RGBAFormat,
@@ -1419,17 +1439,53 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       }
 
       if (currentCue) {
-        // Advance agent position along trajectory if in traversal or arrival
+        // Advance agent position along fluid organic trajectories and orbits
         if (currentCue.type === "traversal" && currentCue.fromAnchor && currentCue.toAnchor && currentCue.controlPoints) {
           const [c1, c2] = currentCue.controlPoints;
           const pos = evaluateCubicBezier(currentCue.fromAnchor.pos, c1, c2, currentCue.toAnchor.pos, cueProgress);
           currentAgentPos.copy(pos);
         } else if (currentCue.type === "extrusion" && currentCue.fromAnchor) {
-          currentAgentPos.copy(currentCue.fromAnchor.pos);
+          const orbitAngle = cueProgress * Math.PI * 3.0;
+          const orbitRad = 16.0 + Math.sin(cueProgress * Math.PI) * 18.0;
+          currentAgentPos.set(
+            currentCue.fromAnchor.pos.x + Math.cos(orbitAngle) * orbitRad,
+            currentCue.fromAnchor.pos.y + Math.sin(orbitAngle) * orbitRad * 0.7,
+            currentCue.fromAnchor.pos.z + Math.sin(orbitAngle * 1.5) * 12.0
+          );
         } else if (currentCue.type === "arrival" && currentCue.targetAnchor) {
-          currentAgentPos.lerpVectors(new THREE.Vector3(0, 0, 600), currentCue.targetAnchor.pos, cueProgress);
+          const startOrigin = new THREE.Vector3(
+            currentCue.targetAnchor.pos.x * 1.6 + 140,
+            currentCue.targetAnchor.pos.y * 1.6 - 100,
+            currentCue.targetAnchor.pos.z + 320
+          );
+          const midControl = new THREE.Vector3(
+            (startOrigin.x + currentCue.targetAnchor.pos.x) * 0.5 + 50,
+            (startOrigin.y + currentCue.targetAnchor.pos.y) * 0.5 + 35,
+            (startOrigin.z + currentCue.targetAnchor.pos.z) * 0.5 + 80
+          );
+          const t = cueProgress;
+          const inv = 1 - t;
+          currentAgentPos.set(
+            inv * inv * startOrigin.x + 2 * inv * t * midControl.x + t * t * currentCue.targetAnchor.pos.x,
+            inv * inv * startOrigin.y + 2 * inv * t * midControl.y + t * t * currentCue.targetAnchor.pos.y,
+            inv * inv * startOrigin.z + 2 * inv * t * midControl.z + t * t * currentCue.targetAnchor.pos.z
+          );
+        } else if (currentCue.type === "departure" && currentCue.targetAnchor) {
+          const exitDir = new THREE.Vector3(
+            currentCue.targetAnchor.pos.x + Math.cos(cueProgress * Math.PI * 0.5) * 160,
+            currentCue.targetAnchor.pos.y + Math.sin(cueProgress * Math.PI * 0.5) * 120,
+            currentCue.targetAnchor.pos.z + cueProgress * 260
+          );
+          currentAgentPos.copy(exitDir);
         } else if (currentCue.targetAnchor) {
-          currentAgentPos.copy(currentCue.targetAnchor.pos);
+          // Graceful helical orbit around the concept anchor during reading / encounter / creation / revision
+          const orbitAngle = cueProgress * Math.PI * 4.0;
+          const orbitRadius = 18.0 + Math.sin(cueProgress * Math.PI) * 10.0;
+          currentAgentPos.set(
+            currentCue.targetAnchor.pos.x + Math.cos(orbitAngle) * orbitRadius,
+            currentCue.targetAnchor.pos.y + Math.sin(orbitAngle * 0.8) * (orbitRadius * 0.65),
+            currentCue.targetAnchor.pos.z + Math.sin(orbitAngle * 1.2) * (orbitRadius * 0.4)
+          );
         }
       } else {
         // Reached the present / live latent state
