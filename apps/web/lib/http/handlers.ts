@@ -145,7 +145,13 @@ const json = (body: unknown, status: number, requestId: string, headers?: Header
 const errorResponse = (code: string, requestId: string): Response => {
   const safeCode = code in safeMessages ? code : "DEPENDENCY_UNAVAILABLE";
   return json(
-    { error: { code: safeCode, message: safeMessages[safeCode], request_id: requestId } },
+    {
+      error: {
+        code: safeCode,
+        message: safeMessages[safeCode] ?? "A required service is temporarily unavailable.",
+        request_id: requestId,
+      },
+    },
     statusByCode[safeCode] ?? 503,
     requestId,
   );
