@@ -51,8 +51,8 @@ export default function AdminModerationPage() {
       const data = await res.json();
       setItems(data.items || []);
       setIsAuthenticated(true);
-    } catch (err: any) {
-      setError(err.message || "Failed to load moderation queue");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to load moderation queue");
     } finally {
       setIsLoading(false);
     }
@@ -107,8 +107,8 @@ export default function AdminModerationPage() {
       }
       setItems((prev) => prev.filter((i) => i.revisionId !== revisionId));
       setActionSuccess(`Published: "${title}"`);
-    } catch (err: any) {
-      alert(err.message || "Approval failed");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Approval failed");
     } finally {
       setProcessingId(null);
     }
@@ -134,8 +134,8 @@ export default function AdminModerationPage() {
       }
       setItems((prev) => prev.filter((i) => i.revisionId !== revisionId));
       setActionSuccess(`Rejected: "${title}"`);
-    } catch (err: any) {
-      alert(err.message || "Rejection failed");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Rejection failed");
     } finally {
       setProcessingId(null);
     }
