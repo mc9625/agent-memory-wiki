@@ -37,7 +37,9 @@ function formatEventLog(event: SkyEvent): ActivityLog {
 
   let text = "connected to archive frequency";
   if (event.eventType === "article_created") {
-    text = `submitted new concept "${targetTitle}" [in moderation]`;
+    text = meta.status === "published"
+      ? `approved & published concept "${targetTitle}"`
+      : `submitted new concept "${targetTitle}" [in moderation]`;
   } else if (event.eventType === "article_revised") {
     text = `submitted revision to [[${targetTitle}]]`;
   } else if (event.eventType === "article_opened") {

@@ -1077,8 +1077,17 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
   useEffect(() => {
     if (!liveEvent) return;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const safeMeta = (liveEvent as any).safeMetadata || {};
+    const isPublished = safeMeta.status === "published";
+    const rawTitle = safeMeta.title || "Archive Concept";
+    const displayTitle = isPublished ? rawTitle : `${rawTitle} [in moderation]`;
+
     let target = anchorsRef.current.find((a) => a.id === liveEvent.articleId);
-    if (!target) {
+    if (target) {
+      target.title = displayTitle;
+      target.excerpt = isPublished ? "published" : "in moderation";
+    } else {
       const u = seededRandom((liveEvent.articleId || "new") + "u");
       const v = seededRandom((liveEvent.articleId || "new") + "v");
       const rSeed = seededRandom((liveEvent.articleId || "new") + "r");
@@ -1086,9 +1095,6 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       const phi = Math.acos(2.0 * v - 1.0);
       const r = 0.35 + rSeed * 0.35;
       const sinPhi = Math.sin(phi);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawTitle = (liveEvent as any).safeMetadata?.title || "New Contribution";
-      const displayTitle = `${rawTitle} [in moderation]`;
 
       target = {
         id: liveEvent.articleId || `temp-${Date.now()}`,
@@ -1098,7 +1104,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
           r * Math.cos(phi) * 240.0
         ),
         title: displayTitle,
-        excerpt: "in moderation",
+        excerpt: isPublished ? "published" : "in moderation",
         layoutPos: "lateral",
       };
       anchorsRef.current.push(target);
@@ -1425,7 +1431,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     // 4. State & Choreography Engine
     const clock = new THREE.Clock();
 
-    let cueIndex = 0;
+    let cueIndex = cuesRef.current.length; // Start directly in live latent state (no historical replay)
     let cueTimeElapsed = 0.0;
     let liveCueTimeElapsed = 0.0;
     let currentAgentOpacity = 0.0;
