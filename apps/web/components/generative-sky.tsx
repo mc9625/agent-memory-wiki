@@ -766,7 +766,7 @@ function sampleVisualState(
   const activeAnchorPos = new THREE.Vector3(0, 0, 0);
   let activeAnchorVortex = 0.0;
   const activeAnchorPull = 0.0;
-  let activeAnchorMode = 0;
+  let activeAnchorMode: number;
   let activeAnchorBlastRadius = 0.0;
   let activeAnchorToroidPhase = 0.0;
   let activeAnchorCentripetal = 0.0;
