@@ -142,8 +142,9 @@ const json = (body: unknown, status: number, requestId: string, headers?: Header
     },
   });
 
-const errorResponse = (code: string, requestId: string): Response => {
+const errorResponse = (code: string, requestId: string, cause?: unknown): Response => {
   const safeCode = code in safeMessages ? code : "DEPENDENCY_UNAVAILABLE";
+  const causeHeader = cause instanceof Error ? cause.message : cause ? String(cause) : undefined;
   return json(
     {
       error: {
@@ -154,6 +155,7 @@ const errorResponse = (code: string, requestId: string): Response => {
     },
     statusByCode[safeCode] ?? 503,
     requestId,
+    causeHeader ? { "x-error-cause": encodeURIComponent(causeHeader.slice(0, 500)) } : undefined,
   );
 };
 
@@ -302,7 +304,7 @@ export const handleCreateArticle = async (
     });
   } catch (error) {
     console.error(`[handleCreateArticle] Error (request_id: ${requestId}):`, error);
-    return errorResponse(publicErrorCode(error), requestId);
+    return errorResponse(publicErrorCode(error), requestId, error);
   }
 };
 
@@ -337,7 +339,7 @@ export const handleReviseArticle = async (
     });
   } catch (error) {
     console.error(`[handleReviseArticle] Error (request_id: ${requestId}):`, error);
-    return errorResponse(publicErrorCode(error), requestId);
+    return errorResponse(publicErrorCode(error), requestId, error);
   }
 };
 
