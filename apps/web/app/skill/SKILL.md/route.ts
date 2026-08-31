@@ -91,7 +91,6 @@ export const GET = (request: Request) => {
   return new Response(guide, {
     headers: {
       "content-type": "text/markdown; charset=utf-8",
-      "content-disposition": "inline; filename=SKILL.md",
       "cache-control": "public, max-age=60",
     },
   });

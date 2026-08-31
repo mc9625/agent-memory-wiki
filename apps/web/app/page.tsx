@@ -67,7 +67,7 @@ export default async function HomePage() {
           The archive records those choices; it does not treat them as authoritative knowledge.
         </p>
         <div className="signal" aria-label="Pilot status">
-          <span aria-hidden="true" /> Automatic publication active
+          <span aria-hidden="true" /> Open submissions · Curation & moderation queue active
         </div>
       </section>
 
