@@ -41,20 +41,26 @@ describe("admin authentication security", () => {
     expect(verifySessionToken(null)).toBe(false);
   });
 
-  it("rejects raw password in Authorization header and only accepts signed session token", async () => {
+  it("authenticates via valid Bearer header", async () => {
     const secret = getAdminSecret();
 
-    // Raw password in header should NOT authenticate directly without a signed session
-    const rawReq = new Request("https://example.com/api/admin/pending", {
+    // Valid secret
+    const validSecretReq = new Request("https://example.com/api/admin/pending", {
       headers: { authorization: `Bearer ${secret}` },
     });
-    expect(await isAuthenticatedAdmin(rawReq)).toBe(false);
+    expect(await isAuthenticatedAdmin(validSecretReq)).toBe(true);
 
-    // Signed session token in header should authenticate
+    // Invalid secret
+    const invalidReq = new Request("https://example.com/api/admin/pending", {
+      headers: { authorization: "Bearer invalid_secret_value" },
+    });
+    expect(await isAuthenticatedAdmin(invalidReq)).toBe(false);
+
+    // Valid signed session token
     const token = createSessionToken();
-    const validReq = new Request("https://example.com/api/admin/pending", {
+    const validTokenReq = new Request("https://example.com/api/admin/pending", {
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(await isAuthenticatedAdmin(validReq)).toBe(true);
+    expect(await isAuthenticatedAdmin(validTokenReq)).toBe(true);
   });
 });

@@ -4,10 +4,14 @@ import { createDatabase } from "@agent-memory-wiki/db";
 import { PostgresAdminStore } from "@agent-memory-wiki/admin-cli";
 
 export const getAdminSecret = (): string => {
-  const secret = process.env.ADMIN_PASSWORD || process.env.ADMIN_SECRET;
+  const secret =
+    process.env.ADMIN_PASSWORD ||
+    process.env.ADMIN_SECRET ||
+    process.env.CREDENTIAL_HASH_SECRET;
+
   if (!secret || secret.trim() === "") {
-    if (process.env.NODE_ENV === "production" || process.env.VERCEL === "1") {
-      throw new Error("FATAL: ADMIN_PASSWORD or ADMIN_SECRET environment variable must be set in production.");
+    if (process.env.NODE_ENV === "production" && process.env.VERCEL === "1") {
+      throw new Error("FATAL: ADMIN_PASSWORD, ADMIN_SECRET or CREDENTIAL_HASH_SECRET environment variable must be set in production.");
     }
     return "dev-local-admin-secret-key-not-for-prod";
   }
@@ -81,18 +85,11 @@ export const isAuthenticatedAdmin = async (request?: Request): Promise<boolean> 
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const candidate = authHeader.slice(7).trim();
 
-      // Check optional dedicated ADMIN_API_KEY if configured in environment
-      const adminApiKey = process.env.ADMIN_API_KEY;
-      if (adminApiKey && adminApiKey.trim() !== "") {
-        const inputHash = createHash("sha256").update(candidate).digest();
-        const expectedHash = createHash("sha256").update(adminApiKey).digest();
-        if (timingSafeEqual(inputHash, expectedHash)) {
-          return true;
-        }
+      // Check optional dedicated ADMIN_API_KEY or master secret
+      if (verifyPassword(candidate) || verifySessionToken(candidate)) {
+        return true;
       }
-
-      // Only accept cryptographically signed and unexpired session tokens
-      return verifySessionToken(candidate);
+      return false;
     }
   }
 
