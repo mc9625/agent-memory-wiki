@@ -1,36 +1,49 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { createDatabase } from "@agent-memory-wiki/db";
 import { PostgresAdminStore } from "@agent-memory-wiki/admin-cli";
 
-const getAdminSecret = (): string => {
-  return (
+export const getAdminSecret = (): string => {
+  const secret =
     process.env.ADMIN_PASSWORD ||
     process.env.ADMIN_SECRET ||
-    process.env.CREDENTIAL_HASH_SECRET ||
-    "agent-memory-wiki-admin-secret-key-32b"
-  );
+    process.env.CREDENTIAL_HASH_SECRET;
+
+  if (!secret || secret.trim() === "") {
+    if (process.env.NODE_ENV === "production" && process.env.VERCEL === "1") {
+      throw new Error("FATAL: ADMIN_PASSWORD, ADMIN_SECRET or CREDENTIAL_HASH_SECRET environment variable must be set in production.");
+    }
+    return "dev-local-admin-secret-key-not-for-prod";
+  }
+  return secret;
 };
 
 const getSignKey = (): Uint8Array => {
   const secret = process.env.CREDENTIAL_HASH_SECRET || getAdminSecret();
-  return Buffer.from(createHmac("sha256", "session-sign-salt").update(secret).digest());
+  return Buffer.from(createHmac("sha256", "session-sign-salt-v1").update(secret).digest());
 };
 
-export const verifyPassword = (password: string): boolean => {
-  const expected = getAdminSecret();
-  const inputBuffer = Buffer.from(password, "utf8");
-  const expectedBuffer = Buffer.from(expected, "utf8");
-  if (inputBuffer.length !== expectedBuffer.length) {
-    return false;
+export const verifyPassword = (password?: string | null): boolean => {
+  if (!password || typeof password !== "string") return false;
+  let expected: string;
+  try {
+    expected = getAdminSecret();
+  } catch {
+    return false; // Fail closed if secret is missing in production
   }
-  return timingSafeEqual(inputBuffer, expectedBuffer);
+  if (!expected) return false;
+
+  // Compare SHA-256 digests in constant time (always 32 bytes each) to prevent timing & length leak
+  const inputHash = createHash("sha256").update(password).digest();
+  const expectedHash = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(inputHash, expectedHash);
 };
 
 export const createSessionToken = (): string => {
   const payload = {
     admin: true,
-    exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    iat: Date.now(),
+    exp: Date.now() + 24 * 60 * 60 * 1000, // 24-hour expiration
   };
   const jsonStr = JSON.stringify(payload);
   const base64Payload = Buffer.from(jsonStr, "utf8").toString("base64url");
@@ -39,12 +52,22 @@ export const createSessionToken = (): string => {
 };
 
 export const verifySessionToken = (token?: string | null): boolean => {
-  if (!token || !token.includes(".")) return false;
+  if (!token || typeof token !== "string" || !token.includes(".")) return false;
   const [base64Payload, signature] = token.split(".");
   if (!base64Payload || !signature) return false;
 
-  const expectedSig = createHmac("sha256", getSignKey()).update(base64Payload).digest("base64url");
-  if (signature !== expectedSig) return false;
+  let expectedSig: string;
+  try {
+    expectedSig = createHmac("sha256", getSignKey()).update(base64Payload).digest("base64url");
+  } catch {
+    return false;
+  }
+
+  const sigBuffer = Buffer.from(signature);
+  const expBuffer = Buffer.from(expectedSig);
+  if (sigBuffer.length !== expBuffer.length || !timingSafeEqual(sigBuffer, expBuffer)) {
+    return false;
+  }
 
   try {
     const jsonStr = Buffer.from(base64Payload, "base64url").toString("utf8");
@@ -61,11 +84,15 @@ export const isAuthenticatedAdmin = async (request?: Request): Promise<boolean> 
     const authHeader = request.headers.get("authorization");
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const candidate = authHeader.slice(7).trim();
+
+      // Check optional dedicated ADMIN_API_KEY or master secret
       if (verifyPassword(candidate) || verifySessionToken(candidate)) {
         return true;
       }
+      return false;
     }
   }
+
   const cookieStore = await cookies();
   const token = cookieStore.get("amw_admin_session")?.value;
   return verifySessionToken(token);
@@ -75,8 +102,8 @@ let adminStoreInstance: PostgresAdminStore | undefined;
 
 export const getAdminStore = (): PostgresAdminStore => {
   if (!adminStoreInstance) {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) throw new Error("Missing DATABASE_URL");
+    const databaseUrl = process.env.ADMIN_DATABASE_URL || process.env.DATABASE_URL;
+    if (!databaseUrl) throw new Error("Missing DATABASE_URL or ADMIN_DATABASE_URL");
     const database = createDatabase({ url: databaseUrl });
     adminStoreInstance = new PostgresAdminStore(database.db);
   }
