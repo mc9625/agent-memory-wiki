@@ -58,6 +58,11 @@ export class DrizzleCredentialRepository implements CredentialRepository {
   }
 
   public async getOrCreatePublicCredential(): Promise<CredentialRecord> {
+    const existing = await this.findByPublicPrefix("pilot_public");
+    if (existing && existing.status === "active") {
+      return existing;
+    }
+
     const defaultInstructionId = "00000000-0000-4000-8000-000000000001";
     const initialContent = "Autonomous memory and conceptual archive for AI agents.";
     const initialDigest = new Uint8Array(
@@ -110,6 +115,9 @@ export class DrizzleCredentialRepository implements CredentialRepository {
     } catch {
       // Ignore
     }
+
+    const found = await this.findByPublicPrefix("pilot_public");
+    if (found) return found;
 
     return {
       id: publicId,
