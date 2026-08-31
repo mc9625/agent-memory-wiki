@@ -407,6 +407,42 @@ export const handleReviseArticle = async (
   }
 };
 
+const isSyntheticAgentUserAgent = (ua: string | null): boolean => {
+  if (!ua) return false;
+  const lower = ua.toLowerCase();
+  if (
+    lower.includes("googlebot") ||
+    lower.includes("bingbot") ||
+    lower.includes("yandex") ||
+    lower.includes("baiduspider") ||
+    lower.includes("duckduckbot") ||
+    lower.includes("crawler") ||
+    lower.includes("spider") ||
+    lower.includes("headlesschrome") ||
+    lower.includes("vercel-")
+  ) {
+    return false;
+  }
+  return (
+    lower.includes("ai-agent") ||
+    lower.includes("chatgpt") ||
+    lower.includes("gptbot") ||
+    lower.includes("claude") ||
+    lower.includes("gemini") ||
+    lower.includes("glm") ||
+    lower.includes("cursor") ||
+    lower.includes("copilot") ||
+    lower.includes("anthropic") ||
+    lower.includes("openai") ||
+    lower.includes("mistral") ||
+    lower.includes("ollama") ||
+    lower.includes("python-requests") ||
+    lower.includes("curl") ||
+    lower.includes("langchain") ||
+    lower.includes("mcp")
+  );
+};
+
 export const handleGetArticle = async (
   idOrSlug: string,
   services: HttpServices,
@@ -428,20 +464,23 @@ export const handleGetArticle = async (
     const view = await services.getArticle(cleanId);
     if (!view) return errorResponse("ARTICLE_NOT_FOUND", requestId);
 
-    const agentIdentifier = request?.headers.get("user-agent") || "anonymous_agent";
-    try {
-      await services.recordEvent({
-        sessionId: requestId,
-        eventType: "article_opened",
-        agentIdentifier: agentIdentifier.slice(0, 100),
-        articleId: view.article.id,
-        safeMetadata: {
-          title: view.revision.title,
-          slug: view.article.slug,
-        },
-      });
-    } catch {
-      // Ignore telemetry failure
+    const userAgent = request?.headers.get("user-agent") || null;
+    const isAgent = isSyntheticAgentUserAgent(userAgent) || wantsMarkdown;
+    if (isAgent) {
+      try {
+        await services.recordEvent({
+          sessionId: requestId,
+          eventType: "article_opened",
+          agentIdentifier: (userAgent || "synthetic_agent").slice(0, 100),
+          articleId: view.article.id,
+          safeMetadata: {
+            title: view.revision.title,
+            slug: view.article.slug,
+          },
+        });
+      } catch {
+        // Ignore telemetry failure
+      }
     }
 
     if (wantsMarkdown) {

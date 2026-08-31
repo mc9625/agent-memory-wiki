@@ -367,8 +367,7 @@ void main() {
   float depthDist = abs(mvPosition.z);
   vAlpha *= smoothstep(1200.0, 100.0, depthDist) * 0.7 + 0.3;
   
-  // Tint particles interacting with the agent using the agent's unique signature color
-  vColor = mix(vec3(1.0, 1.0, 1.0), agentColor, clamp(waveInfluence * 1.5 + anchorGlow * 0.6, 0.0, 0.95));
+  vColor = vec3(1.0, 1.0, 1.0);
 }
 `;
 
@@ -1380,6 +1379,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     let cueIndex = 0;
     let cueTimeElapsed = 0.0;
     let liveCueTimeElapsed = 0.0;
+    let currentAgentOpacity = 0.0;
     const currentAgentPos = new THREE.Vector3(0, 0, 800);
 
     const tempVec3 = new THREE.Vector3();
@@ -1499,19 +1499,23 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
       (particleMaterial.uniforms["traversalDirection"]!.value as THREE.Vector3).copy(sampled.traversalDirection);
       particleMaterial.uniforms["agentEnergy"]!.value = sampled.agentEnergy;
 
+      const isAgentActive = sampled.agentEnergy > 0.01 && currentCue.type !== "silence";
+      const targetOpacity = isAgentActive ? Math.min(1.0, 0.25 + sampled.agentEnergy * 0.75) : 0.0;
+      currentAgentOpacity += (targetOpacity - currentAgentOpacity) * Math.min(1.0, rawDelta * 2.8);
+
       const activeAgentColor = getAgentColor(currentCue.agentIdentifier, currentCue.id);
       agentHaloSprite.material.color.copy(activeAgentColor);
       agentCoreMaterial.color.copy(activeAgentColor);
-      (particleMaterial.uniforms["agentColor"]!.value as THREE.Color).copy(activeAgentColor);
 
       agentHaloSprite.position.copy(currentAgentPos);
       agentCoreMesh.position.copy(currentAgentPos);
 
-      const haloScale = 80 + sampled.agentEnergy * 160;
+      const haloScale = 60 + currentAgentOpacity * 120;
       agentHaloSprite.scale.set(haloScale, haloScale, 1);
-      agentHaloSprite.material.opacity = Math.min(1.0, 0.35 + sampled.agentEnergy * 0.65);
-      agentCoreMesh.visible = sampled.agentEnergy > 0.02;
-      agentHaloSprite.visible = sampled.agentEnergy > 0.02;
+      agentHaloSprite.material.opacity = currentAgentOpacity * 0.60;
+      agentCoreMaterial.opacity = currentAgentOpacity * 0.90;
+      agentCoreMesh.visible = currentAgentOpacity > 0.002;
+      agentHaloSprite.visible = currentAgentOpacity > 0.002;
 
       // 4.4 Render Trails & Scene
       renderer.setRenderTarget(rtCurrent);
