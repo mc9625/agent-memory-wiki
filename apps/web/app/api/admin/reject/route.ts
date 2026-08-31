@@ -3,7 +3,7 @@ import { getAdminStore, isAuthenticatedAdmin } from "../../../../lib/admin-auth"
 import { rejectRevision } from "@agent-memory-wiki/admin-cli";
 
 export async function POST(request: Request) {
-  if (!(await isAuthenticatedAdmin())) {
+  if (!(await isAuthenticatedAdmin(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

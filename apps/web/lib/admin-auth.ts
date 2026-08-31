@@ -56,7 +56,16 @@ export const verifySessionToken = (token?: string | null): boolean => {
   }
 };
 
-export const isAuthenticatedAdmin = async (): Promise<boolean> => {
+export const isAuthenticatedAdmin = async (request?: Request): Promise<boolean> => {
+  if (request) {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const candidate = authHeader.slice(7).trim();
+      if (verifyPassword(candidate) || verifySessionToken(candidate)) {
+        return true;
+      }
+    }
+  }
   const cookieStore = await cookies();
   const token = cookieStore.get("amw_admin_session")?.value;
   return verifySessionToken(token);

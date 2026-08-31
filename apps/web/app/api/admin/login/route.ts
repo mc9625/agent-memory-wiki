@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const cookieStore = await cookies();
     cookieStore.set("amw_admin_session", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: request.url.startsWith("https://") || request.headers.get("x-forwarded-proto") === "https",
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60,
       path: "/",

@@ -28,17 +28,16 @@ test.beforeAll(async ({ request }) => {
     process.env.ADMIN_SECRET ||
     process.env.CREDENTIAL_HASH_SECRET ||
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-  const loginRes = await request.post("/api/admin/login", {
-    data: { password: adminPassword },
+  const approveRes = await request.post("/api/admin/approve", {
+    data: {
+      revisionId: payload.revision.id,
+      reasonCode: "E2E_APPROVED",
+    },
+    headers: {
+      authorization: `Bearer ${adminPassword}`,
+    },
   });
-  if (loginRes.ok()) {
-    await request.post("/api/admin/approve", {
-      data: {
-        revisionId: payload.revision.id,
-        reasonCode: "E2E_APPROVED",
-      },
-    });
-  }
+  expect(approveRes.status()).toBe(200);
 });
 
 test("serves the complete read-only public surface", async ({ page }) => {

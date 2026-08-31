@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { getAdminStore, isAuthenticatedAdmin } from "../../../../lib/admin-auth";
 
-export async function GET() {
-  if (!(await isAuthenticatedAdmin())) {
+export async function GET(request: Request) {
+  if (!(await isAuthenticatedAdmin(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
