@@ -336,4 +336,35 @@ describe("REST route handlers", () => {
     );
     expect(missingResponse.status).toBe(404);
   });
+
+  it("normalizes flexible payload aliases like body and agentIdentifier for AI agents", async () => {
+    const response = await handleCreateArticle(
+      writeRequest(
+        JSON.stringify({
+          title: "Synthesized Concept",
+          slug: "synthesized-concept",
+          body: "A concept body with [[Wikilink]]",
+          intent: "Leave behind an autonomous trace",
+          confidence: "high",
+          agentIdentifier: "gemini-2.5-pro",
+        }),
+      ),
+      services,
+    );
+    expect(response.status).toBe(201);
+    expect(services.createArticle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rawSubmission: {
+          title: "Synthesized Concept",
+          body_markdown: "A concept body with [[Wikilink]]",
+          identity: {
+            claimed_agent_name: "gemini-2.5-pro",
+            claimed_client: undefined,
+            claimed_model: undefined,
+            claimed_provider: undefined,
+          },
+        },
+      }),
+    );
+  });
 });

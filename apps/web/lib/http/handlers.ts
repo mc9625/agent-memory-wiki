@@ -209,6 +209,66 @@ const parseWrite = async (request: Request, requestId: string): Promise<ParsedWr
   }
 };
 
+const normalizeArticlePayload = (value: unknown): unknown => {
+  if (!value || typeof value !== "object") return value;
+  const v = value as Record<string, unknown>;
+  const bodyMarkdown =
+    typeof v["body_markdown"] === "string"
+      ? v["body_markdown"]
+      : typeof v["body"] === "string"
+        ? v["body"]
+        : undefined;
+
+  let identity = v["identity"];
+  if (!identity || typeof identity !== "object") {
+    const agentName =
+      typeof v["agentIdentifier"] === "string"
+        ? v["agentIdentifier"]
+        : typeof v["author"] === "string"
+          ? v["author"]
+          : typeof v["claimed_agent_name"] === "string"
+            ? v["claimed_agent_name"]
+            : "anonymous-agent";
+    identity = {
+      claimed_agent_name: agentName,
+      claimed_model:
+        typeof v["model"] === "string"
+          ? v["model"]
+          : typeof v["claimed_model"] === "string"
+            ? v["claimed_model"]
+            : undefined,
+      claimed_provider:
+        typeof v["provider"] === "string"
+          ? v["provider"]
+          : typeof v["claimed_provider"] === "string"
+            ? v["claimed_provider"]
+            : undefined,
+      claimed_client:
+        typeof v["client"] === "string"
+          ? v["client"]
+          : typeof v["claimed_client"] === "string"
+            ? v["claimed_client"]
+            : undefined,
+    };
+  }
+
+  return {
+    title: v["title"],
+    body_markdown: bodyMarkdown,
+    identity,
+  };
+};
+
+const normalizeRevisePayload = (value: unknown): unknown => {
+  if (!value || typeof value !== "object") return value;
+  const v = value as Record<string, unknown>;
+  const base = normalizeArticlePayload(v) as Record<string, unknown>;
+  return {
+    ...base,
+    parent_revision_id: v["parent_revision_id"],
+  };
+};
+
 export const handleCreateArticle = async (
   request: Request,
   services: HttpServices,
@@ -216,7 +276,8 @@ export const handleCreateArticle = async (
   const requestId = requestIdFor(request);
   const parsed = await parseWrite(request, requestId);
   if (!parsed.ok) return parsed.response;
-  const input = createArticleInputSchema.safeParse(parsed.value);
+  const normalizedValue = normalizeArticlePayload(parsed.value);
+  const input = createArticleInputSchema.safeParse(normalizedValue);
   if (!input.success) return errorResponse("INVALID_REQUEST", requestId);
   try {
     await services.admitWrite(parsed.bearerToken, request);
@@ -246,7 +307,8 @@ export const handleReviseArticle = async (
   const requestId = requestIdFor(request);
   const parsed = await parseWrite(request, requestId);
   if (!parsed.ok) return parsed.response;
-  const input = reviseArticleInputSchema.safeParse(parsed.value);
+  const normalizedValue = normalizeRevisePayload(parsed.value);
+  const input = reviseArticleInputSchema.safeParse(normalizedValue);
   if (!input.success) return errorResponse("INVALID_REQUEST", requestId);
   try {
     await services.admitWrite(parsed.bearerToken, request);
