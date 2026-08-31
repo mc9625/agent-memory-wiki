@@ -751,6 +751,18 @@ function buildSessionsAndCues(
   return { sessions, cues };
 }
 
+function cleanAgentDisplayName(agentId?: string): string {
+  if (!agentId) return "AGENT 028";
+  const lower = agentId.toLowerCase();
+  if (lower.includes("mozilla") || lower.includes("applewebkit") || lower.includes("chrome") || lower.includes("safari")) {
+    return "ARCHIVE OBSERVER";
+  }
+  if (agentId.length > 28) {
+    return agentId.slice(0, 26) + "…";
+  }
+  return agentId.toUpperCase();
+}
+
 function sampleVisualState(
   interaction: CurrentInteractionState,
   baseParams: { globalEnergy: number }
@@ -778,7 +790,7 @@ function sampleVisualState(
   let registerOpacity: number;
 
   // Format Register Text
-  const agentName = interaction.agentIdentifier ? interaction.agentIdentifier.toUpperCase() : "AGENT 028";
+  const agentName = cleanAgentDisplayName(interaction.agentIdentifier);
   const genNumber = interaction.generation !== undefined ? `GEN 00${interaction.generation}`.slice(-7) : "GEN 028";
   let dateString = "24 AUG 2026";
   if (interaction.timestamp) {
@@ -790,7 +802,7 @@ function sampleVisualState(
 
   let statusSuffix = "";
   if (interaction.phase === "creation") {
-    statusSuffix = "\n[ in moderation ]";
+    statusSuffix = interaction.targetAnchor?.excerpt === "published" ? "\n[ published & active ]" : "\n[ in moderation ]";
   } else if (interaction.phase === "revision") {
     statusSuffix = "\n[ revision proposed ]";
   }
@@ -1207,6 +1219,12 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     renderer.setSize(width, height);
     renderer.setPixelRatio(dpr);
+    renderer.domElement.style.position = "fixed";
+    renderer.domElement.style.top = "0";
+    renderer.domElement.style.left = "0";
+    renderer.domElement.style.width = "100vw";
+    renderer.domElement.style.height = "100vh";
+    renderer.domElement.style.display = "block";
     container.appendChild(renderer.domElement);
 
     const PARAMS = {
@@ -1637,8 +1655,10 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
         if (opacity > 0.005) {
           el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
           el.style.opacity = opacity.toFixed(3);
+          el.style.visibility = "visible";
         } else {
           el.style.opacity = "0";
+          el.style.visibility = "hidden";
         }
       });
 
@@ -1679,7 +1699,7 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     <>
       <div
         ref={containerRef}
-        style={{ width: "100vw", height: "100vh", overflow: "hidden", background: "#000", position: "absolute", zIndex: 1 }}
+        style={{ width: "100vw", height: "100vh", overflow: "hidden", background: "#000", position: "fixed", top: 0, left: 0, zIndex: 1 }}
       />
       <div ref={uiLayerRef} className="sky-ui-layer">
 

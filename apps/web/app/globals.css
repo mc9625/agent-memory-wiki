@@ -112,7 +112,7 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 ------------------------------------------------------- */
 
 .sky-ui-layer {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
@@ -126,7 +126,10 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
   position: absolute;
   top: 0;
   left: 0;
-  will-change: transform, opacity, filter;
+  width: max-content;
+  max-width: 90vw;
+  white-space: nowrap;
+  will-change: transform, opacity;
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -134,22 +137,22 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
   justify-content: center;
   pointer-events: none;
   z-index: 20;
+  transition: opacity 0.4s ease-out;
 }
 
 .sky-archive-title {
   font-family: var(--font-eb-garamond), serif;
-  font-size: 1.3rem;
+  font-size: 1.35rem;
   font-weight: 400;
   font-style: italic;
-  white-space: normal;
-  max-width: 480px;
+  white-space: nowrap;
   text-align: center;
-  line-height: 1.35;
-  letter-spacing: 0.02em;
+  line-height: 1.25;
+  letter-spacing: 0.03em;
   margin: 0;
-  padding: 0.5rem 1rem;
+  padding: 0.35rem 0.85rem;
   color: rgba(255, 255, 255, 0.95);
-  text-shadow: 0 0 25px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 0 20px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.9);
 }
 
 .sky-archive-excerpt {
