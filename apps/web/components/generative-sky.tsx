@@ -787,7 +787,15 @@ function sampleVisualState(
       dateString = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
     }
   }
-  const registerText = `${agentName}\n\n${genNumber}\n${dateString}`;
+
+  let statusSuffix = "";
+  if (interaction.phase === "creation") {
+    statusSuffix = "\n[ in moderation ]";
+  } else if (interaction.phase === "revision") {
+    statusSuffix = "\n[ revision proposed ]";
+  }
+
+  const registerText = `${agentName}\n\n${genNumber}\n${dateString}${statusSuffix}`;
 
   switch (phase) {
     case "arrival": {
@@ -1070,10 +1078,31 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     if (!liveEvent) return;
 
     let target = anchorsRef.current.find((a) => a.id === liveEvent.articleId);
-    if (!target && anchorsRef.current.length > 0) {
-      target = anchorsRef.current[0];
+    if (!target) {
+      const u = seededRandom((liveEvent.articleId || "new") + "u");
+      const v = seededRandom((liveEvent.articleId || "new") + "v");
+      const rSeed = seededRandom((liveEvent.articleId || "new") + "r");
+      const theta = u * 2.0 * Math.PI;
+      const phi = Math.acos(2.0 * v - 1.0);
+      const r = 0.35 + rSeed * 0.35;
+      const sinPhi = Math.sin(phi);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawTitle = (liveEvent as any).safeMetadata?.title || "New Contribution";
+      const displayTitle = `${rawTitle} [in moderation]`;
+
+      target = {
+        id: liveEvent.articleId || `temp-${Date.now()}`,
+        pos: new THREE.Vector3(
+          r * sinPhi * Math.cos(theta) * 550.0,
+          r * sinPhi * Math.sin(theta) * 290.0,
+          r * Math.cos(phi) * 240.0
+        ),
+        title: displayTitle,
+        excerpt: "in moderation",
+        layoutPos: "lateral",
+      };
+      anchorsRef.current.push(target);
     }
-    if (!target) return;
 
     const liveCueType: CueType =
       liveEvent.eventType === "article_created"

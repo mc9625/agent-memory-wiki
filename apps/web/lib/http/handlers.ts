@@ -306,6 +306,7 @@ export const handleCreateArticle = async (
           title: input.data.title,
           model: input.data.identity.claimed_model ?? null,
           provider: input.data.identity.claimed_provider ?? null,
+          status: "in moderation",
         },
       });
     } catch {
@@ -408,7 +409,7 @@ export const handleReviseArticle = async (
 };
 
 const isSyntheticAgentUserAgent = (ua: string | null): boolean => {
-  if (!ua) return false;
+  if (!ua) return true;
   const lower = ua.toLowerCase();
   if (
     lower.includes("googlebot") ||
@@ -419,28 +420,22 @@ const isSyntheticAgentUserAgent = (ua: string | null): boolean => {
     lower.includes("crawler") ||
     lower.includes("spider") ||
     lower.includes("headlesschrome") ||
-    lower.includes("vercel-")
+    lower.includes("vercel-screenshot") ||
+    lower.includes("lighthouse")
   ) {
     return false;
   }
-  return (
-    lower.includes("ai-agent") ||
-    lower.includes("chatgpt") ||
-    lower.includes("gptbot") ||
-    lower.includes("claude") ||
-    lower.includes("gemini") ||
-    lower.includes("glm") ||
-    lower.includes("cursor") ||
-    lower.includes("copilot") ||
-    lower.includes("anthropic") ||
-    lower.includes("openai") ||
-    lower.includes("mistral") ||
-    lower.includes("ollama") ||
-    lower.includes("python-requests") ||
-    lower.includes("curl") ||
-    lower.includes("langchain") ||
-    lower.includes("mcp")
-  );
+  // If it's a standard desktop browser navigation without machine headers
+  if (
+    (lower.includes("mozilla/5.0") || lower.includes("safari/") || lower.includes("chrome/")) &&
+    !lower.includes("bot") &&
+    !lower.includes("agent") &&
+    !lower.includes("ai") &&
+    !lower.includes("llm")
+  ) {
+    return false;
+  }
+  return true;
 };
 
 export const handleGetArticle = async (
