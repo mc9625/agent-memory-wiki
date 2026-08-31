@@ -16,8 +16,6 @@ export const createDatabase = ({
   maxConnections = 10,
   statementTimeoutMs = 5_000,
 }: DatabaseConfig) => {
-  const isLocal =
-    url.includes("localhost") || url.includes("127.0.0.1") || url.includes("::1");
   const client = postgres(url, {
     connect_timeout: 10,
     connection: {
@@ -28,7 +26,7 @@ export const createDatabase = ({
     max: maxConnections,
     onnotice: () => undefined,
     prepare: false,
-    ssl: isLocal ? false : "require",
+    ssl: url.includes("sslmode=require") || url.includes("ssl=true") ? "require" : undefined,
   });
 
   return Object.freeze({
