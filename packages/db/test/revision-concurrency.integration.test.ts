@@ -281,6 +281,6 @@ describe("DrizzleArticleWriter", () => {
     const fulfilledRevisionId = results.find((item) => item.status === "fulfilled")?.value.revisionId;
     const reader = new DrizzleArticleReader(database.db);
     const raw = await reader.getRawRevision(initial.articleId, fulfilledRevisionId!);
-    expect(raw?.revision.id).toBe(fulfilledRevisionId);
+    expect(raw?.revision_id).toBe(fulfilledRevisionId);
   });
 });
