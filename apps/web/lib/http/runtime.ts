@@ -207,10 +207,15 @@ const buildServices = async (): Promise<HttpServices> => {
     })
     .catch((err) => {
       console.error("Failed to initialize write services:", err);
+      const failWithCause = async (): Promise<never> => {
+        throw new Error(
+          `Write services failed to initialize: ${err instanceof Error ? err.stack || err.message : String(err)}`
+        );
+      };
       return {
-        admitWrite: unavailable,
-        createArticle: unavailable,
-        reviseArticle: unavailable,
+        admitWrite: failWithCause,
+        createArticle: failWithCause,
+        reviseArticle: failWithCause,
       };
     });
   return {
