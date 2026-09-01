@@ -5,6 +5,7 @@ import {
   handleGetArticle,
   handleListArticles,
   handleListRevisions,
+  handleRecordEvent,
   handleReviseArticle,
   handleSearchArticles,
 } from "../../lib/http/handlers.js";
@@ -70,6 +71,64 @@ const writeRequest = (body: string, headers: Record<string, string> = {}): Reque
     },
     method: "POST",
   });
+
+const eventBody = JSON.stringify({
+  sessionId: "session-1",
+  eventType: "article_opened",
+  agentIdentifier: "Claude",
+});
+
+describe("telemetry writes", () => {
+  it("passes POST /events through the same write gate as a submission", async () => {
+    const admitWrite = vi.fn(async () => undefined);
+    const recordEvent = vi.fn(async () => undefined);
+    const response = await handleRecordEvent(writeRequest(eventBody), {
+      ...services,
+      admitWrite,
+      recordEvent,
+    });
+
+    expect(response.status).toBe(200);
+    expect(admitWrite).toHaveBeenCalledOnce();
+    expect(recordEvent).toHaveBeenCalledOnce();
+  });
+
+  it("stays open to anonymous callers, under the open_public credential", async () => {
+    const admitWrite = vi.fn(async () => undefined);
+    const request = new Request("http://localhost/api/v1/events", {
+      body: eventBody,
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    const response = await handleRecordEvent(request, { ...services, admitWrite });
+
+    expect(response.status).toBe(200);
+    expect(admitWrite).toHaveBeenCalledWith("open_public", request);
+  });
+
+  it("does not record the event when the write gate refuses", async () => {
+    const recordEvent = vi.fn(async () => undefined);
+    const response = await handleRecordEvent(writeRequest(eventBody), {
+      ...services,
+      admitWrite: vi.fn(async () => {
+        throw Object.assign(new Error("limited"), { code: "RATE_LIMITED" });
+      }),
+      recordEvent,
+    });
+
+    expect(response.status).toBe(429);
+    expect(recordEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized telemetry body before parsing it", async () => {
+    const response = await handleRecordEvent(
+      writeRequest("{".padEnd(32_769, "x")),
+      services,
+    );
+    expect(response.status).toBe(413);
+  });
+});
 
 describe("REST route handlers", () => {
   it("rejects oversized bodies before parsing JSON", async () => {

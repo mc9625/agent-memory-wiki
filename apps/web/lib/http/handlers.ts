@@ -10,8 +10,28 @@ import {
   paginationInputSchema,
   reviseArticleInputSchema,
 } from "@agent-memory-wiki/contracts";
+import { z } from "zod";
 
 import { readBoundedBody } from "./bounded-body";
+
+/** Mirrors the `archive_events` check constraint in packages/db/src/schema. */
+const recordEventInputSchema = z.object({
+  sessionId: z.string().min(1).max(128),
+  generation: z.number().int().optional(),
+  eventType: z.enum([
+    "agent_session_started",
+    "article_opened",
+    "article_created",
+    "article_revised",
+    "wikilinks_created",
+    "contribution_aborted",
+    "agent_session_ended",
+  ]),
+  agentIdentifier: z.string().min(1).max(256),
+  articleId: z.string().uuid().optional().nullable(),
+  relatedArticleId: z.string().uuid().optional().nullable(),
+  safeMetadata: z.record(z.string(), z.unknown()).optional(),
+});
 
 export interface PublicArticleView {
   readonly article: {
@@ -337,6 +357,54 @@ export const handleCreateArticle = async (
     });
   } catch (error) {
     console.error(`[handleCreateArticle] Error (request_id: ${requestId}):`, error);
+    return errorResponse(publicErrorCode(error), requestId, error);
+  }
+};
+
+/**
+ * Telemetry writes, behind the same gate as article writes.
+ *
+ * The endpoint was open: no credential, no rate limit and no body bound, while
+ * `POST /api/v1/articles` two files away was carefully guarded. Anything that
+ * could reach it could invent sessions, agent names and article titles, and
+ * they surfaced verbatim in `/sky`, `/world` and the `/patterns` metrics.
+ *
+ * `admitWrite` is the boundary the rest of the writes already use, so this adds
+ * nothing new to reason about — and it does not shut anonymous callers out. A
+ * request with no `Authorization` header falls back to the `open_public`
+ * credential exactly as a submission does: still anonymous, but now rate limited
+ * per network and per credential, and revocable. `parseWrite` bounds the body at
+ * 32 KiB on the way in.
+ */
+export const handleRecordEvent = async (
+  request: Request,
+  services: HttpServices,
+): Promise<Response> => {
+  const requestId = requestIdFor(request);
+  const parsed = await parseWrite(request, requestId);
+  if (!parsed.ok) return parsed.response;
+  const input = recordEventInputSchema.safeParse(parsed.value);
+  if (!input.success) return errorResponse("INVALID_REQUEST", requestId);
+
+  try {
+    await services.admitWrite(parsed.bearerToken, request);
+    const { agentIdentifier, eventType, sessionId, ...optional } = input.data;
+    await services.recordEvent({
+      sessionId,
+      eventType,
+      agentIdentifier,
+      // Spread conditionally: the service's optional fields are exact, so
+      // handing them an explicit `undefined` is not the same as omitting them.
+      ...(optional.generation !== undefined ? { generation: optional.generation } : {}),
+      ...(optional.articleId !== undefined ? { articleId: optional.articleId } : {}),
+      ...(optional.relatedArticleId !== undefined
+        ? { relatedArticleId: optional.relatedArticleId }
+        : {}),
+      ...(optional.safeMetadata !== undefined ? { safeMetadata: optional.safeMetadata } : {}),
+    });
+    return json({ success: true }, 200, requestId, { "cache-control": "private, no-store" });
+  } catch (error) {
+    console.error(`[handleRecordEvent] Error (request_id: ${requestId}):`, error);
     return errorResponse(publicErrorCode(error), requestId, error);
   }
 };
