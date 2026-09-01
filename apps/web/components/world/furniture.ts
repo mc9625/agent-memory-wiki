@@ -39,11 +39,12 @@ export const PALETTE = {
   glass: 0x6cbdd1,
   screen: 0x2ec8ff,
   screenDim: 0x14506b,
-  // Warmed a step towards yellow: at the earlier greens the foliage read cold
-  // against the plaster and the woods.
-  leaf: 0xaad65a,
-  leafDark: 0x8fbc46,
-  leafLight: 0xc0e06b,
+  // Warmed towards yellow in two passes: at the original greens the foliage
+  // read cold against the plaster and the woods, and a second nudge took it
+  // the rest of the way.
+  leaf: 0xb5d955,
+  leafDark: 0x9abf42,
+  leafLight: 0xcce466,
   soil: 0x4a3524,
   pot: 0xe3ddce,
   // The archive runs a whole stop lighter than the rest of the joinery: in the
@@ -267,7 +268,7 @@ export const plantSmall = (): BuiltProp =>
     kit.box(0, 0.46, 0, 0.5, 0.06, 0.5, PALETTE.soil);
     kit.box(0, 0.72, 0, 0.62, 0.5, 0.62, PALETTE.leaf);
     kit.box(0, 1.02, 0, 0.4, 0.3, 0.4, PALETTE.leafDark);
-  });
+  }, 0.31);
 
 /** Floor tree: staggered foliage blocks, the shape the reference repeats. */
 export const plantTall = (): BuiltProp =>
@@ -280,7 +281,7 @@ export const plantTall = (): BuiltProp =>
     kit.box(0, 1.95, 0, 1.7, 1.0, 1.7, PALETTE.leaf);
     kit.box(0.14, 2.7, -0.12, 1.25, 0.75, 1.25, PALETTE.leafDark);
     kit.box(-0.12, 3.25, 0.1, 0.8, 0.5, 0.8, PALETTE.leaf);
-  });
+  }, 0.42);
 
 /**
  * The room plant: a stone cube planter under a canopy assembled from individual
@@ -327,7 +328,7 @@ export const plantFicus = (): BuiltProp =>
         }
       }
     }
-  });
+  }, 0.28);
 
 /**
  * Corridor planter: a wooden trough with a proud rim, run to any length, under
@@ -369,7 +370,7 @@ export const hedgePlanter = (length: number): BuiltProp =>
         }
       }
     }
-  });
+  }, 0.2);
 
 /* ------------------------------------------------------------ wall fittings */
 
