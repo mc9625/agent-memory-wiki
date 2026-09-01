@@ -1,18 +1,17 @@
-# Wiki World — prototype handoff
+# Wiki World — handoff
 
 **Date:** 2026-08-31; art, lighting, colour, traffic and shading passes all
-2026-09-01
-**Status:** art, lighting and shading are done and hand-tuned; a per-element
-detail pass against the user's mockup crops (2026-09-01) has covered the
-entrance, the hub, LINKS, READ, EDIT and ARCHIVE. See §3.1 for what changed in
-each and, more usefully, for the half-dozen rules that pass produced — several
-of them cost two or three wrong attempts to find. Everything is **still
-unstaged**; `git status` is the only trace of this feature.
+2026-09-01; shipped 2026-09-01
+**Status:** **in production.** Merged as #78 (`2bf443d`) and #79 (`b719288`) and
+live at <https://agent-memory-wiki.vercel.app/world>, linked from the home art
+entry as *Walk the archive →*. Nothing is unstaged any more; the two follow-up
+passes of 2026-09-01 are in §3.2 and §9.
 
 **Route:** `/world` — an isometric room-scale companion to `/sky`
 **Reference art:** `~/Downloads/ebbebea6-c72a-4693-8807-d23206ddcd03.png` — the
 image every art decision below is measured against. Open it before touching the
-palette or the lighting.
+palette or the lighting. The user then sent a series of *cropped* references,
+one per element; those drove §3.1 and §3.2.
 
 Resume from this file after a context clear. It carries everything needed to
 continue cold.
@@ -35,7 +34,7 @@ rendering.
 
 ---
 
-## 2. Files added (all untracked)
+## 2. Files added (all shipped in #78)
 
 ```
 apps/web/lib/world/layout.ts            floor plan, seats, waypoint graph, BFS, wall check
@@ -61,8 +60,8 @@ docs/plans/2026-08-31-wiki-world-prototype.md   this file
 `three@0.185.1` and `@playwright/test` were already dependencies; nothing was
 installed.
 
-The `/world` feature itself modified no existing file. The security fixes in §6
-did, and they are the only tracked files this work touches:
+The `/world` feature itself modified one existing file, `apps/web/app/page.tsx`,
+to add the home link. The security fixes in §6 modified the rest:
 
 ```
 apps/web/lib/http/handlers.ts           + handleRecordEvent, behind admitWrite
@@ -383,6 +382,82 @@ log stays). What follows is the residue worth carrying forward.
   `keySpotAngleDeg` 10. Azimuth 70 and elevation 50 were each moved and then
   moved back by the user — leave them alone without being asked.
 
+## 3.2 The second detail pass (2026-09-01, after §3.1)
+
+Same working method: the user sends one cropped reference at a time and the
+matching element is reworked against it. This pass ran after §3.1 and is what
+the shipped set looks like.
+
+### Rules this pass produced
+
+- **A texture with a bevelled border, repeated once per box, is a grid.** The
+  box kit measures UVs in blocks of a fixed 0.5 world units, and
+  `createSurfaceTexture` draws a lip at the tile border. Making that block
+  per-prop so one tile covered one 0.28 leaf cube framed every cube, and the
+  canopies came back as wire grids. The fix was not a different block size but
+  a **fourth material channel**: `kit.leaf` is lit and face-shaded exactly like
+  `kit.box`, but its geometry gets `createFoliageTexture` — broad patches, no
+  border, one tile per ~1.4 world units. The per-prop block size was reverted.
+- **One tile repeated is one tile, whatever noise you paint into it.** The
+  corridor floor was a single 128 px maiolica repeated 48×48, so every tile was
+  identical by construction and no amount of grain varied it. `createTileTexture`
+  now paints a **4×4 block** of tiles, each with its own tint jitter (one in six
+  fired a stop off) and its own grain, and divides the caller's `repeat` by the
+  grid. The joint still lands on a continuous grid because every tile draws it
+  on the same two edges.
+- **A lit transparent pane is invisible on a bright set.** The partitions were
+  `MeshPhysicalMaterial`, so the pane's colour was `PALETTE.glass` times the
+  light on it; standing in the spot's pool, the key blew them to white, and
+  white at a third opacity over pale plaster is nothing at all. The glass
+  material is now **unlit** `MeshBasicMaterial`, like the `glow` channel, so
+  what blends over the room is exactly the authored tint. Two earlier attempts
+  — saturating the palette entry, then unshading the glass channel — moved the
+  needle without fixing it.
+- **The `glass` and `glow` channels are not face-shaded; `box` and `leaf` are.**
+  Baked face shading put the four orientations of a pane 0.58 to 0.85 apart
+  before a single light was applied, so partitions on one side of a room read
+  as glazed and those on another as empty frames. A pane has no lit side.
+- **Tone mapping is what keeps signage under the bloom threshold, so lettering
+  that must bloom needs `toneMapped: false`.** `placeText` takes a `glow`
+  option for this; the hub's `WIKI` and `W` use it. Raising `bloomStrength`
+  alone did not do it.
+- **`createTextTexture`'s padding and tracking come straight off the glyph
+  size.** The hub lettering was illegible at the default 0.5 padding and 0.18
+  tracking, not because the plane was small. At `padding: 0.12, tracking: 0.05`
+  the same plane carries glyphs 1.5× taller. `padding` was added to
+  `TextTextureOptions` for this.
+- **A rotating box inside a shell must be narrower than the shell by a factor
+  of √2**, or its corners swing out through the glass every quarter turn.
+
+### What changed
+
+- **Corridor floor.** Kept maiolica — a moquette version was tried at the
+  user's request and rejected as flat and repetitive. Tiles were made smaller
+  (`repeat` 34 → 48), then given the grain and the 4×4 variation above.
+- **Plants.** New `plantFicus`: a stone cube planter under a canopy of ~136
+  individual 0.28 leaf blocks on a lattice, kept when a **seeded** hash puts
+  them inside a soft ellipsoid, so the silhouette frays and every build is
+  identical. It replaced `plantTall` inside the four rooms; `plantTall` stays in
+  the corridor, the entrance and the outer rooms. `hedgePlanter` was rebuilt the
+  same way — a rounded loaf of 0.2 blocks over a trough with a proud rim —
+  because its two flat slabs read as a painted wedge. Greens were warmed towards
+  yellow twice.
+- **Doorway planters.** The four corridor planters ran *perpendicular* to the
+  room facades in the middle of the plaza. They now sit parallel to the wall,
+  under the glazed panel on either side of the opening, clear of the route
+  through it. `OBSTACLES` carries the new footprints and the route tests pass.
+- **Hub.** Rebuilt from the reference: `hubMonolith` is a static glass shell
+  wired with 12 glowing edge bars, and `hubCrystal` is now only the lit core the
+  animation spins and breathes. The mosaic on the faces was deliberately
+  skipped — the user called it barely hinted.
+- **Entrance stairs removed.** They rose out of the floor, which made no sense;
+  a descending version would need a hole in the 140-unit floor plate, which the
+  plate does not have. `F.stairs` was deleted with them.
+- **READ's poster** ground is now white, and the partition frames were taken
+  through anthracite and grey before being **reverted to the original cream**.
+
+---
+
 ## 4. How to run
 
 The production Neon database must **not** be used for this work — see §6.
@@ -398,7 +473,8 @@ DATABASE_URL="postgresql://massimo@localhost:5432/wiki_world_proto" pnpm migrate
 PORT=3100 pnpm dev
 ```
 
-Then open <http://localhost:3100/world>.
+Then open <http://localhost:3100/world>. Production is
+<https://agent-memory-wiki.vercel.app/world>, on the live Neon archive.
 
 The scratch DB already holds 17 synthetic events across 4 sessions (`demo-s1`
 … `demo-s4`, agents Claude / ChatGPT / DeepSeek / Gemini), inserted directly
@@ -457,9 +533,9 @@ hub `x 620 y 180 w 460 h 360`, entrance `x 480 y 620 w 700 h 280`.
    screen Y by the actor's seat index. Still the top of the list — the avatars
    themselves no longer overlap, but their captions do.
 2. **No real occlusion.** Walls are open towards the camera so it does not show.
-3. **The `● LIVE` badge never returns to `○ REPLAY`** once the first SSE event
-   arrives.
-4. The replay loops the archive so the room is never empty between live events.
+3. ~~The `● LIVE` badge never returns to `○ REPLAY`.~~ Fixed in #79; see §9.
+4. ~~The replay loops the archive, so the room is never empty.~~ Still true by
+   default, but it is now a switch; see §9.
 5. `articleCountRef` in `world-canvas.tsx` is assigned but not yet consumed.
 6. **The EDIT whiteboard sits behind the roster HUD.** The EDIT plaque was
    moved along -X to clear it; the whiteboard at x 6.4 still is not. Fixing it
@@ -530,24 +606,30 @@ revocation because `getSignKey` prefers `CREDENTIAL_HASH_SECRET`.)
 
 ## 7. Next step
 
-The `.vox` parser (§below), the art pass and the shading pass are all done.
-What is left, in rough order:
+The feature is shipped. What is left, in rough order:
 
-0. **Ask the user for the next mockup crop.** The detail pass in §3.1 is the
-   live thread: they send one crop at a time and the matching room is reworked
-   against it. Every room has had one pass; a second pass on any of them is
-   theirs to call, not yours to propose.
-0b. **Do not re-tune the lighting unprompted.** `VISUAL_CONFIG` holds a balance
-   the user set by hand, and they have already reverted two of my changes to it.
-   To change it when asked: open `/world?tune=1`, drag, hit `copy config`, paste
-   back into `VISUAL_DEFAULTS` in `visual.ts`. Each row's `↺` returns one value
-   to its default, and lights up while it is off it.
-1. **Bubble offsets**, so two agents in one room do not overlap their captions.
-2. **`.vox` assets.** The parser has no callers yet: there are no `.vox` files in
-   the repo. Anything authored in MagicaVoxel can now be dropped into
+0. **Ask the user for the next crop.** Two detail passes have run (§3.1, §3.2);
+   both worked the same way — one cropped reference at a time, one element
+   reworked against it. A third pass is theirs to call, not yours to propose.
+0b. **Do not re-tune the lighting unprompted.** `VISUAL_DEFAULTS` holds a
+   balance the user set by hand and has reverted changes to twice. To change it
+   when asked: open `/world?tune=1`, drag, hit `copy config`, paste back into
+   `VISUAL_DEFAULTS` in `visual.ts`. They have also handed the whole JSON over
+   directly, which is the fastest path. Each row's `↺` returns one value to its
+   default and lights up while it is off it.
+1. **Decide whether browser page views belong on the stage.** 14 of the 47
+   sessions in the production archive have a browser user agent, which
+   `displayAgentName` maps to `Explorer`, so a crowd of them walks the floor.
+   They are humans reading the wiki, recorded by the site telemetry — real
+   events, but arguably not agents. Filtering them is a product call and was
+   deliberately left alone. See §9.
+2. **Bubble offsets**, so two agents in one room do not overlap their captions.
+   Still the top of the art list.
+3. **`.vox` assets.** The parser has no callers: there are no `.vox` files in
+   the repo. Anything authored in MagicaVoxel can be dropped into
    `apps/web/public/world/` (that directory does not exist yet) and loaded with
    `loadVoxModel`, alongside the box props rather than instead of them.
-3. **The `observe_world()` MCP tool** discussed earlier — a read-only tool
+4. **The `observe_world()` MCP tool** discussed earlier — a read-only tool
    letting agents see who is in which room, which adds emergent social behaviour
    without giving agents a movement verb that would change what the experiment
    measures. If a movement verb is ever added, it should go behind a new
@@ -581,6 +663,57 @@ What is left, in rough order:
 
 ## 8. Background processes
 
-A `pnpm dev` on port 3100 was left running in this session. After a context
-clear it may still be alive — check with `lsof -nP -iTCP:3100 -sTCP:LISTEN`.
-Port 3000 belongs to an unrelated Vite app of the user's; do not kill it.
+The `pnpm dev` on port 3100 left by the earlier session was killed on
+2026-09-01; nothing is expected to be listening. Check with
+`lsof -nP -iTCP:3100 -sTCP:LISTEN` before starting another. Port 3000 belongs to
+an unrelated Vite app of the user's; do not kill it.
+
+---
+
+## 9. Shipping, and what "live" means (2026-09-01)
+
+### How it was shipped
+
+Two squash merges onto `main`, which is what Vercel deploys to production:
+
+- **#78 `2bf443d`** — the whole feature, the home link, and the `POST
+  /api/v1/events` gate from §6.
+- **#79 `b719288`** — the live-only stage below.
+
+`main` is protected: it refuses a direct push and requires two status checks, so
+this goes through a PR every time. CI is `verify` (~3 min) plus `secrets`;
+Vercel builds a preview per PR and production on merge.
+
+### The data is real, and it does not look it
+
+The user asked how to be sure the page was live. Querying production directly
+settles it: `GET /api/v1/events?limit=500` returns **172 events across 47
+sessions, 21–31 Aug**, with identifiers like `gpt-5.6-luna` (66 events),
+`Qwen3.8`, `Grok 4`, `claude-opus-5`, `mistral-medium-3.5`, `Nemotron-3-Ultra`.
+Nothing synthetic.
+
+What made it *look* fake was two separate things:
+
+- **A crowd of `Explorer` avatars.** 14 of the 47 sessions carry a browser user
+  agent, and `displayAgentName` maps anything with `mozilla`/`chrome`/`safari`
+  in it to `Explorer`. They are human page views recorded by the site's own
+  telemetry. The next-largest name is `ChatGPT` at 15; everyone else appears
+  once or twice. So two names own 29 of 47 actors.
+- **The replay looped**, so the same sessions rewalked the same routes forever
+  and the badge — which latched on at the first SSE frame and never reset —
+  claimed `LIVE` over it.
+
+### The live-only stage
+
+`WorldCanvas` takes a `replay` prop, read through a ref so the switch takes
+effect on the next frame without rebuilding the scene. The `● LIVE` badge is now
+a statement about the last `LIVE_WINDOW_MS` (120 s) rather than about the whole
+session, and it is also the switch: clicking it turns the replay off, leaving
+only the avatars a live event put on the floor. `?live=1` opens straight into
+that mode. An idle archive then shows an empty floor and the roster reads
+`waiting for a live event…`, which is the honest picture.
+
+**To prove liveness by hand:** open `/world?live=1`, then open any article on
+the live site in another tab. The visit is recorded as `article_opened`, an
+avatar appears, a line lands in the activity log, and the badge goes green for
+two minutes.
