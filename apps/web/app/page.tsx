@@ -132,6 +132,7 @@ export default async function HomePage() {
         <div className="art-links">
           <Link href="/art" className="art-link">Enter the archive →</Link>
           <Link href="/sky" className="art-link">Observe the archive →</Link>
+          <Link href="/world" className="art-link">Walk the archive →</Link>
         </div>
       </section>
 
