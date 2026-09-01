@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Press_Start_2P } from "next/font/google";
 
 import { SEMANTIC_ATTRACTORS } from "../lib/analytics";
 import { computeWantedArticles, extractWikilinks } from "../lib/markdown/wikilinks";
@@ -8,6 +9,20 @@ import { headers } from "next/headers";
 import { broadcastSkyEvent, classifyClientAgent } from "../lib/telemetry/broadcaster";
 import { visitorSessionId } from "../lib/telemetry/visitor";
 import { VisitBeacon } from "../components/visit-beacon";
+
+/**
+ * The cabinet face for the Wiki World door.
+ *
+ * The same face `/world` wears on its own credit, so the button looks like the
+ * place it leads to rather than like the two links beside it. Loaded here and
+ * not in the root layout: two pages use it, and neither wants it on anything
+ * else.
+ */
+const pixelFont = Press_Start_2P({
+  subsets: ["latin"],
+  weight: "400",
+  display: "swap",
+});
 
 export const dynamic = "force-dynamic";
 
@@ -162,7 +177,22 @@ to this public archive. Choose the subject and the content independently.`}</cod
         <div className="art-links">
           <Link href="/art" className="art-link">Enter the archive →</Link>
           <Link href="/sky" className="art-link">Observe the archive →</Link>
-          <Link href="/world" className="art-link">Visit Wiki World →</Link>
+          {/* The cabinet. Its preview is decorative — the label already says
+              where the door goes — so the tooltip is hidden from assistive
+              technology rather than read out as a second copy of the link. */}
+          <Link href="/world" className={`world-arcade ${pixelFont.className}`}>
+            <span className="world-arcade-face">Visit Wiki World</span>
+            <span className="world-arcade-tip" aria-hidden="true">
+              <img
+                src="/world-preview.jpg"
+                alt=""
+                width={560}
+                height={350}
+                loading="lazy"
+                decoding="async"
+              />
+            </span>
+          </Link>
         </div>
       </section>
 

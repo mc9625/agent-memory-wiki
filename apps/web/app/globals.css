@@ -1,4 +1,4 @@
-:root { color-scheme: light; --paper: #f2efe7; --paper-deep: #e7e1d5; --ink: #17211f; --muted: #59635f; --line: #b8b5aa; --signal: #0b745f; --signal-soft: #c7ded6; --serif: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, Georgia, serif; --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+:root { color-scheme: light; --paper: #f2efe7; --paper-deep: #e7e1d5; --ink: #17211f; --muted: #59635f; --line: #b8b5aa; --signal: #0b745f; --signal-soft: #c7ded6; --serif: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, Georgia, serif; --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --arcade-gold: #e3b23c; --arcade-gold-lit: #ffd76a; }
 * { box-sizing: border-box; }
 html { background: var(--paper); color: var(--ink); font-size: 100%; }
 body { margin: 0; min-width: 20rem; font-family: var(--sans); line-height: 1.65; }
@@ -515,6 +515,102 @@ main { width: min(84rem, 100%); margin: 0 auto; padding-inline: clamp(1rem, 4vw,
 .art-links { display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; }
 .art-link { display: inline-flex; align-items: center; padding: 0.85rem 1.75rem; background: transparent; border: 1px solid var(--signal-soft); color: var(--paper); font-weight: 600; text-decoration: none; border-radius: 2px; transition: all 0.2s ease; }
 .art-link:hover { background: var(--signal-soft); color: var(--ink); border-color: var(--signal-soft); }
+
+/* Wiki World cabinet ------------------------------------------------------ */
+/* Deliberately not an `.art-link`: the two beside it are doors to documents,
+   this one is a door to a room, and it should not look like its neighbours.
+   A coin-op marquee, which is a flat thing — gold rule, gold letters, black
+   glass. Nothing here is raised or pressed; the button does not pretend to
+   have a body. What it does instead is light up, the way a cabinet does. */
+.world-arcade {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 1rem 1.7rem;
+  background: #000;
+  color: var(--arcade-gold);
+  border: 3px solid var(--arcade-gold);
+  border-radius: 0;
+  /* The bezel: a hairline of gold set in from the frame with black between, the
+     double rule a cabinet's marquee is printed with. Inset only — an outer
+     offset would put the thing back on a plinth. */
+  box-shadow: inset 0 0 0 3px #000, inset 0 0 0 4px rgba(227, 178, 60, 0.42);
+  text-decoration: none;
+  transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.world-arcade-face {
+  font-size: 0.66rem;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  /* Press Start 2P has no lowercase descenders to speak of and sits high in its
+     box; a hair of optical centring keeps it off the bottom rule. */
+  transform: translateY(1px);
+}
+/* Lit, not moved. The glow is the tube behind the marquee coming up, so it
+   spreads without an offset and never reads as a drop shadow. */
+.world-arcade:hover,
+.world-arcade:focus-visible {
+  color: var(--arcade-gold-lit);
+  border-color: var(--arcade-gold-lit);
+  box-shadow:
+    inset 0 0 0 3px #000,
+    inset 0 0 0 4px rgba(255, 215, 106, 0.6),
+    inset 0 0 22px rgba(227, 178, 60, 0.22),
+    0 0 18px rgba(227, 178, 60, 0.45);
+}
+.world-arcade:focus-visible { outline: 2px solid var(--paper); outline-offset: 4px; }
+
+/* The preview. Pointer events stay off it so it can never swallow the click it
+   is advertising, and it is painted above the button because the section sits
+   low on the page. */
+.world-arcade-tip {
+  position: absolute;
+  bottom: calc(100% + 0.9rem);
+  left: 50%;
+  z-index: 5;
+  display: block;
+  width: min(19rem, 78vw);
+  /* Even on all four sides: the frame is the whole tooltip now that nothing is
+     captioned under the image. */
+  padding: 0.4rem;
+  background: #000;
+  border: 3px solid var(--arcade-gold);
+  border-radius: 0;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 0.4rem);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.14s;
+}
+.world-arcade-tip img { display: block; width: 100%; height: auto; border-radius: 1px; }
+/* The notch, in two layers: the outer one is the border colour, the inner one
+   covers it a pixel lower so the arrow reads as a hole in the frame. */
+.world-arcade-tip::after,
+.world-arcade-tip::before {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  border: 9px solid transparent;
+}
+.world-arcade-tip::before { margin-left: -9px; border-top-color: var(--arcade-gold); }
+.world-arcade-tip::after { margin-left: -6px; border-width: 6px; border-top-color: #000; }
+
+/* Only where hovering is a real gesture. On a touch screen the tooltip has no
+   way to be dismissed and would sit over the page after the tap. */
+@media (hover: hover) and (pointer: fine) {
+  .world-arcade:hover .world-arcade-tip,
+  .world-arcade:focus-visible .world-arcade-tip {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+    transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-arcade, .world-arcade-tip { transition-duration: 0.01ms; }
+}
 
 /* Fullscreen Sky Utility */
 .sky-layout-root { position: fixed; top: 0; left: 0; z-index: 9999; margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: #000; color: #fff; }
