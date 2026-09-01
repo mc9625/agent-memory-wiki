@@ -544,6 +544,28 @@ const PLAN_OBSTACLES: readonly Obstacle[] = [
   },
 ];
 
+/**
+ * The hub fountain's footprint, which is the one solid thing on the floor that
+ * is deliberately *not* an obstacle.
+ *
+ * Two of the hub's standby spots stand behind it, so listing it here would make
+ * `findPath` unable to reach them and would fail the route tests rather than fix
+ * anything — the real fix is to re-author those two spots beside the plinth, and
+ * nothing has asked for it. But every corridor leg passes its corner, so a floor
+ * plan that cannot state where it is cannot be measured: `validate.ts` reads it
+ * from here.
+ *
+ * 6.2 across is the base slab in `furniture.ts`'s `hubPlinth`, which is its
+ * widest part. The centre is the plan position `environment.ts` places it at,
+ * carried by the hub's own shift like everything else in that room.
+ */
+export const HUB_PLINTH = {
+  x: 0 + ROOM_SHIFT.hub.x,
+  z: -3 + ROOM_SHIFT.hub.z,
+  width: 6.2,
+  depth: 6.2,
+} as const;
+
 /** The list above, each prop moved with the room it stands in. */
 export const OBSTACLES: readonly Obstacle[] = PLAN_OBSTACLES.map((obstacle) => {
   const by = ROOM_SHIFT[obstacle.room];
