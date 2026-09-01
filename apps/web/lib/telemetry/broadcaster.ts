@@ -5,6 +5,39 @@ import type { SkyEvent } from "../../components/sky-canvas";
 export const SKY_TELEMETRY_TOPIC =
   process.env.NEXT_PUBLIC_SKY_TELEMETRY_TOPIC || "amw-sky-telemetry-mc9625";
 
+/**
+ * Whether this process may publish to the shared broker.
+ *
+ * The topic is one public channel and its name has a default, so every
+ * environment that never set it published to the same place: a developer's
+ * `pnpm dev`, the e2e run on every pull request, and production. The visible
+ * result was avatars on the production floor writing articles that exist in
+ * nobody's database — a `Playwright acceptance agent` from CI, and probes from
+ * a laptop — which is the one thing this view must not do, since its whole
+ * claim is that every avatar stands for something that really happened here.
+ *
+ * Written as an exclusion rather than a test for production on purpose. Asking
+ * for `VERCEL_ENV === "production"` would have silenced a self-hosted deploy,
+ * which sets no such variable and is a real way to run this. So the default is
+ * to publish, and it takes positive evidence of *not* being production to stay
+ * quiet:
+ *
+ * - `CI` catches the e2e run, which serves through `next start` and therefore
+ *   looks like production by `NODE_ENV` alone.
+ * - `NODE_ENV` catches `pnpm dev`.
+ * - `VERCEL_ENV` catches preview deployments, which are production builds.
+ *
+ * Only the fan-out is gated. `liveEventBus` still carries every event, so a
+ * single-process dev server shows its own traffic on `/world` and `/sky`
+ * through the SSE route, and the archive is written either way.
+ */
+export const publishesToBroker = (): boolean => {
+  if (process.env.CI === "true") return false;
+  if (process.env.NODE_ENV !== "production") return false;
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") return false;
+  return true;
+};
+
 // Rate limiting & Debounce state (in-memory per serverless instance)
 const rateLimitState = {
   windowStart: Date.now(),
@@ -121,6 +154,7 @@ export async function broadcastSkyEvent(
   }
 
   // 2. Global serverless Pub/Sub via ntfy.sh (Zero account, instant cross-lambda push)
+  if (!publishesToBroker()) return;
   try {
     fetch(`https://ntfy.sh/${SKY_TELEMETRY_TOPIC}`, {
       method: "POST",
