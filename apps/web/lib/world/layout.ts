@@ -386,7 +386,12 @@ export interface Obstacle {
  */
 export const AVATAR_CLEARANCE = 0.55;
 
-const PLAN_OBSTACLES: readonly Obstacle[] = [
+/**
+ * The obstacle list as authored, in each prop's own room frame. `environment.ts`
+ * places these inside that frame, and `Floor.obstacles` is the same list with
+ * the shift applied.
+ */
+export const PLAN_OBSTACLES: readonly Obstacle[] = [
   // The plaza itself carries no planters. Two used to flank the plinth, and
   // between them and the four corridor pairs the middle of the shot was more
   // hedge than floor. (Only two ever fit anyway: five routes fan out of the hub

@@ -26,7 +26,7 @@
 
 import * as THREE from "three";
 import {
-  OBSTACLES,
+  PLAN_OBSTACLES,
   PLAN_ROOMS,
   ROOMS,
   ROOM_SHIFT,
@@ -452,7 +452,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
     // to hide nothing.
     carpet.position.set(room.center.x, -0.06, room.center.z);
     carpet.receiveShadow = true;
-    group.add(carpet);
+    parent.add(carpet);
 
     if (room.open) return;
     for (const [width, depth, offsetX, offsetZ] of [
@@ -471,13 +471,17 @@ export const buildEnvironment = (): BuiltEnvironment => {
       // one bit of trim an avatar walks straight over.
       strip.position.set(room.center.x + offsetX, -0.05, room.center.z + offsetZ);
       strip.receiveShadow = true;
-      group.add(strip);
+      parent.add(strip);
     }
   };
 
   // The open rooms — the plaza and the entrance — sit straight on the concourse
   // tiling. A slab under either one reads as a rug nobody laid.
-  for (const room of ROOMS) if (!room.open) addCarpet(room);
+  //
+  // Laid in the room's own frame, from the plan, rather than at the root from
+  // the shifted list: a room's floor is part of that room, and a carpet left at
+  // the root is a carpet that stays behind when the room moves.
+  for (const plan of PLAN_ROOMS) if (!plan.open) inRoom(plan.id, addCarpet);
 
   // Glazed partitions. The pair of short runs on a room's doorway side leaves
   // the six units in the middle open, which is where avatars walk through.
@@ -750,32 +754,39 @@ export const buildEnvironment = (): BuiltEnvironment => {
    * walk straight through it, which is exactly what the corridor planters and
    * the first archive stack used to do.
    */
-  for (const obstacle of OBSTACLES) {
-    switch (obstacle.kind) {
-      case "planter": {
-        const alongZ = obstacle.depth > obstacle.width;
-        const length = alongZ ? obstacle.depth : obstacle.width;
-        place(
-          `hedge-${length}`,
-          () => F.hedgePlanter(length),
-          obstacle.x,
-          0,
-          obstacle.z,
-          alongZ ? Math.PI / 2 : 0,
-        );
-        break;
+  for (const obstacle of PLAN_OBSTACLES) {
+    // In its room's frame, from the plan, for the same reason the carpet is:
+    // the planters at a doorway belong to that doorway. Each piece is stamped
+    // with the obstacle's own id, so a stack of crates is one thing to move and
+    // the footprint `layout.ts` declares can be moved with it.
+    inRoom(obstacle.room, () => {
+      switch (obstacle.kind) {
+        case "planter": {
+          const alongZ = obstacle.depth > obstacle.width;
+          const length = alongZ ? obstacle.depth : obstacle.width;
+          place(
+            `hedge-${length}`,
+            () => F.hedgePlanter(length),
+            obstacle.x,
+            0,
+            obstacle.z,
+            alongZ ? Math.PI / 2 : 0,
+            obstacle.id,
+          );
+          break;
+        }
+        case "crates": {
+          // Two on the floor and one on top, which is the whole footprint.
+          place("crate", F.crate, obstacle.x - 0.6, 0, obstacle.z, 0.12, obstacle.id);
+          place("crate", F.crate, obstacle.x + 0.6, 0, obstacle.z, -0.24, obstacle.id);
+          place("crate", F.crate, obstacle.x, 0.9, obstacle.z, 0.36, obstacle.id);
+          break;
+        }
+        case "table":
+          place("coffee-table", F.coffeeTable, obstacle.x, 0, obstacle.z, 0, obstacle.id);
+          break;
       }
-      case "crates": {
-        // Two on the floor and one on top, which is the whole footprint.
-        place("crate", F.crate, obstacle.x - 0.6, 0, obstacle.z, 0.12);
-        place("crate", F.crate, obstacle.x + 0.6, 0, obstacle.z, -0.24);
-        place("crate", F.crate, obstacle.x, 0.9, obstacle.z, 0.36);
-        break;
-      }
-      case "table":
-        place("coffee-table", F.coffeeTable, obstacle.x, 0, obstacle.z);
-        break;
-    }
+    });
   }
 
   /* ------------------------------------------------------------- room signs */
@@ -935,8 +946,8 @@ export const buildEnvironment = (): BuiltEnvironment => {
    * scale and the contact shading comes from the AO pass instead.
    */
   const roomLights: RoomLight[] = [];
-  // Each sits at its room's authored coordinates and takes that room's shift,
-  // exactly as the prop it belongs to does.
+  // Each sits at its room's authored coordinates, inside that room's frame,
+  // exactly as the prop it lights does.
   for (const [id, x, y, z, color, intensity, distance] of [
     ["read", -25.6, 1.9, 3.6, 0xffc389, 16, 12], // the reading room's lamp
     ["hub", 0, 2.1, -3, 0x6fd9ff, 34, 17], // the hub crystal
@@ -953,9 +964,8 @@ export const buildEnvironment = (): BuiltEnvironment => {
     ["archive", 19.6, 8.0, -2.0, 0xffdcae, 30, 22], // the archive
   ] as const satisfies readonly (readonly [RoomId, ...number[]])[]) {
     const lamp = new THREE.PointLight(color, intensity, distance, 2);
-    const shift = ROOM_SHIFT[id];
-    lamp.position.set(x + shift.x, y, z + shift.z);
-    group.add(lamp);
+    lamp.position.set(x, y, z);
+    inRoom(id, () => parent.add(lamp));
     roomLights.push({ light: lamp, baseIntensity: intensity });
   }
 
