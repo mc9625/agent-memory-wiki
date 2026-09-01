@@ -49,15 +49,38 @@ const ROOM_OF_EVENT: Readonly<Record<string, string>> = {
   agent_session_ended: "left the building",
 };
 
+/** How long after a live frame the stage still counts as live. */
+const LIVE_WINDOW_MS = 120_000;
+
 export default function WorldPage() {
   const [articles, setArticles] = useState<SkyArticle[]>([]);
   const [events, setEvents] = useState<SkyEvent[]>([]);
   const [liveEvent, setLiveEvent] = useState<SkyEvent | null>(null);
   const [roster, setRoster] = useState<readonly RosterEntry[]>([]);
   const [activity, setActivity] = useState<ActivityLine[]>([]);
-  const [isLive, setIsLive] = useState(false);
+  const [lastLiveAt, setLastLiveAt] = useState<number | null>(null);
+  const [liveOnly, setLiveOnly] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const seenIdsRef = useRef(new Set<string>());
+
+  /**
+   * The badge is a statement about the last two minutes, not about the whole
+   * session: it used to latch on at the first live frame and never go back,
+   * which told the viewer "live" over a stage that had been replaying the
+   * archive for an hour.
+   */
+  const live = lastLiveAt !== null && now - lastLiveAt < LIVE_WINDOW_MS;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // ?live=1 opens straight into the live-only stage, so the mode can be linked.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("live") === "1") setLiveOnly(true);
+  }, []);
 
   const handleRoster = useCallback((next: readonly RosterEntry[]) => {
     setRoster((previous) => {
@@ -113,7 +136,8 @@ export default function WorldPage() {
       if (seenIdsRef.current.size > 200) seenIdsRef.current.clear();
 
       setLiveEvent(event);
-      setIsLive(true);
+      setLastLiveAt(Date.now());
+      setNow(Date.now());
 
       const hue = agentHue(event.agentIdentifier || "agent");
 
@@ -251,6 +275,7 @@ export default function WorldPage() {
         initialArticles={articles}
         initialEvents={events}
         liveEvent={liveEvent}
+        replay={!liveOnly}
         onRosterChange={handleRoster}
       />
 
@@ -292,12 +317,37 @@ export default function WorldPage() {
       <div className="world-panel" style={{ top: "1.15rem", right: "1.15rem", minWidth: "13.5rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", marginBottom: "0.45rem" }}>
           <span className="world-panel-title">ACTIVE AGENTS</span>
-          <span style={{ color: isLive ? "#5fdc7a" : "rgba(255,255,255,0.35)" }}>
-            {isLive ? "● LIVE" : "○ REPLAY"}
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={() => setLiveOnly((previous) => !previous)}
+            onKeyDown={(keyEvent) => {
+              if (keyEvent.key === "Enter" || keyEvent.key === " ") {
+                keyEvent.preventDefault();
+                setLiveOnly((previous) => !previous);
+              }
+            }}
+            title={
+              liveOnly
+                ? "Live only: the floor is empty until an event arrives. Click to replay the archive between events."
+                : "Replaying the recorded archive between live events. Click to show live events only."
+            }
+            style={{
+              cursor: "pointer",
+              color: live ? "#5fdc7a" : "rgba(255,255,255,0.35)",
+            }}
+          >
+            {live ? "● LIVE" : liveOnly ? "○ WAITING" : "○ REPLAY"}
           </span>
         </div>
         {roster.length === 0 ? (
-          <div style={{ opacity: 0.35 }}>{loading ? "loading archive…" : "no agents on stage"}</div>
+          <div style={{ opacity: 0.35 }}>
+            {loading
+              ? "loading archive…"
+              : liveOnly
+                ? "waiting for a live event…"
+                : "no agents on stage"}
+          </div>
         ) : (
           roster.map((entry, index) => (
             <div key={`${entry.name}-${index}`} className="world-row">
