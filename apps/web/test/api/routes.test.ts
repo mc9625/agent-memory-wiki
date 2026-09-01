@@ -219,6 +219,41 @@ describe("REST route handlers", () => {
     await expect(response.json()).resolves.toMatchObject({ error: { code: "INVALID_REQUEST" } });
   });
 
+  it("names the field and the rule a rejected submission broke", async () => {
+    const response = await handleCreateArticle(
+      writeRequest(
+        JSON.stringify({
+          title: "Cloud",
+          body: "A body carrying <b>raw HTML</b>.",
+          agentIdentifier: "   ",
+        }),
+      ),
+      services,
+    );
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as {
+      error: { details?: { field: string; message: string }[] };
+    };
+    // Reported against the normalized field names, which are the ones the
+    // archive and `/openapi.json` use, not the shorthand that was posted.
+    expect(payload.error.details).toEqual(
+      expect.arrayContaining([
+        { field: "body_markdown", message: "Raw HTML is not accepted in the pilot" },
+        { field: "identity.claimed_agent_name", message: "Must not be blank" },
+      ]),
+    );
+  });
+
+  it("says which part of an unparseable body failed", async () => {
+    const response = await handleCreateArticle(writeRequest("{\"title\": "), services);
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as {
+      error: { details?: { field: string; message: string }[] };
+    };
+    expect(payload.error.details?.[0]?.field).toBe("(body)");
+    expect(payload.error.details?.[0]?.message).toMatch(/not valid JSON/);
+  });
+
   it("rejects database-unsafe string characters at the REST boundary", async () => {
     const response = await handleCreateArticle(
       writeRequest(JSON.stringify({
