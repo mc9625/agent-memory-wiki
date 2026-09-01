@@ -30,6 +30,7 @@ import { ARMCHAIR, BOOKSHELF } from "./props";
 import { buildVoxelGeometry } from "./voxel";
 import {
   createCarpetTexture,
+  createFoliageTexture,
   createPlasterTexture,
   createSurfaceTexture,
   createTextTexture,
@@ -136,6 +137,20 @@ export const buildEnvironment = (): BuiltEnvironment => {
     }),
   );
   const glowMaterial = trackMaterial(new THREE.MeshBasicMaterial({ vertexColors: true }));
+
+  // Lit exactly like the solids, but under the coarse mottle rather than the
+  // block grain: the grain's bevelled border framed every leaf cube and the
+  // canopies came back as wire grids.
+  const foliageTexture = createFoliageTexture();
+  textures.push(foliageTexture);
+  const foliageMaterial = trackMaterial(
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      map: foliageTexture,
+      roughness: 0.94,
+      metalness: 0,
+    }),
+  );
   /*
    * Unlit, like the `glow` channel — a lit pane was the whole problem.
    *
@@ -185,7 +200,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
     if (!prop) {
       prop = make();
       propCache.set(key, prop);
-      for (const geometry of [prop.solid, prop.glow, prop.glass]) {
+      for (const geometry of [prop.solid, prop.glow, prop.glass, prop.foliage]) {
         if (geometry) track(geometry);
       }
     }
@@ -196,6 +211,12 @@ export const buildEnvironment = (): BuiltEnvironment => {
 
     if (prop.solid) {
       const mesh = new THREE.Mesh(prop.solid, solidMaterial);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      holder.add(mesh);
+    }
+    if (prop.foliage) {
+      const mesh = new THREE.Mesh(prop.foliage, foliageMaterial);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       holder.add(mesh);

@@ -7,9 +7,11 @@
  * `BufferGeometry` per material channel, so a whole prop costs a single draw
  * call and the same lighting rules as everything else.
  *
- * Three channels exist because the reference art needs three behaviours:
+ * Four channels exist because the reference art needs four behaviours:
  * `box` for lit surfaces, `glow` for screens and signage that must stay bright
- * in shadow, and `glass` for the office partitions. Only `box` is face-shaded.
+ * in shadow, `glass` for the office partitions, and `leaf` for foliage, which
+ * is lit like a box but carries a coarse mottle instead of the block grain.
+ * `box` and `leaf` are face-shaded; the other two are not.
  *
  * ## Face shading
  *
@@ -33,13 +35,8 @@ import { UNIT_CUBE_FACES } from "./voxel";
 import { VISUAL_CONFIG, effectiveFaceShade } from "./visual";
 
 /**
- * Default world size of one texture block. The grain texture draws a bevel at
- * its border, so this is also the size of the visible block lip.
- *
- * A prop built out of boxes smaller than this gets the lip landing somewhere
- * across its faces rather than around them, and reads as smooth. Such a prop
- * passes its own block size to `buildProp` — the foliage does — so that one
- * tile, and therefore one bevelled square, covers one of its cubes.
+ * World size of one texture block. The grain texture draws a bevel at its
+ * border, so this is also the size of the visible block lip.
  */
 const BLOCK_SIZE = 0.5;
 
@@ -71,7 +68,6 @@ const pushBox = (
   depth: number,
   color: number,
   shaded: boolean,
-  blockSize: number,
 ): void => {
   const minX = centerX - width / 2;
   const minY = centerY - height / 2;
@@ -96,7 +92,7 @@ const pushBox = (
       // Project onto the two axes the normal does not use, so the grain never
       // smears along the face it is lying on.
       const [u, v] = nz !== 0 ? [px, py] : nx !== 0 ? [pz, py] : [px, pz];
-      into.uvs.push(u / blockSize, v / blockSize);
+      into.uvs.push(u / BLOCK_SIZE, v / BLOCK_SIZE);
     }
     into.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
@@ -121,6 +117,8 @@ export interface BuiltProp {
   readonly glow: THREE.BufferGeometry | null;
   /** Office partitions, rendered transparent. */
   readonly glass: THREE.BufferGeometry | null;
+  /** Foliage, lit like `solid` but under the mottle rather than the grain. */
+  readonly foliage: THREE.BufferGeometry | null;
   readonly boxCount: number;
 }
 
@@ -131,23 +129,30 @@ export interface BoxKit {
   glow(x: number, y: number, z: number, width: number, height: number, depth: number, color: number): void;
   /** A transparent box: glass partitions and windows. */
   glass(x: number, y: number, z: number, width: number, height: number, depth: number, color: number): void;
+  /** A leaf box: lit like `box`, but textured with the foliage mottle. */
+  leaf(x: number, y: number, z: number, width: number, height: number, depth: number, color: number): void;
   build(): BuiltProp;
 }
 
-export const createBoxKit = (blockSize: number = BLOCK_SIZE): BoxKit => {
+export const createBoxKit = (): BoxKit => {
   const solid = newAccumulator();
   const glow = newAccumulator();
   const glass = newAccumulator();
+  const foliage = newAccumulator();
   let boxCount = 0;
 
   return {
     box(x, y, z, width, height, depth, color) {
-      pushBox(solid, x, y, z, width, height, depth, color, true, blockSize);
+      pushBox(solid, x, y, z, width, height, depth, color, true);
       boxCount += 1;
     },
     glow(x, y, z, width, height, depth, color) {
       // Unlit surfaces skip face shading: a screen has no lit side.
-      pushBox(glow, x, y, z, width, height, depth, color, false, blockSize);
+      pushBox(glow, x, y, z, width, height, depth, color, false);
+      boxCount += 1;
+    },
+    leaf(x, y, z, width, height, depth, color) {
+      pushBox(foliage, x, y, z, width, height, depth, color, true);
       boxCount += 1;
     },
     glass(x, y, z, width, height, depth, color) {
@@ -156,7 +161,7 @@ export const createBoxKit = (blockSize: number = BLOCK_SIZE): BoxKit => {
       // before a single light was applied, so the partitions on one side of a
       // room read as glazed and those on another read as empty frames. What
       // varies between them now is only what the lights actually do.
-      pushBox(glass, x, y, z, width, height, depth, color, false, blockSize);
+      pushBox(glass, x, y, z, width, height, depth, color, false);
       boxCount += 1;
     },
     build() {
@@ -164,19 +169,16 @@ export const createBoxKit = (blockSize: number = BLOCK_SIZE): BoxKit => {
         solid: toGeometry(solid),
         glow: toGeometry(glow),
         glass: toGeometry(glass),
+        foliage: toGeometry(foliage),
         boxCount,
       };
     },
   };
 };
 
-/**
- * Builds a prop with a fresh kit — the shape every entry in `furniture.ts` has.
- * `blockSize` is the world size one tile of the grain texture covers; pass it
- * only for a prop whose boxes are smaller than the default.
- */
-export const buildProp = (draw: (kit: BoxKit) => void, blockSize?: number): BuiltProp => {
-  const kit = createBoxKit(blockSize);
+/** Builds a prop with a fresh kit — the shape every entry in `furniture.ts` has. */
+export const buildProp = (draw: (kit: BoxKit) => void): BuiltProp => {
+  const kit = createBoxKit();
   draw(kit);
   return kit.build();
 };

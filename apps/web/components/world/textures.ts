@@ -281,6 +281,59 @@ export const createSurfaceTexture = (): THREE.CanvasTexture => {
 };
 
 /**
+ * Foliage mottle: broad light and dark patches, and no border lip.
+ *
+ * The block grain in `createSurfaceTexture` is wrong for leaves twice over. Its
+ * bevelled border draws a frame around whatever it lands on, which on a canopy
+ * of small cubes reads as a wire grid rather than as a surface, and its speckle
+ * is far too fine to survive the distance. This is the opposite: patches large
+ * enough to still be patches once a leaf cube is twenty screen pixels, and
+ * nothing at the edge of the tile at all.
+ *
+ * Every patch is drawn nine times, once per wrap offset, so a patch that runs
+ * off one edge comes back on the other and the tile repeats without a seam.
+ */
+export const createFoliageTexture = (): THREE.CanvasTexture => {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("world: 2d canvas is unavailable");
+
+  context.fillStyle = "#ededed";
+  context.fillRect(0, 0, size, size);
+
+  const patch = (fill: string, count: number, min: number, spread: number): void => {
+    context.fillStyle = fill;
+    for (let index = 0; index < count; index += 1) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const width = min + Math.random() * spread;
+      const height = min + Math.random() * spread;
+      for (const offsetX of [-size, 0, size]) {
+        for (const offsetY of [-size, 0, size]) {
+          context.fillRect(x + offsetX, y + offsetY, width, height);
+        }
+      }
+    }
+  };
+
+  patch("rgba(0,0,0,0.13)", 9, 9, 13);
+  patch("rgba(255,255,255,0.15)", 9, 8, 12);
+  patch("rgba(0,0,0,0.1)", 14, 4, 6);
+  patch("rgba(255,255,255,0.12)", 14, 4, 6);
+
+  const texture = finish(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  // UVs reach the material in units of the box kit's 0.5 block, and the mottle
+  // wants to be coarser than that: one tile covers about a metre and a half.
+  texture.repeat.set(0.36, 0.36);
+  return texture;
+};
+
+/**
  * Painted plaster for the room walls. They are plain `BoxGeometry`, whose UVs
  * run 0..1 per face regardless of size, so the repeat is set here rather than
  * being derived from the wall's dimensions — a stretched grain is invisible at

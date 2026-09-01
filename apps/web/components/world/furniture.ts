@@ -266,9 +266,9 @@ export const plantSmall = (): BuiltProp =>
   buildProp((kit) => {
     kit.box(0, 0.22, 0, 0.55, 0.44, 0.55, PALETTE.pot);
     kit.box(0, 0.46, 0, 0.5, 0.06, 0.5, PALETTE.soil);
-    kit.box(0, 0.72, 0, 0.62, 0.5, 0.62, PALETTE.leaf);
-    kit.box(0, 1.02, 0, 0.4, 0.3, 0.4, PALETTE.leafDark);
-  }, 0.31);
+    kit.leaf(0, 0.72, 0, 0.62, 0.5, 0.62, PALETTE.leaf);
+    kit.leaf(0, 1.02, 0, 0.4, 0.3, 0.4, PALETTE.leafDark);
+  });
 
 /** Floor tree: staggered foliage blocks, the shape the reference repeats. */
 export const plantTall = (): BuiltProp =>
@@ -278,10 +278,10 @@ export const plantTall = (): BuiltProp =>
     kit.box(0, 0.09, 0, 1.23, 0.18, 1.23, PALETTE.trim);
     kit.box(0, 0.92, 0, 1.05, 0.08, 1.05, PALETTE.soil);
     kit.box(0, 1.15, 0, 0.26, 0.7, 0.26, PALETTE.woodDark);
-    kit.box(0, 1.95, 0, 1.7, 1.0, 1.7, PALETTE.leaf);
-    kit.box(0.14, 2.7, -0.12, 1.25, 0.75, 1.25, PALETTE.leafDark);
-    kit.box(-0.12, 3.25, 0.1, 0.8, 0.5, 0.8, PALETTE.leaf);
-  }, 0.42);
+    kit.leaf(0, 1.95, 0, 1.7, 1.0, 1.7, PALETTE.leaf);
+    kit.leaf(0.14, 2.7, -0.12, 1.25, 0.75, 1.25, PALETTE.leafDark);
+    kit.leaf(-0.12, 3.25, 0.1, 0.8, 0.5, 0.8, PALETTE.leaf);
+  });
 
 /**
  * The room plant: a stone cube planter under a canopy assembled from individual
@@ -324,11 +324,11 @@ export const plantFicus = (): BuiltProp =>
           if (distance + (seed / 0xffffffff) * 0.3 > 1) continue;
           // A shade over the lattice step, so neighbours interlock instead of
           // meeting on a shared plane and z-fighting.
-          kit.box(x, CENTER_Y + y, z, BLOCK * 1.04, BLOCK * 1.04, BLOCK * 1.04, shades[seed % 3]!);
+          kit.leaf(x, CENTER_Y + y, z, BLOCK * 1.04, BLOCK * 1.04, BLOCK * 1.04, shades[seed % 3]!);
         }
       }
     }
-  }, 0.28);
+  });
 
 /**
  * Corridor planter: a wooden trough with a proud rim, run to any length, under
@@ -366,11 +366,11 @@ export const hedgePlanter = (length: number): BuiltProp =>
           const overhang = Math.max(0, Math.abs(x) - flat);
           const distance = Math.hypot(overhang / END_RADIUS, y / RADIUS_Y, z / RADIUS_Z);
           if (distance + (seed / 0xffffffff) * 0.3 > 1) continue;
-          kit.box(x, CENTER_Y + y, z, BLOCK * 1.04, BLOCK * 1.04, BLOCK * 1.04, shades[seed % 3]!);
+          kit.leaf(x, CENTER_Y + y, z, BLOCK * 1.04, BLOCK * 1.04, BLOCK * 1.04, shades[seed % 3]!);
         }
       }
     }
-  }, 0.2);
+  });
 
 /* ------------------------------------------------------------ wall fittings */
 
