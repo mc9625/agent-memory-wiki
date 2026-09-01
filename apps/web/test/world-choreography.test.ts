@@ -7,6 +7,7 @@ import {
   cleaningTask,
   displayAgentName,
   isHumanAgent,
+  replayPlans,
   taskForEvent,
 } from "../lib/world/choreography";
 import {
@@ -221,6 +222,24 @@ describe("world layout", () => {
       const unique = new Set(room.seats.map((seat) => `${seat.x}:${seat.z}`));
       expect(unique.size, `${room.id} has duplicate seats`).toBe(room.seats.length);
     }
+  });
+
+  it("leaves recorded human visitors out of the replay", () => {
+    const events = [
+      event({ eventType: "article_opened", sessionId: "agent-1", agentIdentifier: "claude-opus-5" }),
+      event({
+        eventType: "article_opened",
+        sessionId: "visitor-1",
+        agentIdentifier:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.4 Safari/605.1.15",
+      }),
+      event({ eventType: "article_opened", sessionId: "visitor-2", agentIdentifier: "Human Explorer" }),
+    ];
+
+    // The archive still holds all three: buildAgentPlans is what the rest of
+    // the view counts with, and only the replay drops the people.
+    expect(buildAgentPlans(events)).toHaveLength(3);
+    expect(replayPlans(events).map((plan) => plan.sessionId)).toEqual(["agent-1"]);
   });
 
   it("shortens an identifier to a few words for the avatar's own card", () => {

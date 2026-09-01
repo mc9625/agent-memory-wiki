@@ -21,10 +21,10 @@ import type { SkyEvent, SkyArticle } from "../sky-canvas";
 import {
   agentHue,
   agentOrigin,
-  buildAgentPlans,
   cleaningTask,
   displayAgentName,
   isHumanAgent,
+  replayPlans,
   stableHash,
   taskForEvent,
   type AgentPlan,
@@ -310,7 +310,7 @@ export function WorldCanvas({
   articleCountRef.current = initialArticles.length;
 
   useEffect(() => {
-    plansRef.current = buildAgentPlans(initialEvents);
+    plansRef.current = replayPlans(initialEvents);
   }, [initialEvents]);
 
   useEffect(() => {
@@ -740,12 +740,21 @@ export function WorldCanvas({
      */
     const fillInfo = (actor: Actor, now: number): void => {
       const seconds = Math.max(1, Math.round((now - actor.bornAt) / 1000));
-      const lines = [
-        `${actor.displayName} · ${actor.fromLive ? "LIVE" : "REPLAY"}`,
-        actor.janitor ? "night shift · not an agent" : agentOrigin(actor.agentIdentifier),
-        `#${actor.sessionId.slice(0, 8)}`,
-        `${(actor.currentTask?.room ?? "hub").toUpperCase()} · ${seconds}s`,
-      ];
+      // The cleaner belongs to neither cast, so it is labelled as neither: it
+      // is not live, and calling it a replay claims the archive recorded a
+      // session that never existed.
+      const lines = actor.janitor
+        ? [
+            `${actor.displayName} · STAFF`,
+            `night shift · ${actor.tool ?? "cleaning"}`,
+            `${(actor.currentTask?.room ?? "hub").toUpperCase()} · ${seconds}s`,
+          ]
+        : [
+            `${actor.displayName} · ${actor.fromLive ? "LIVE" : "REPLAY"}`,
+            agentOrigin(actor.agentIdentifier),
+            `#${actor.sessionId.slice(0, 8)}`,
+            `${(actor.currentTask?.room ?? "hub").toUpperCase()} · ${seconds}s`,
+          ];
       actor.info.replaceChildren(
         ...lines.map((line, index) => {
           const row = document.createElement("div");
