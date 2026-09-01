@@ -10,7 +10,15 @@
 import type { SkyEvent } from "../../components/sky-canvas";
 import type { RoomId } from "./layout";
 
-export type AgentAction = "walk" | "idle" | "read" | "type" | "browse" | "sort" | "leave";
+export type AgentAction =
+  | "walk"
+  | "idle"
+  | "read"
+  | "type"
+  | "browse"
+  | "sort"
+  | "leave"
+  | "clean";
 
 export interface AgentTask {
   readonly room: RoomId;
@@ -83,6 +91,30 @@ const captionFor = (event: SkyEvent): string | undefined => {
   }
 };
 
+/**
+ * Whether an identifier belongs to a person reading the wiki in a browser.
+ *
+ * Two shapes have to be recognised, because the archive holds both. Events
+ * recorded through the API carry the raw user agent; events broadcast by the
+ * site's own page telemetry carry the already-classified `Human Explorer`,
+ * which contains none of the browser tokens.
+ */
+export const isHumanAgent = (identifier?: string | null): boolean => {
+  if (!identifier) return false;
+  const lower = identifier.trim().toLowerCase();
+  if (lower === "human explorer") return true;
+  // A real browser user agent opens with the Mozilla token. Testing for a bare
+  // `chrome` or `safari` anywhere in the string is too loose: an identifier is
+  // whatever the submitter claimed, so a claimed model name that happens to
+  // carry a browser word would put a dressed human in EDIT — a room no visitor
+  // can reach, since only a submission ever lands there.
+  if (!lower.startsWith("mozilla/")) return false;
+  // Crawlers imitate the same token. Those are agents wearing a browser's coat.
+  return !/bot\b|crawler|spider|headless|preview|claude|gpt|deepseek|gemini|perplexity/.test(
+    lower,
+  );
+};
+
 /** Strips user-agent noise down to a short display name. */
 export const displayAgentName = (identifier?: string | null): string => {
   if (!identifier || identifier.trim() === "") return "Agent";
@@ -94,9 +126,9 @@ export const displayAgentName = (identifier?: string | null): string => {
   if (lower.includes("glm")) return "GLM";
   if (lower.includes("curl")) return "cURL";
   if (lower.includes("python")) return "Python";
-  if (lower.includes("mozilla") || lower.includes("safari") || lower.includes("chrome")) {
-    return "Explorer";
-  }
+  // Both shapes of a browsing human land on one name, so the roster does not
+  // list `Explorer` and `Human Explorer` as if they were two different casts.
+  if (isHumanAgent(identifier)) return "Explorer";
   return identifier.length > 14 ? `${identifier.slice(0, 13)}…` : identifier;
 };
 
@@ -134,22 +166,109 @@ const NAMED_AGENT_HUES: Readonly<Record<string, number>> = {
  */
 const AGENT_HUES: readonly number[] = [212, 128, 186, 268, 24, 344, 158, 46];
 
-export const agentHue = (identifier: string): number => {
-  const named = NAMED_AGENT_HUES[displayAgentName(identifier)];
-  if (named !== undefined) return named;
-
+/**
+ * A stable non-negative hash of a string.
+ *
+ * The avalanche step is the point of it. A plain shift-and-add hash leaves the
+ * low bits correlated, and every caller here indexes a short table with those
+ * bits, so without the mix similar names — the model identifiers, or two
+ * session digests — land on the same entry and the cast comes out one colour.
+ */
+export const stableHash = (value: string): number => {
   let hash = 0;
-  for (let index = 0; index < identifier.length; index += 1) {
-    hash = (hash << 5) - hash + identifier.charCodeAt(index);
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
     hash |= 0;
   }
-  // The index only ever reads the low bits, and a plain string hash leaves
-  // those correlated: without an avalanche step, similar names such as the
-  // model identifiers land on the same stop and the cast turns one colour.
   hash ^= hash >>> 16;
   hash = Math.imul(hash, 0x45d9f3b);
   hash ^= hash >>> 16;
-  return AGENT_HUES[Math.abs(hash) % AGENT_HUES.length] ?? 212;
+  return Math.abs(hash);
+};
+
+export const agentHue = (identifier: string): number => {
+  const named = NAMED_AGENT_HUES[displayAgentName(identifier)];
+  if (named !== undefined) return named;
+  return AGENT_HUES[stableHash(identifier) % AGENT_HUES.length] ?? 212;
+};
+
+/**
+ * The rooms a cleaner works through, in the order it walks them.
+ *
+ * The hub comes first because it is the middle of the shot: an empty archive
+ * with somebody vacuuming the plaza reads as closed for the night, which is the
+ * honest picture, rather than as broken.
+ */
+const CLEANING_ROUNDS: readonly RoomId[] = ["hub", "read", "edit", "links", "archive"];
+/**
+ * The window cleaner's round, which skips the two open rooms.
+ *
+ * Only the walled rooms are glazed, and its whole job is the glass, so sending
+ * it to the plaza would have it wiping the air.
+ */
+const GLASS_ROUNDS: readonly RoomId[] = ["read", "edit", "links", "archive"];
+
+/**
+ * One leg of the cleaner's round.
+ *
+ * The cleaners are the only avatars on stage that stand for nothing in the
+ * archive — no session, no event, no roster entry — so their round is generated
+ * rather than replayed. Every third leg hums: a music note and no caption,
+ * because a bubble that explained what they were doing would be reporting on
+ * something that never happened.
+ */
+export const cleaningTask = (step: number, glassOnly = false): AgentTask => {
+  const rounds = glassOnly ? GLASS_ROUNDS : CLEANING_ROUNDS;
+  const room = rounds[step % rounds.length] ?? "hub";
+  return {
+    room,
+    action: "clean",
+    durationMs: 7000 + (step % 3) * 1600,
+    sourceEventId: `cleaning-${step}`,
+    ...(step % 3 === 1 ? { icon: "🎵" } : {}),
+  };
+};
+
+/**
+ * A short, human-sized answer to "where did this one come from".
+ *
+ * The identifier the archive holds is a raw user agent, which is a paragraph.
+ * What a viewer wants over an avatar's head is a couple of words: which browser
+ * on which platform for a person, and what kind of client for everything else.
+ */
+export const agentOrigin = (identifier?: string | null): string => {
+  if (!identifier || identifier.trim() === "") return "unknown client";
+  const lower = identifier.toLowerCase();
+
+  if (isHumanAgent(identifier)) {
+    const browser = lower.includes("edg/")
+      ? "Edge"
+      : lower.includes("chrome/") || lower.includes("crios")
+        ? "Chrome"
+        : lower.includes("firefox")
+          ? "Firefox"
+          : lower.includes("safari")
+            ? "Safari"
+            : "browser";
+    const platform = lower.includes("iphone") || lower.includes("ipad")
+      ? "iOS"
+      : lower.includes("android")
+        ? "Android"
+        : lower.includes("mac os") || lower.includes("macintosh")
+          ? "macOS"
+          : lower.includes("windows")
+            ? "Windows"
+            : lower.includes("linux")
+              ? "Linux"
+              : "web";
+    return `${browser} · ${platform}`;
+  }
+
+  if (lower.startsWith("mozilla/")) return "crawler";
+  if (lower.includes("curl") || lower.includes("python") || lower.includes("node")) {
+    return "script · api";
+  }
+  return "model · api";
 };
 
 /** Converts one archive event into a task, or null when it maps to nothing. */

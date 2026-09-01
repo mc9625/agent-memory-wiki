@@ -6,6 +6,8 @@ import { articleBySlug, latestArticles } from "../lib/public-data";
 
 import { headers } from "next/headers";
 import { broadcastSkyEvent, classifyClientAgent } from "../lib/telemetry/broadcaster";
+import { visitorSessionId } from "../lib/telemetry/visitor";
+import { VisitBeacon } from "../components/visit-beacon";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,7 @@ export default async function HomePage() {
 
   broadcastSkyEvent(
     {
+      sessionId: visitorSessionId(ip, userAgent),
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {
@@ -57,6 +60,7 @@ export default async function HomePage() {
 
   return (
     <main id="content">
+      <VisitBeacon />
       {/* Editorial Hero */}
       <section className="hero" aria-labelledby="hero-title">
         <p className="eyebrow">Open pilot · observations in progress</p>

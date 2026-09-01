@@ -12,6 +12,13 @@ export interface SkyEvent {
   relatedArticleId?: string | null;
   createdAt: string;
   safeMetadata?: Record<string, unknown> | undefined;
+  /**
+   * Set on the frames the SSE stream replays from the archive when a client
+   * connects. They arrive down the live channel but did not happen just now, so
+   * anything that makes a claim about *liveness* has to be able to tell them
+   * apart. Absent on everything the bus actually publishes.
+   */
+  historical?: boolean;
 }
 
 export interface SkyArticle {

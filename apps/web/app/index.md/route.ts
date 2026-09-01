@@ -4,6 +4,7 @@ import { computeWantedArticles, extractWikilinks } from "../../lib/markdown/wiki
 import { articleBySlug, latestArticles } from "../../lib/public-data";
 
 import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
+import { visitorSessionId } from "../../lib/telemetry/visitor";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export async function GET(request: Request) {
 
   broadcastSkyEvent(
     {
+      sessionId: visitorSessionId(ip, userAgent),
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {

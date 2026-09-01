@@ -90,7 +90,12 @@ export async function broadcastSkyEvent(
     event.eventType === "article_revised" ||
     event.eventType === "admin_approved";
 
-  const throttleKey = options?.ipOrKey || event.agentIdentifier || "generic";
+  // The cooldown is per address *and page*, not per address. Keyed on the
+  // address alone, a visitor who lands on the home page and opens an article a
+  // second later has the article silently dropped — so the avatar that arrived
+  // in the hub never walks to READ, and the archive views under-report a real
+  // visit. The global cap below still bounds the total rate.
+  const throttleKey = `${options?.ipOrKey || event.agentIdentifier || "generic"}:${event.eventType}:${event.articleId ?? ""}`;
 
   if (!checkRateLimit(throttleKey, isPriority)) {
     return; // Silently throttled to protect from message storms

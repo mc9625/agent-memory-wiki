@@ -20,14 +20,26 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import type { SkyEvent, SkyArticle } from "../sky-canvas";
 import {
   agentHue,
+  agentOrigin,
   buildAgentPlans,
+  cleaningTask,
   displayAgentName,
+  isHumanAgent,
+  stableHash,
   taskForEvent,
   type AgentPlan,
   type AgentTask,
 } from "../../lib/world/choreography";
 import { WAYPOINTS, findPath, getRoom, type Point, type RoomId } from "../../lib/world/layout";
-import { createAvatar, disposeAvatar, poseAvatar, type AvatarRig } from "./avatar";
+import {
+  avatarPalette,
+  createAvatar,
+  disposeAvatar,
+  poseAvatar,
+  setAvatarOpacity,
+  type AvatarRig,
+  type JanitorTool,
+} from "./avatar";
 import { buildEnvironment } from "./environment";
 import { VISUAL_CONFIG, keyLightPosition } from "./visual";
 import { createTunePanel } from "./tune-panel";
@@ -88,8 +100,62 @@ const AGENT_RADIUS = 0.85;
  * left to contend for.
  */
 const LANES: readonly number[] = [0, 0.8, -0.8, 0.4, -0.4, 1.2];
+
+/**
+ * How long a live actor holds its pose before giving up and walking out.
+ *
+ * A recorded session is a finished thing: each of its events lasts the few
+ * seconds the choreography gives it and the next one follows. A live one is
+ * not. Somebody reading an article is *still reading it* until they open
+ * something else, so the honest length of their task is "until the next event",
+ * and the timer is only there for the case where no next event ever comes —
+ * they closed the laptop, or the departure beacon never fired. Cut short by any
+ * event from the same session, so a reader who opens a second article changes
+ * what their bubble says without getting up.
+ *
+ * This is what a live task's duration means; `durationMs` from the choreography
+ * still governs how long the caption stays up, and replayed actors are unaffected.
+ */
+const LIVE_IDLE_EXIT_MS = 90_000;
+/**
+ * How long a reported departure is held before the avatar acts on it.
+ *
+ * The browser beacons `pagehide`, and a reload raises `pagehide` too — followed
+ * a moment later by the page view for the very same visit. Acted on at once,
+ * that pair walks the avatar to the door and straight back. Any event arriving
+ * inside the grace cancels the exit, which is what makes a reload invisible and
+ * leaves a real departure a second and a half late.
+ */
+const LEAVE_GRACE_MS = 8_000;
 /** Seconds of being shoved about without getting nearer before a leg is given up on. */
 const STUCK_SECONDS = 2.5;
+/** Screen-space gap kept between two captions that would otherwise overlap. */
+const BUBBLE_GAP = 6;
+/** How long a clicked avatar keeps its card up before closing it itself. */
+const INFO_BUBBLE_MS = 20_000;
+/**
+ * How long the floor has to stay empty before the cleaner comes on.
+ *
+ * The stage is honest about an idle archive — nothing happening means nobody on
+ * the floor — but an empty room for minutes at a time reads as a broken page.
+ * One cleaner working the round says closed for the night instead, and is the
+ * only avatar on stage that stands for nothing in the archive. It leaves the
+ * moment a real agent arrives.
+ */
+const CLEANER_IDLE_MS = 9_000;
+/**
+ * How long a shift lasts, and the break before the next one starts.
+ *
+ * A cleaner that never left would be a fixture rather than somebody working:
+ * after a minute it walks out, and the floor is genuinely empty for a while
+ * before the next one comes on. The break is random inside the range so the
+ * arrivals do not fall into a rhythm the eye can predict.
+ */
+const CLEANER_SHIFT_MS = 62_000;
+const CLEANER_BREAK_MIN_MS = 25_000;
+const CLEANER_BREAK_MAX_MS = 80_000;
+/** Tools the shift rotates through, so two consecutive cleaners differ. */
+const CLEANER_TOOLS: readonly JanitorTool[] = ["vacuum", "broom", "cloth"];
 
 interface Actor {
   readonly sessionId: string;
@@ -102,8 +168,13 @@ interface Actor {
   currentTask: AgentTask | null;
   /** Waypoint node the actor last stood on, used as the pathfinding origin. */
   currentNode: string;
-  /** Seat currently reserved for this actor, as `${roomId}:${index}`. */
-  seatKey: string | null;
+  /**
+   * Station reserved for this actor: `${roomId}:s${index}` for a seat,
+   * `${roomId}:w${index}` for a standby spot in the room's waiting queue.
+   */
+  stationKey: string | null;
+  /** Queued for a seat rather than sitting in one. */
+  waiting: boolean;
   path: Point[];
   pathIndex: number;
   /** This actor's offset from the centre line of whatever leg it is walking. */
@@ -123,6 +194,54 @@ interface Actor {
   walkPhase: number;
   facing: number;
   bornAt: number;
+  /** Put on stage by a live event, and therefore allowed to wait for the next. */
+  live: boolean;
+  /**
+   * Whether this avatar came from the live stream at all.
+   *
+   * Separate from `live`, which is the behavioural flag and is cleared when the
+   * LIVE sign goes dark so the actor stops holding for a next event. This one
+   * never changes, and it is what the ghosting reads: an agent that walked in
+   * live is still the live one while it finishes up and leaves, and the
+   * recorded cast around it still has to read as recorded. Set when a live
+   * event lands on a replayed session too: from that moment the avatar is the
+   * live one, whichever queue put it on the floor.
+   */
+  fromLive: boolean;
+  /** One of the cleaners: generated, never rostered, never counted as an agent. */
+  readonly janitor: boolean;
+  /** Which tool it carries, or null for an agent. The rag works the glass. */
+  readonly tool: JanitorTool | null;
+  /** Facing the current task asks for, when it is not the room's own station. */
+  facingOverride: number | null;
+  /** What the rig's materials are currently set to, so the fade writes once. */
+  opacity: number;
+  /** A cleaner that has been sent home, and is walking out rather than working. */
+  retiring: boolean;
+  /** Roster swatch, resolved once at spawn from the avatar's own palette. */
+  readonly human: boolean;
+  readonly head: string;
+  readonly shirt: string;
+  /** How long the caption stays up, which is not how long the pose is held. */
+  bubbleMs: number;
+  /** Caption box, measured when the text changes and read by the stacking pass. */
+  bubbleWidth: number;
+  bubbleHeight: number;
+  /** The card a click puts over this avatar's head, and when it closes itself. */
+  readonly info: HTMLDivElement;
+  infoUntil: number;
+  infoWidth: number;
+  infoHeight: number;
+  /** The span inside the bubble, which is what the shake animates. */
+  glyph: HTMLSpanElement | null;
+  /** A bubble carrying an icon and no words, which is drawn large and shaken. */
+  iconOnly: boolean;
+  /** Where the caption wants to sit this frame, before any stacking. */
+  bubbleX: number;
+  bubbleY: number;
+  bubbleVisible: boolean;
+  /** When a reported departure becomes real, or null when none is pending. */
+  exitAt: number | null;
 }
 
 export interface WorldCanvasProps {
@@ -137,9 +256,25 @@ export interface WorldCanvasProps {
    */
   readonly replay?: boolean;
   /** Called whenever the roster changes, so the HUD can mirror it. */
-  readonly onRosterChange?: (
-    roster: readonly { name: string; status: string; hue: number }[],
-  ) => void;
+  readonly onRosterChange?: (roster: readonly RosterEntry[]) => void;
+}
+
+export interface RosterEntry {
+  readonly name: string;
+  readonly status: string;
+  readonly hue: number;
+  /** A person reading the wiki, rather than an agent. */
+  readonly human: boolean;
+  /**
+   * Whether this one came in on the live stream. The roster shows both casts at
+   * once whenever a live session is still finishing up under a replay, so the
+   * row has to say which is which — the same thing the ghosting says on stage.
+   */
+  readonly live: boolean;
+  /** The avatar's own head colour, so the HUD swatch matches what is on stage. */
+  readonly head: string;
+  /** Its shirt, drawn as a band under the head the way the avatar wears it. */
+  readonly shirt: string;
 }
 
 const STATUS_LABEL: Readonly<Record<string, string>> = {
@@ -409,29 +544,91 @@ export function WorldCanvas({
     let lastSpawnAt = 0;
     let spawnCount = 0;
     let hubPulse = 0;
+    /** When the next cleaner may come on, and when the one on now clocks off. */
+    let cleanerDueAt = performance.now() + CLEANER_IDLE_MS;
+    let shiftEndsAt = Number.POSITIVE_INFINITY;
+    /** Which shift is on, and how far through its round it is. */
+    let cleanerShift = 0;
+    let cleaningStep = 0;
+    /** The sign as the loop last saw it, so a flip can be acted on once. */
+    let replayMode = replayRef.current;
 
-    // Seat reservations, so two agents working in the same room never resolve to
-    // the same point. Keyed `${roomId}:${seatIndex}`.
-    const occupiedSeats = new Set<string>();
+    // Station reservations, so two agents working in the same room never resolve
+    // to the same point. Keyed `${roomId}:s${index}` and `${roomId}:w${index}`.
+    const occupiedStations = new Set<string>();
 
-    const releaseSeat = (actor: Actor): void => {
-      if (actor.seatKey) occupiedSeats.delete(actor.seatKey);
-      actor.seatKey = null;
+    const releaseStation = (actor: Actor): void => {
+      if (actor.stationKey) occupiedStations.delete(actor.stationKey);
+      actor.stationKey = null;
     };
 
-    const claimSeat = (actor: Actor, room: RoomId): Point => {
-      releaseSeat(actor);
-      const seats = getRoom(room).seats;
-      for (const [index, seat] of seats.entries()) {
-        const key = `${room}:${index}`;
-        if (occupiedSeats.has(key)) continue;
-        occupiedSeats.add(key);
-        actor.seatKey = key;
-        return seat;
+    const claimStation = (actor: Actor, room: RoomId): Point => {
+      releaseStation(actor);
+      const { seats, standby, center } = getRoom(room);
+
+      // Seats first, then the standby row. Three agents fit the desks; a fourth
+      // used to be sent to the first seat anyway and stood inside whoever was
+      // already in it, so it queues instead and `promoteWaiting` moves it up
+      // when one frees. A cleaner takes the two in the other order: it works
+      // the floor rather than a desk, which also leaves every seat free for the
+      // agents it is standing in for.
+      const groups: readonly (readonly [string, readonly Point[]])[] = actor.janitor
+        ? [["w", standby], ["s", seats]]
+        : [["s", seats], ["w", standby]];
+
+      for (const [prefix, points] of groups) {
+        for (const [index, point] of points.entries()) {
+          const key = `${room}:${prefix}${index}`;
+          if (occupiedStations.has(key)) continue;
+          occupiedStations.add(key);
+          actor.stationKey = key;
+          actor.waiting = prefix === "w";
+          return point;
+        }
       }
-      // Every seat taken: fall back to the first one and accept the overlap
-      // rather than stranding the avatar in the corridor.
-      return seats[0] ?? getRoom(room).center;
+
+      // Six in one room, which the concurrency cap makes possible only if every
+      // agent is doing the same thing at once. Overlap beats stranding them.
+      actor.waiting = true;
+      return seats[0] ?? center;
+    };
+
+    /**
+     * Walks a queued avatar to a seat as soon as one frees.
+     *
+     * The route goes through the room's own waypoint rather than straight
+     * across, because that is the leg the layout tests prove clear of the
+     * furniture — a diagonal from a standby spot to a seat is not.
+     */
+    const promoteWaiting = (): void => {
+      for (const actor of actors) {
+        // A cleaner is standing on a standby spot on purpose, not queueing.
+        if (actor.janitor || !actor.waiting || actor.phase !== "acting") continue;
+        const room = actor.currentTask?.room;
+        if (!room) continue;
+
+        const seats = getRoom(room).seats;
+        let claimed: Point | null = null;
+        for (const [index, seat] of seats.entries()) {
+          const key = `${room}:s${index}`;
+          if (occupiedStations.has(key)) continue;
+          releaseStation(actor);
+          occupiedStations.add(key);
+          actor.stationKey = key;
+          actor.waiting = false;
+          claimed = seat;
+          break;
+        }
+        if (!claimed) continue;
+
+        const arrival = WAYPOINTS[room];
+        actor.path = arrival ? [arrival, claimed] : [claimed];
+        actor.pathIndex = 0;
+        actor.segmentOrigin = { x: actor.rig.root.position.x, z: actor.rig.root.position.z };
+        actor.nearestApproach = Number.POSITIVE_INFINITY;
+        actor.blockedFor = 0;
+        actor.phase = "walking";
+      }
     };
 
     const project = (position: THREE.Vector3): { x: number; y: number } => {
@@ -452,16 +649,31 @@ export function WorldCanvas({
       return element;
     };
 
-    const spawnActor = (plan: AgentPlan): Actor | null => {
+    const spawnActor = (
+      plan: AgentPlan,
+      live = false,
+      janitorTool: JanitorTool | null = null,
+    ): Actor | null => {
       if (plan.tasks.length === 0) return null;
       const hue = agentHue(plan.agentIdentifier);
-      const rig = createAvatar(hue);
+      // A browsing human is dressed rather than monochrome, and which outfit
+      // comes off the session identifier — the only thing that separates two
+      // readers, since every one of them classifies to the same agent name.
+      const style = {
+        human: isHumanAgent(plan.agentIdentifier),
+        variant: stableHash(plan.sessionId),
+        ...(janitorTool ? { janitor: janitorTool } : {}),
+      };
+      const rig = createAvatar(hue, style);
+      const palette = avatarPalette(hue, style);
       const entrance = WAYPOINTS["entrance"] ?? { x: 0, z: 17 };
       rig.root.position.set(entrance.x, 0, entrance.z);
       scene.add(rig.root);
 
       const bubble = makeLabel("world-bubble");
       bubble.style.opacity = "0";
+      const info = makeLabel("world-bubble world-bubble-card");
+      info.style.opacity = "0";
 
       const actor: Actor = {
         sessionId: plan.sessionId,
@@ -470,10 +682,15 @@ export function WorldCanvas({
         generation: plan.generation,
         rig,
         bubble,
+        info,
+        infoUntil: 0,
+        infoWidth: 0,
+        infoHeight: 0,
         tasks: [...plan.tasks],
         currentTask: null,
         currentNode: "entrance",
-        seatKey: null,
+        stationKey: null,
+        waiting: false,
         path: [],
         pathIndex: 0,
         lane: LANES[spawnCount % LANES.length] ?? 0,
@@ -488,16 +705,151 @@ export function WorldCanvas({
         walkPhase: 0,
         facing: Math.PI,
         bornAt: performance.now(),
+        live,
+        fromLive: live,
+        janitor: janitorTool !== null,
+        tool: janitorTool,
+        facingOverride: null,
+        opacity: 1,
+        retiring: false,
+        bubbleMs: 0,
+        bubbleWidth: 0,
+        bubbleHeight: 0,
+        glyph: null,
+        iconOnly: false,
+        bubbleX: 0,
+        bubbleY: 0,
+        bubbleVisible: false,
+        human: style.human,
+        head: `#${palette.skin.getHexString()}`,
+        shirt: `#${palette.shirt.getHexString()}`,
+        exitAt: null,
       };
       actors.push(actor);
       spawnCount += 1;
       return actor;
     };
 
+    /**
+     * Fills the card a click puts over an avatar's head.
+     *
+     * Four short lines, because it hangs in the scene rather than in a panel: a
+     * card wide enough for a raw user agent would cover the room the avatar is
+     * standing in. What is left is who it is, what kind of client it came from,
+     * the head of its session digest, and how long it has been on the floor.
+     */
+    const fillInfo = (actor: Actor, now: number): void => {
+      const seconds = Math.max(1, Math.round((now - actor.bornAt) / 1000));
+      const lines = [
+        `${actor.displayName} · ${actor.fromLive ? "LIVE" : "REPLAY"}`,
+        actor.janitor ? "night shift · not an agent" : agentOrigin(actor.agentIdentifier),
+        `#${actor.sessionId.slice(0, 8)}`,
+        `${(actor.currentTask?.room ?? "hub").toUpperCase()} · ${seconds}s`,
+      ];
+      actor.info.replaceChildren(
+        ...lines.map((line, index) => {
+          const row = document.createElement("div");
+          if (index === 0) row.className = "world-bubble-card-name";
+          row.textContent = line;
+          return row;
+        }),
+      );
+      actor.infoWidth = actor.info.offsetWidth || 140;
+      actor.infoHeight = actor.info.offsetHeight || 56;
+    };
+
+    /**
+     * Opens or closes an avatar's card. A second click on the same avatar shuts
+     * it, and so does the timer: a card left up over somebody who has walked to
+     * the other side of the floor is a label following them about.
+     */
+    const toggleInfo = (actor: Actor, now: number): void => {
+      if (actor.infoUntil > now) {
+        actor.infoUntil = 0;
+        return;
+      }
+      fillInfo(actor, now);
+      actor.infoUntil = now + INFO_BUBBLE_MS;
+    };
+
+    /** Finds the actor a click landed on, if any. */
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    const handleClick = (clickEvent: MouseEvent): void => {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((clickEvent.clientX - bounds.left) / bounds.width) * 2 - 1;
+      pointer.y = -((clickEvent.clientY - bounds.top) / bounds.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      const roots = actors.map((actor) => actor.rig.root);
+      const hits = raycaster.intersectObjects(roots, true);
+      const first = hits[0];
+      if (!first) return;
+
+      // The hit is a limb; the actor is whichever root it hangs from.
+      let node: THREE.Object3D | null = first.object;
+      while (node !== null) {
+        const owner = actors.find((candidate) => candidate.rig.root === node);
+        if (owner) {
+          toggleInfo(owner, performance.now());
+          return;
+        }
+        node = node.parent;
+      }
+    };
+    renderer.domElement.addEventListener("click", handleClick);
+
+    /** The caption, which the bubble shows for the choreography's own duration. */
+    const setCaption = (actor: Actor, task: AgentTask): void => {
+      // The icon alone is what the reference draws, but the caption is the part
+      // that says which specimen the agent is actually working on, so it stays.
+      // The text lives in a span rather than in the bubble itself: the bubble's
+      // own transform is where it sits on screen, so the shake needs something
+      // of its own to animate.
+      const glyph = document.createElement("span");
+      glyph.className = "world-bubble-glyph";
+      glyph.textContent = task.caption
+        ? `${task.icon ?? ""} ${task.caption}`.trim()
+        : (task.icon ?? "");
+      actor.bubble.replaceChildren(glyph);
+      actor.glyph = glyph;
+      actor.iconOnly = !task.caption && Boolean(task.icon);
+      actor.bubble.classList.toggle("world-bubble-icon", actor.iconOnly);
+      actor.bubbleMs = task.durationMs;
+      // Measured here rather than per frame: the stacking pass needs the box,
+      // and reading it every frame forces a layout for every avatar on stage.
+      actor.bubbleWidth = actor.bubble.offsetWidth || 150;
+      actor.bubbleHeight = actor.bubble.offsetHeight || 26;
+    };
+
+    /** How long a task holds its pose once the avatar has arrived. */
+    /**
+     * How long a task holds its pose once the avatar has arrived.
+     *
+     * The long live hold is a wait for the next event, so it only applies when
+     * there is nothing waiting already. A reader who opened a second article
+     * while still walking to READ used to sit down, hold the first caption for
+     * a minute and a half, and only then show the second one — the event had
+     * arrived during the walk, so the shortcut in `ingestLiveEvents` that ends
+     * the hold early never fired.
+     */
+    const holdFor = (actor: Actor, task: AgentTask): number =>
+      actor.live && task.action !== "leave" && actor.tasks.length === 0
+        ? LIVE_IDLE_EXIT_MS
+        : task.durationMs;
+
     const beginNextTask = (actor: Actor): void => {
-      const next = actor.tasks.shift();
+      let next = actor.tasks.shift();
+      // A cleaner is never finished: while the floor is empty it moves on to
+      // the next room of its round. Once sent home it falls through to the exit
+      // below like anybody else.
+      if (!next && actor.janitor && !actor.retiring) {
+        cleaningStep += 1;
+        next = cleaningTask(cleaningStep, actor.tool === "cloth");
+      }
       if (!next) {
-        // No work left: walk out and despawn on arrival.
+        // Nothing arrived within the hold: walk out and despawn on arrival.
         if (actor.currentNode === "entrance") {
           actor.phase = "done";
           return;
@@ -509,11 +861,26 @@ export function WorldCanvas({
           sourceEventId: `exit-${actor.sessionId}`,
         };
       } else {
+        // Already in the room the next event belongs to, and already settled in
+        // it: stay in the seat. Somebody moving from one article to the next is
+        // still reading, and standing them up to walk a circuit back to the
+        // chair they are sitting in is the wrong picture of what happened.
+        if (actor.phase === "acting" && actor.currentNode === next.room) {
+          actor.currentTask = next;
+          setCaption(actor, next);
+          actor.actionRemainingMs = holdFor(actor, next);
+          return;
+        }
         actor.currentTask = next;
       }
 
       const target = actor.currentTask.room;
-      const seat = claimSeat(actor, target);
+      // The window cleaner goes to the pane rather than to a station: nothing
+      // reserves that spot, because only one cleaner is ever on the floor.
+      const pane = actor.tool === "cloth" ? getRoom(target).glass : undefined;
+      if (pane) releaseStation(actor);
+      actor.facingOverride = pane ? pane.facing : null;
+      const seat = pane ? pane.at : claimStation(actor, target);
       const path = findPath(actor.currentNode, target);
       // The graph ends at the room's doorway waypoint; the last leg is the walk
       // to whichever seat this actor reserved.
@@ -524,20 +891,15 @@ export function WorldCanvas({
       actor.blockedFor = 0;
       actor.phase = "walking";
       actor.currentNode = target;
-
-      // The icon alone is what the reference draws, but the caption is the part
-      // that says which specimen the agent is actually working on, so it stays.
-      const caption = actor.currentTask.caption;
-      actor.bubble.textContent = caption
-        ? `${actor.currentTask.icon ?? ""} ${caption}`.trim()
-        : (actor.currentTask.icon ?? "");
+      setCaption(actor, actor.currentTask);
     };
 
     const removeActor = (actor: Actor, index: number): void => {
-      releaseSeat(actor);
+      releaseStation(actor);
       scene.remove(actor.rig.root);
       disposeAvatar(actor.rig);
       actor.bubble.remove();
+      actor.info.remove();
       actors.splice(index, 1);
     };
 
@@ -553,25 +915,124 @@ export function WorldCanvas({
 
         const existing = actors.find((actor) => actor.sessionId === event.sessionId);
         if (existing) {
+          if (event.eventType === "agent_session_ended") {
+            existing.exitAt = now + LEAVE_GRACE_MS;
+            continue;
+          }
+          // Anything else from this session says they are still here.
+          existing.exitAt = null;
           existing.tasks.push(task);
+          existing.live = true;
+          existing.fromLive = true;
+          // The hold is a wait for exactly this, so end it now rather than
+          // making the visitor watch out the rest of it.
+          if (existing.phase === "acting") existing.actionRemainingMs = 0;
           if (existing.phase === "done") existing.phase = "walking";
           continue;
         }
-        if (actors.length >= MAX_CONCURRENT_AGENTS) continue;
+        // A visitor leaving is only worth showing if they were on the floor.
+        // Spawning for the exit alone puts an avatar at the door for the length
+        // of one walk to the same door, which reads as a glitch.
+        if (event.eventType === "agent_session_ended") continue;
+        if (agentCount() >= MAX_CONCURRENT_AGENTS) continue;
 
-        const actor = spawnActor({
-          sessionId: event.sessionId,
-          agentIdentifier: event.agentIdentifier || "Agent",
-          generation: event.generation || 1,
-          startedAt: now,
-          tasks: [task],
-        });
+        const actor = spawnActor(
+          {
+            sessionId: event.sessionId,
+            agentIdentifier: event.agentIdentifier || "Agent",
+            generation: event.generation || 1,
+            startedAt: now,
+            tasks: [task],
+          },
+          true,
+        );
         if (actor) beginNextTask(actor);
       }
     };
 
+    /**
+     * Ends the replay without emptying the floor by force.
+     *
+     * Clearing the recorded cast's remaining tasks is all it takes: an actor
+     * with nothing queued walks to the door when its current action ends.
+     * Deleting them outright made the switch read as a bug — half the cast
+     * disappearing mid-stride — where this reads as a shift ending. Live
+     * avatars are never touched: the live stage is always on.
+     */
+    const retireReplayCast = (now: number): void => {
+      for (const actor of actors) {
+        if (actor.janitor || actor.fromLive) continue;
+        actor.tasks = [];
+        actor.exitAt = null;
+      }
+      lastSpawnAt = now;
+    };
+
+    /** Agents on stage. The cleaner does not count towards the cap or the HUD. */
+    const agentCount = (): number => actors.reduce((total, actor) => total + (actor.janitor ? 0 : 1), 0);
+
+    /** Sends the cleaner to the door, and stops its round refilling. */
+    const dismissCleaner = (actor: Actor, now: number): void => {
+      if (actor.retiring) return;
+      actor.retiring = true;
+      actor.tasks = [];
+      // The exit branch of the frame loop is what walks it out, the same way a
+      // visitor's reported departure does.
+      actor.exitAt = now;
+    };
+
+    /**
+     * Puts one cleaner on an empty floor, and takes it off again when an agent
+     * turns up. Only ever one: two of them mopping an empty office reads as a
+     * crowd scene, which is the opposite of what the quiet stage is saying.
+     */
+    const stageCleaners = (now: number): void => {
+      if (agentCount() > 0) {
+        // An agent on the floor ends the shift, and the next one waits out the
+        // idle timer from the moment the archive goes quiet again.
+        cleanerDueAt = now + CLEANER_IDLE_MS;
+        for (const actor of actors) {
+          if (actor.janitor) dismissCleaner(actor, now);
+        }
+        return;
+      }
+
+      const onShift = actors.find((actor) => actor.janitor);
+      if (onShift) {
+        if (now >= shiftEndsAt) {
+          dismissCleaner(onShift, now);
+          shiftEndsAt = Number.POSITIVE_INFINITY;
+          cleanerDueAt =
+            now +
+            CLEANER_BREAK_MIN_MS +
+            Math.random() * (CLEANER_BREAK_MAX_MS - CLEANER_BREAK_MIN_MS);
+        }
+        return;
+      }
+      if (now < cleanerDueAt) return;
+
+      const tool = CLEANER_TOOLS[cleanerShift % CLEANER_TOOLS.length] ?? "vacuum";
+      cleanerShift += 1;
+      cleaningStep = cleanerShift;
+      const actor = spawnActor(
+        {
+          sessionId: `cleaner-${cleanerShift}`,
+          agentIdentifier: "Custodian",
+          generation: 0,
+          startedAt: now,
+          tasks: [cleaningTask(cleaningStep, tool === "cloth")],
+        },
+        false,
+        tool,
+      );
+      if (actor) {
+        beginNextTask(actor);
+        shiftEndsAt = now + CLEANER_SHIFT_MS;
+      }
+    };
+
     const stageReplay = (now: number): void => {
-      if (actors.length >= MAX_CONCURRENT_AGENTS) return;
+      if (agentCount() >= MAX_CONCURRENT_AGENTS) return;
       if (now - lastSpawnAt < SPAWN_INTERVAL_MS) return;
       if (replayQueue.length === 0) {
         // Loop the archive so the room is never empty between live events.
@@ -615,9 +1076,9 @@ export function WorldCanvas({
       if (actor.pathIndex < actor.path.length) return;
 
       actor.phase = "acting";
-      actor.actionRemainingMs = actor.currentTask?.durationMs ?? 0;
+      actor.actionRemainingMs = actor.currentTask ? holdFor(actor, actor.currentTask) : 0;
       const room = actor.currentTask ? getRoom(actor.currentTask.room) : null;
-      if (room) actor.facing = room.stationFacing;
+      if (room) actor.facing = actor.facingOverride ?? room.stationFacing;
     };
 
     const advanceActor = (actor: Actor, delta: number, elapsed: number): void => {
@@ -627,7 +1088,7 @@ export function WorldCanvas({
         const waypoint = actor.path[actor.pathIndex];
         if (!waypoint) {
           actor.phase = "acting";
-          actor.actionRemainingMs = actor.currentTask?.durationMs ?? 0;
+          actor.actionRemainingMs = actor.currentTask ? holdFor(actor, actor.currentTask) : 0;
         } else {
           const isFinal = actor.pathIndex === actor.path.length - 1;
           const target = legTarget(actor, waypoint, isFinal);
@@ -666,6 +1127,7 @@ export function WorldCanvas({
         }
       } else if (actor.phase === "acting") {
         actor.actionRemainingMs -= delta * 1000;
+        actor.bubbleMs -= delta * 1000;
         if (actor.actionRemainingMs <= 0) beginNextTask(actor);
       }
 
@@ -681,10 +1143,90 @@ export function WorldCanvas({
       const anchor = new THREE.Vector3(position.x, 3.2, position.z);
       const screen = project(anchor);
 
+      // The caption runs on its own clock. A live actor holds its pose for as
+      // long as ninety seconds, and a speech bubble left up for all of it is a
+      // label, not a line of dialogue.
       const showBubble =
-        actor.phase === "acting" && actor.bubble.textContent !== "" && actor.actionRemainingMs > 600;
+        actor.phase === "acting" && actor.bubble.textContent !== "" && actor.bubbleMs > 600;
       actor.bubble.style.opacity = showBubble ? "1" : "0";
-      actor.bubble.style.transform = `translate(-50%, -100%) translate(${screen.x}px, ${screen.y}px)`;
+      // A wordless bubble shakes as it appears, the way an iMessage effect does.
+      // Restarted by hand: the animation only replays if the class goes away and
+      // the browser is made to lay the element out in between.
+      if (showBubble && !actor.bubbleVisible && actor.iconOnly && actor.glyph) {
+        actor.glyph.classList.remove("world-bubble-shake");
+        void actor.glyph.offsetWidth;
+        actor.glyph.classList.add("world-bubble-shake");
+      }
+      // Where it wants to be. `layoutBubbles` decides where it goes, once every
+      // avatar has moved and the whole set can be compared.
+      actor.bubbleVisible = showBubble;
+      actor.bubbleX = screen.x;
+      actor.bubbleY = screen.y;
+    };
+
+    /**
+     * Lifts captions off each other.
+     *
+     * Avatars seated side by side in one room put their bubbles at nearly the
+     * same screen height, and the isometric camera gives no depth to separate
+     * them with. The lower a bubble sits the nearer its avatar is to the
+     * camera, so the near one keeps the spot over its head and the ones behind
+     * rise above it — which is the order the eye reads them in anyway. A lifted
+     * bubble drops its tail: an arrow that no longer points at its own avatar
+     * is worse than none.
+     */
+    const layoutBubbles = (now: number): void => {
+      const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+
+      /** Puts one bubble at the head, or above whatever is already there. */
+      const place = (
+        element: HTMLDivElement,
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+      ): void => {
+        const left = x - width / 2;
+        const right = x + width / 2;
+        let bottom = y;
+
+        // One lift can push a bubble into a box it had already cleared, so the
+        // sweep repeats until a pass moves nothing. Each pass that moves clears
+        // at least one more box, so the bound is the number of boxes.
+        for (let pass = 0; pass <= placed.length; pass += 1) {
+          let moved = false;
+          for (const box of placed) {
+            if (right <= box.left || left >= box.right) continue;
+            if (bottom - height >= box.bottom || bottom <= box.top) continue;
+            bottom = box.top - BUBBLE_GAP;
+            moved = true;
+          }
+          if (!moved) break;
+        }
+
+        placed.push({ left, right, top: bottom - height, bottom });
+        element.classList.toggle("world-bubble-lifted", bottom < y - 1);
+        element.style.transform = `translate(-50%, -100%) translate(${x}px, ${bottom}px)`;
+      };
+
+      // Cards first, so they keep the spot over the head they belong to and it
+      // is the caption that rides above them: a card is asked for by name and
+      // has to stay attached to the avatar it was asked about.
+      const cards = actors.filter((actor) => actor.infoUntil > now);
+      cards.sort((left, right) => right.bubbleY - left.bubbleY);
+      for (const actor of cards) {
+        actor.info.style.opacity = "1";
+        place(actor.info, actor.bubbleX, actor.bubbleY, actor.infoWidth, actor.infoHeight);
+      }
+      for (const actor of actors) {
+        if (actor.infoUntil <= now) actor.info.style.opacity = "0";
+      }
+
+      const visible = actors.filter((actor) => actor.bubbleVisible);
+      visible.sort((left, right) => right.bubbleY - left.bubbleY);
+      for (const actor of visible) {
+        place(actor.bubble, actor.bubbleX, actor.bubbleY, actor.bubbleWidth, actor.bubbleHeight);
+      }
     };
 
     /**
@@ -750,24 +1292,53 @@ export function WorldCanvas({
       }
     };
 
+    /**
+     * Fades the recorded cast while a live one shares the floor.
+     *
+     * Both are real sessions, but only one of them is happening now, and with
+     * both drawn solid the viewer has no way to tell which avatar is the reason
+     * the LIVE sign is lit.
+     */
+    const applyGhosting = (): void => {
+      const liveOnStage = actors.some((actor) => actor.fromLive && !actor.janitor);
+      for (const actor of actors) {
+        const ghost = liveOnStage && !actor.fromLive && !actor.janitor;
+        const target = ghost ? 0.5 : 1;
+        if (actor.opacity === target) continue;
+        actor.opacity = target;
+        setAvatarOpacity(actor.rig, target);
+        actor.bubble.style.filter = ghost ? "opacity(0.55)" : "";
+        actor.info.style.filter = ghost ? "opacity(0.55)" : "";
+      }
+    };
+
     const publishRoster = (): void => {
       const callback = rosterCallbackRef.current;
       if (!callback) return;
       callback(
-        actors.map((actor) => ({
-          name: actor.displayName,
-          status:
-            actor.phase === "walking"
-              ? (STATUS_LABEL["walking"] ?? "Moving")
-              : (STATUS_LABEL[actor.currentTask?.action ?? "idle"] ?? "Idle"),
-          hue: agentHue(actor.agentIdentifier),
-        })),
+        // The cleaner is not an agent and never appears in the roster: the HUD
+        // counts what the archive is doing, and it is doing nothing.
+        actors
+          .filter((actor) => !actor.janitor)
+          .map((actor) => ({
+            name: actor.displayName,
+            status:
+              actor.phase === "walking"
+                ? (STATUS_LABEL["walking"] ?? "Moving")
+                : (STATUS_LABEL[actor.currentTask?.action ?? "idle"] ?? "Idle"),
+            hue: agentHue(actor.agentIdentifier),
+            human: actor.human,
+            live: actor.fromLive,
+            head: actor.head,
+            shirt: actor.shirt,
+          })),
       );
     };
 
     let frameHandle = 0;
     let lastFrameTime = performance.now();
     let rosterClock = 0;
+    let infoClock = 0;
     const clock = new THREE.Clock();
 
     const animate = () => {
@@ -777,16 +1348,36 @@ export function WorldCanvas({
       lastFrameTime = now;
       const elapsed = clock.getElapsedTime();
 
+      if (replayRef.current !== replayMode) {
+        replayMode = replayRef.current;
+        if (!replayMode) retireReplayCast(now);
+      }
+
       ingestLiveEvents(now);
-      if (replayRef.current) stageReplay(now);
+      if (replayMode) stageReplay(now);
+      stageCleaners(now);
 
       for (let index = actors.length - 1; index >= 0; index -= 1) {
         const actor = actors[index];
         if (!actor) continue;
+        if (actor.exitAt !== null && now >= actor.exitAt) {
+          actor.exitAt = null;
+          actor.tasks.push({
+            room: "entrance",
+            action: "leave",
+            durationMs: 0,
+            sourceEventId: `exit-${actor.sessionId}`,
+          });
+          // Cut the hold short: they are gone, there is nothing left to wait for.
+          if (actor.phase === "acting") actor.actionRemainingMs = 0;
+        }
         advanceActor(actor, delta, elapsed);
         if (actor.phase === "done" && now - actor.bornAt > 4000) removeActor(actor, index);
       }
       separateActors();
+      promoteWaiting();
+      applyGhosting();
+      layoutBubbles(now);
 
       // Hub crystal: slow breathing, plus a flash when an article is created.
       hubPulse = Math.max(0, hubPulse - delta * 0.85);
@@ -794,6 +1385,12 @@ export function WorldCanvas({
       environment.hubCrystalMaterial.opacity = Math.min(1, glow);
       environment.hubCrystal.rotation.y = elapsed * 0.35;
       environment.hubCrystal.scale.setScalar(1 + hubPulse * 0.35);
+
+      infoClock += delta;
+      if (infoClock > 1) {
+        infoClock = 0;
+        for (const actor of actors) if (actor.infoUntil > now) fillInfo(actor, now);
+      }
 
       rosterClock += delta;
       if (rosterClock > 0.5) {
@@ -820,6 +1417,7 @@ export function WorldCanvas({
     return () => {
       cancelAnimationFrame(frameHandle);
       window.removeEventListener("resize", handleResize);
+      renderer.domElement.removeEventListener("click", handleClick);
       for (let index = actors.length - 1; index >= 0; index -= 1) {
         const actor = actors[index];
         if (actor) removeActor(actor, index);

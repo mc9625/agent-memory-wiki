@@ -15,8 +15,9 @@
  *   1. Every room declares which of its four sides carry a doorway, and every
  *      route into it crosses one of those sides. `segmentCrossesWall` is what
  *      proves it, and the test suite is what runs the proof.
- *   2. Rooms expose several seats, so two agents working in the same room never
- *      resolve to the same point.
+ *   2. Rooms expose several seats plus a row of standby spots, so two agents
+ *      working in the same room never resolve to the same point: latecomers
+ *      queue on standby until a seat frees.
  *
  * Coordinates are world units on the XZ plane; Y is up and always 0 for
  * waypoints. The camera looks down the (1, 1, 1) diagonal, so -X renders to the
@@ -44,8 +45,25 @@ export interface Room {
    * fallback when every seat is taken.
    */
   readonly seats: readonly Point[];
+  /**
+   * Where an avatar waits when every seat is taken, claimed one per agent the
+   * same way. A queue rather than an overlap: the room holds more agents than
+   * it has workstations, and the wait is visible instead of two avatars
+   * standing inside each other.
+   */
+  readonly standby: readonly Point[];
   /** Facing angle (radians) an avatar adopts once seated. 0 looks towards -Z. */
   readonly stationFacing: number;
+  /**
+   * Where the window cleaner stands, and which way it turns to face the pane.
+   *
+   * Only the four walled rooms have glass: the plaza and the entrance are open,
+   * so a cleaner sent to either of those works the floor instead. The spot is
+   * just inside the glazed facade — the same side the doorway is on — rather
+   * than at a station, because a rag being wiped in the middle of the room is
+   * cleaning nothing.
+   */
+  readonly glass?: { readonly at: Point; readonly facing: number };
   /** True when the room has no walls and the corridor may cross it. */
   readonly open: boolean;
   /** Sides that carry a doorway. Ignored when `open` is true. */
@@ -70,7 +88,15 @@ export const ROOMS: readonly Room[] = [
       { x: -22, z: 0 },
       { x: -22, z: 4 },
     ],
+    standby: [
+      { x: -17.5, z: -7 },
+      { x: -17.5, z: -3 },
+      { x: -17.5, z: 1 },
+    ],
     stationFacing: -Math.PI / 2,
+    // The pane south of the doorway. The one north of it stands behind the
+    // ficus, and a cleaner working that one wipes the plant.
+    glass: { at: { x: -14, z: 2.2 }, facing: -Math.PI / 2 },
     open: false,
     doorways: ["+x"],
     label: "READ",
@@ -87,7 +113,15 @@ export const ROOMS: readonly Room[] = [
       { x: 2, z: -22 },
       { x: 5, z: -22 },
     ],
+    standby: [
+      { x: -1, z: -17 },
+      { x: 2, z: -17 },
+      { x: 5, z: -17 },
+    ],
     stationFacing: 0,
+    // The facade is glazed either side of the opening at x 2; the spot has to
+    // be under a pane rather than in the gap, which is a doorway, not glass.
+    glass: { at: { x: 7, z: -14 }, facing: Math.PI },
     open: false,
     doorways: ["+z"],
     label: "EDIT",
@@ -104,7 +138,13 @@ export const ROOMS: readonly Room[] = [
       { x: -6, z: 20 },
       { x: -6, z: 23 },
     ],
+    standby: [
+      { x: -1, z: 17 },
+      { x: -1, z: 20 },
+      { x: -1, z: 23 },
+    ],
     stationFacing: Math.PI / 2,
+    glass: { at: { x: 3, z: 14 }, facing: 0 },
     open: false,
     doorways: ["-z"],
     label: "LINKS",
@@ -122,7 +162,14 @@ export const ROOMS: readonly Room[] = [
       { x: 20, z: -2 },
       { x: 23, z: -2 },
     ],
+    standby: [
+      { x: 17, z: 2 },
+      { x: 20, z: 2 },
+      { x: 23, z: 2 },
+    ],
     stationFacing: 0,
+    // The south pane: the north one has the crate stacks in front of it.
+    glass: { at: { x: 14, z: 7 }, facing: Math.PI / 2 },
     open: false,
     doorways: ["-x"],
     label: "ARCHIVE",
@@ -140,6 +187,11 @@ export const ROOMS: readonly Room[] = [
       { x: 0, z: 4 },
       { x: 3, z: 3 },
     ],
+    standby: [
+      { x: -5.5, z: 5 },
+      { x: -5.5, z: -3 },
+      { x: 5.5, z: -4 },
+    ],
     stationFacing: Math.PI,
     open: true,
     doorways: [],
@@ -155,6 +207,11 @@ export const ROOMS: readonly Room[] = [
       { x: 12, z: 14 },
       { x: 14, z: 14 },
       { x: 16, z: 14 },
+    ],
+    standby: [
+      { x: 12, z: 17 },
+      { x: 14, z: 17 },
+      { x: 16, z: 17 },
     ],
     stationFacing: Math.PI,
     open: true,

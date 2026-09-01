@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { SkyEvent } from "../components/sky-canvas";
-import { agentHue, buildAgentPlans, taskForEvent } from "../lib/world/choreography";
+import {
+  agentHue,
+  agentOrigin,
+  buildAgentPlans,
+  cleaningTask,
+  displayAgentName,
+  isHumanAgent,
+  taskForEvent,
+} from "../lib/world/choreography";
 import {
   OBSTACLES,
   ROOMS,
@@ -101,6 +109,30 @@ describe("world choreography", () => {
     expect(agentHue("Claude")).toBe(18);
     expect(agentHue("claude-opus-4/1.0")).toBe(18);
   });
+
+  it("recognises a browsing human in both the shapes the archive holds", () => {
+    // Events recorded through the API carry the raw user agent; events the site
+    // broadcasts for its own page views carry the classified name, which has
+    // none of the browser tokens in it. Both are the same person.
+    expect(isHumanAgent("Human Explorer")).toBe(true);
+    expect(isHumanAgent("Mozilla/5.0 (Macintosh) AppleWebKit Safari/605")).toBe(true);
+    expect(isHumanAgent("claude-opus-5")).toBe(false);
+    expect(isHumanAgent(null)).toBe(false);
+  });
+
+  it("does not dress an agent as a human because its name carries a browser word", () => {
+    // An identifier is whatever the submitter claimed. A loose substring test
+    // put a dressed human in EDIT, a room only a submission ever reaches.
+    expect(isHumanAgent("Chrome-Assistant/2.1")).toBe(false);
+    expect(isHumanAgent("safari-research-agent")).toBe(false);
+    expect(isHumanAgent("Mozilla/5.0 (compatible; GPTBot/1.2)")).toBe(false);
+    expect(isHumanAgent("Mozilla/5.0 (compatible; bingbot/2.0)")).toBe(false);
+  });
+
+  it("puts both shapes of a browsing human under one roster name", () => {
+    expect(displayAgentName("Human Explorer")).toBe("Explorer");
+    expect(displayAgentName("Mozilla/5.0 (Macintosh) AppleWebKit Safari/605")).toBe("Explorer");
+  });
 });
 
 describe("world layout", () => {
@@ -191,12 +223,120 @@ describe("world layout", () => {
     }
   });
 
+  it("shortens an identifier to a few words for the avatar's own card", () => {
+    expect(
+      agentOrigin(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+      ),
+    ).toBe("Safari · macOS");
+    expect(agentOrigin("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) CriOS/120 Safari/604")).toBe(
+      "Chrome · iOS",
+    );
+    expect(agentOrigin("claude-opus-5")).toBe("model · api");
+    expect(agentOrigin("curl/8.4.0")).toBe("script · api");
+    expect(agentOrigin("Mozilla/5.0 (compatible; Googlebot/2.1)")).toBe("crawler");
+    expect(agentOrigin("")).toBe("unknown client");
+  });
+
+  it("walks the cleaner through every room and hums every third leg", () => {
+    const round = Array.from({ length: 15 }, (_, step) => cleaningTask(step));
+
+    expect(new Set(round.map((task) => task.room))).toEqual(
+      new Set(["hub", "read", "edit", "links", "archive"]),
+    );
+    for (const task of round) expect(task.action).toBe("clean");
+    // The bubble is a note or nothing: a cleaner has no archive event to caption.
+    for (const task of round) expect(task.caption).toBeUndefined();
+    const humming = round.filter((task) => task.icon === "🎵");
+    expect(humming.length).toBe(5);
+    expect(new Set(round.map((task) => task.sourceEventId)).size).toBe(round.length);
+  });
+
+  it("sends the window cleaner to glazed rooms only, and to the pane in them", () => {
+    const round = Array.from({ length: 12 }, (_, step) => cleaningTask(step, true));
+    expect(new Set(round.map((task) => task.room))).toEqual(
+      new Set(["read", "edit", "links", "archive"]),
+    );
+
+    for (const room of ROOMS) {
+      if (room.open) {
+        expect(room.glass, `${room.id} is open and cannot be glazed`).toBeUndefined();
+        continue;
+      }
+      const pane = room.glass;
+      expect(pane, `${room.id} has no glass spot`).toBeDefined();
+      if (!pane) continue;
+      expect(Math.abs(pane.at.x - room.center.x)).toBeLessThanOrEqual(room.width / 2);
+      expect(Math.abs(pane.at.z - room.center.z)).toBeLessThanOrEqual(room.depth / 2);
+
+      // Last leg again: the graph stops at the room's waypoint, and the walk to
+      // the pane is the segment it never returns.
+      const arrival = WAYPOINTS[room.id];
+      expect(arrival).toBeDefined();
+      if (!arrival) continue;
+      expect(
+        segmentHitsObstacle(arrival, pane.at),
+        `${room.id} glass spot is reached through a prop`,
+      ).toBe(false);
+      // And the spot itself is not standing inside one.
+      expect(
+        segmentHitsObstacle(pane.at, pane.at),
+        `${room.id} glass spot is inside a prop`,
+      ).toBe(false);
+    }
+  });
+
+  it("gives every room a standby queue distinct from its seats", () => {
+    for (const room of ROOMS) {
+      expect(room.standby.length, `${room.id} has too few standby spots`).toBeGreaterThanOrEqual(3);
+      const points = [...room.seats, ...room.standby].map((point) => `${point.x}:${point.z}`);
+      expect(new Set(points).size, `${room.id} reuses a point`).toBe(points.length);
+    }
+  });
+
+  it("keeps the walk between the room waypoint and every standby spot clear", () => {
+    // Both directions matter: the arriving avatar walks waypoint → standby, and
+    // the one promoted into a freed seat walks standby → waypoint → seat.
+    for (const room of ROOMS) {
+      const arrival = WAYPOINTS[room.id];
+      expect(arrival, `${room.id} has no waypoint`).toBeDefined();
+      if (!arrival) continue;
+      for (const spot of room.standby) {
+        expect(
+          segmentHitsObstacle(arrival, spot),
+          `${room.id} standby (${spot.x}, ${spot.z}) is reached through a prop`,
+        ).toBe(false);
+      }
+    }
+  });
+
   it("keeps every seat inside its own room", () => {
     for (const room of ROOMS) {
       for (const seat of room.seats) {
         expect(Math.abs(seat.x - room.center.x)).toBeLessThanOrEqual(room.width / 2);
         expect(Math.abs(seat.z - room.center.z)).toBeLessThanOrEqual(room.depth / 2);
       }
+    }
+  });
+
+  it("keeps every standby spot inside its own room", () => {
+    for (const room of ROOMS) {
+      for (const spot of room.standby) {
+        expect(Math.abs(spot.x - room.center.x)).toBeLessThanOrEqual(room.width / 2);
+        expect(Math.abs(spot.z - room.center.z)).toBeLessThanOrEqual(room.depth / 2);
+      }
+    }
+  });
+
+  it("holds every concurrent agent in one room without an overlap", () => {
+    // `MAX_CONCURRENT_AGENTS` in world-canvas.tsx is what bounds the worst case:
+    // every agent doing the same thing at once, all of them in the same room.
+    const stageCapacity = 6;
+    for (const room of ROOMS) {
+      expect(
+        room.seats.length + room.standby.length,
+        `${room.id} cannot hold a full stage`,
+      ).toBeGreaterThanOrEqual(stageCapacity);
     }
   });
 
