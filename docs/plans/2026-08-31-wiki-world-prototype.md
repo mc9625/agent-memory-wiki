@@ -1,25 +1,28 @@
 # Wiki World — handoff
 
 **Date:** 2026-08-31; art, lighting, colour, traffic and shading passes all
-2026-09-01; shipped 2026-09-01; the human-visitor pass of §10, the portrait pass
-and the compaction pass also 2026-09-01
-**Status:** **in production, with three passes unshipped in the tree.** `main` is
-at **#82 (`e6fd280`)** and live at <https://agent-memory-wiki.vercel.app/world>,
+2026-09-01; shipped 2026-09-01; the human-visitor pass of §10, the portrait
+pass, the compaction pass and the set editor also 2026-09-01
+**Status:** **in production, with two branches ahead of it.** `main` is at
+**#82 (`e6fd280`)** and live at <https://agent-memory-wiki.vercel.app/world>,
 linked from the home art entry as *Visit Wiki World →*. #78–#82 are shipped; §10
 below was among them.
 
-Uncommitted, **on `main` itself, in the working tree** — no branch, no PR, and
-the user has said twice that they call the deploy:
+Two branches carry everything since, neither pushed at the time of writing —
+the user calls the deploy:
 
-1. the **portrait and mobile** pass (§"Portrait and mobile");
-2. the **compaction** pass and the adjustments after it (§"Compaction"), which
-   is where the room spacing, the entrance corridor, the fountain and the
-   concourse dressing now live.
+- **`feat/world-portrait-and-compaction`** (`353b8bb`), one commit, five files:
+  the **portrait and mobile** pass (§"Portrait and mobile") and the
+  **compaction** pass with the adjustments after it (§"Compaction"), which is
+  where the room spacing, the entrance corridor, the fountain and the concourse
+  dressing live. 19 files / **123 tests**.
+- **`feat/world-editor`**, branched off it, five commits: the clearance
+  measurement, the floor plan as a value, the prop stamps, the room-frame
+  consolidation and the editor itself (§"The set editor"). 20 files / **131
+  tests**.
 
-Five files: `lib/world/layout.ts`, `components/world/environment.ts`,
-`components/world/world-canvas.tsx`, `app/world/page.tsx` and this document.
-Verified green — `pnpm lint`, typecheck, `next build`, and 19 files / **123
-tests**. **Do not open a PR unprompted.**
+Both green on `pnpm lint`, typecheck and `next build`. **Do not open a PR
+unprompted.**
 
 **Route:** `/world` — an isometric room-scale companion to `/sky`
 **Reference art:** `~/Downloads/ebbebea6-c72a-4693-8807-d23206ddcd03.png` — the
@@ -1273,3 +1276,133 @@ To change the spacing: `ROOM_INSET` in `layout.ts`, one value, with
 `ARCHIVE_RELIEF` beside it holding the entrance corridor open. Below 4 the plaza
 gets its bare tile back; above 5, raise the relief with it or the corridor
 closes again.
+
+---
+
+## The set editor — 2026-09-01, branch `feat/world-editor`
+
+Asked for as: *"un editor che mi consenta di muovere gli elementi manualmente
+wysiwyg sia le stanze complete che i singoli elementi… permettendoti però di
+ricostruire i path, gli ostacoli, ecc"* — with the standing instruction to plan
+first and to say if it made the project less stable.
+
+Five commits, in this order, each green on its own.
+
+### What it is, and the one thing it deliberately is not
+
+`/world?edit=1` turns the page into a WYSIWYG editor for the set. Click a room
+or a prop, drag it on the floor, and the panel measures what that did to the
+walk graph *while you drag*. Arrow keys nudge, `q`/`e` change height, `r`
+rotates by 15°, the snap cycles free / 0.25 / 0.5 / 1, and Export hands back the
+numbers to paste.
+
+**It does not rebuild the waypoint graph, and that is a decision rather than a
+gap.** The graph is authored: twelve nodes plus an adjacency table saying which
+corridors exist. It encodes where a corridor *is*, not the shortest way across
+an empty floor. Generating it from the geometry means a grid navmesh, and a grid
+navmesh would cut the plaza diagonally and lose the thing the reference art is
+about. What travels automatically is what already did — nodes tagged to a room
+move with it, and the three plaza junctions re-derive from the facades either
+side of them. Everything else is measured and reported, and fixing it is a
+human's call.
+
+**It does not write to disk either.** The floor is authored in two files whose
+prose carries the reasoning behind every coordinate; a tool that rewrote them
+would eventually mangle that prose, and a tool that only *proposes* numbers
+costs nothing when it is wrong. Export names each change by the authored
+position it was written at, which is what makes the line greppable back to the
+call that wrote it.
+
+### The four things that had to exist first
+
+**1. Measurement, not a boolean** (`lib/world/validate.ts`). `layout.ts` answers
+"does this leg cross a wall or clip a prop". The editor needs "by how much", and
+so does anyone moving a room: the two worst things this set has shipped were a
+leg over LINKS' corner and a leg through the plinth, both at a measured 0.00 and
+neither visible in a screenshot. §"Compaction" found both with a throwaway
+script and deleted it twice. It is a module now, and the test beside it pins
+what the floor measures today: **exactly two legs touch anything** — the walk
+out to the two hub standby spots behind the fountain, the known rough edge —
+and everything else clears more than an avatar's width. A third zero means
+something moved and took a route with it.
+
+`HUB_PLINTH` moved into `layout.ts` at the same time. It stays out of
+`OBSTACLES` on purpose: listing it would make those two standby spots
+unreachable rather than fix them.
+
+**2. The floor plan as a value** (`deriveFloor` in `layout.ts`). Everything the
+shifts touch was computed once at import into module constants — right for a
+plan that never changes, wrong for asking what a *different* arrangement would
+do. `deriveFloor(shift)` returns rooms, waypoints, obstacles, plinth and wall
+boxes together; `DEFAULT_FLOOR` is that applied to `ROOM_SHIFT`, and every
+export the page already used is one of its fields, so no consumer changed.
+`findPath`, `segmentCrossesWall` and `segmentHitsObstacle` take a floor,
+defaulting to that one.
+
+Verified by identity rather than by reading: rooms, waypoints, obstacles, plinth
+and all thirty-six room-to-room paths dumped to JSON before and after, and the
+two files are the same. **Reuse that trick for any change to this file.**
+
+**3. Stamps, not a data table** (`environment.ts`). A prop had geometry and a
+position and no identity, so a tool that drags one has nothing to call it.
+Lifting sixty-five placements into a data table would have restated two days of
+by-eye tuning as an unreviewable diff. Instead `place`, `placeVoxel` and
+`placeText` record what they were given on the object itself —
+`userData.editable` carries a positional id, the geometry key, the room frame,
+and the coordinates as authored. Lettering that sits on a prop passes that
+prop's id to both calls, so a dragged plaque does not slide out from under its
+own letters.
+
+**4. A room that is actually one thing.** Carpets, doorway strips, obstacle
+props and room lights were placed at the root from the already-shifted tables.
+That worked — `plan + shift` is what those tables hold — but it split a room
+across two frames, so moving its group would have left its floor, its planters
+and its lamp behind. All three now go into the room's own frame from the plan,
+which also collapses the ambiguity §"Compaction" left behind: outside the corner
+offices and the concourse plants, which belong to no room, every coordinate in
+`environment.ts` is in the plan now.
+
+### What the panel shows, and why that is the whole point
+
+Six tightest clearances, green while a leg has room, amber inside the ±1.2 lane
+budget, red at zero. Drag ARCHIVE two and a half units west and the corridor
+legs past the plinth go **0.94 → 0.14**, because `c_ne` is measured off
+ARCHIVE's own facade. Nothing about that is visible in the frame; it is a number
+that turns amber under your hand. That single behaviour is the reason the
+measurement had to come before the editor.
+
+`MAX_LANE` is a budget to read a figure against, not a number to subtract from
+it: the offset is perpendicular to the leg, so a doorway node standing a unit
+off its own facade is not brought closer to it by a lane running past.
+
+### Cost in production
+
+One `URLSearchParams` read in `world-canvas.tsx`, plus the `userData` stamps.
+The editor is a dynamic import: `next build` puts it in a 10KB chunk of its own
+that the world page's bundle does not reference. Actors are not staged while it
+is on — an actor mid-leg is walking a path derived from a floor that is moving
+under it, and an empty floor is what you want to look at anyway. The activity
+log is hidden, because it owns the same corner as the panel and was swallowing
+its clicks.
+
+### Verified
+
+Driven end to end with Playwright against the dev server: room picking resolves
+at five points across the floor, a prop drag moves its obstacle footprint with
+it (`archive seat 0` 1.21 → 0.95 and the export line names
+`PLAN_OBSTACLES archive-crates-w`), and a room drag breaks two corridors and
+says which. The two refactors were checked against screenshots at 1600×900 —
+the set is in the same pixels, and the only differences in the frame are the
+avatars and the HUD.
+
+### Where it stands, and what is worth doing next
+
+- **Waypoints are not draggable yet.** They are the one part of the plan the
+  editor reports on but cannot move, and they are also the fix for most of what
+  it reports. Rendering the twelve nodes as pickable markers is the obvious
+  next step and needs no new machinery: they are already a table.
+- **The two hub standby spots still route through the plinth.** Unchanged, and
+  now pinned by a test rather than by a paragraph. Two coordinates.
+- **Export is one-way.** Applying a patch is a human's or an agent's job; that
+  is the point, but a `--check` that reads the current source and says whether
+  it matches the last export would close the loop without writing anything.
