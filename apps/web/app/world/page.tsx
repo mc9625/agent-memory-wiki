@@ -227,7 +227,7 @@ export default function WorldPage() {
           border-radius: 8px;
           box-shadow: 0 4px 0 rgba(20, 22, 28, 0.28);
           white-space: nowrap;
-          max-width: 20rem; overflow: hidden; text-overflow: ellipsis;
+          max-width: min(20rem, 68vw); overflow: hidden; text-overflow: ellipsis;
           transition: opacity 0.35s ease;
         }
         /* Lifted clear of another caption: its tail would point at that one. */
@@ -427,6 +427,132 @@ export default function WorldPage() {
           opacity: 0.45; border: 1px solid rgba(255, 255, 255, 0.22);
           border-radius: 3px; padding: 0 0.22rem;
         }
+
+        /* The four HUD cards, each in its own corner. These were inline styles
+           until the phone needed a second arrangement of the same DOM, which an
+           inline style cannot be overridden by. */
+        .world-hud-top { display: contents; }
+        .world-hud-title { top: 1.15rem; left: 1.15rem; min-width: 13rem; }
+        .world-hud-name {
+          font-size: 1.32rem; font-weight: 700; letter-spacing: 0.07em; color: #fff;
+        }
+        .world-hud-sub { opacity: 0.42; margin-top: 0.2rem; }
+        .world-hud-back {
+          display: inline-block; margin-top: 0.4rem;
+          color: #7fd8ff; text-decoration: none;
+        }
+        .world-hud-count { top: 7.4rem; left: 1.15rem; min-width: 13rem; }
+        .world-hud-count-row {
+          display: flex; align-items: center; gap: 0.45rem; margin-top: 0.35rem;
+        }
+        .world-hud-dot {
+          width: 0.5rem; height: 0.5rem; border-radius: 50%;
+          background: rgba(255, 255, 255, 0.3);
+        }
+        .world-hud-dot-on { background: #5fdc7a; }
+        .world-hud-count-value { font-size: 0.9rem; color: #fff; }
+        .world-hud-roster { top: 1.15rem; right: 1.15rem; min-width: 13.5rem; }
+        .world-hud-empty { opacity: 0.35; }
+        .world-hud-log { bottom: 1.15rem; left: 1.15rem; max-width: 22rem; }
+        .world-hud-log-line { padding: 0.1rem 0; display: flex; gap: 0.5rem; }
+
+        /* Portrait, and the short landscape a phone turned sideways gives.
+
+           Four corners is a desktop's arrangement: on a phone the title card and
+           the roster are wider together than the screen, so they overlapped and
+           the sign — the only control on the page — sat underneath both. Here
+           the three top cards become one bar, the roster becomes a row of pills
+           under it, and the log spans the foot at three lines. Nothing overlaps
+           and nothing is a corner. */
+        @media (max-width: 720px), (max-height: 520px) {
+          .world-hud-top {
+            position: fixed; z-index: 42; top: 0; left: 0; right: 0;
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.4rem 0.55rem;
+            background: rgba(13, 16, 22, 0.94);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.14);
+          }
+          .world-hud-top .world-panel {
+            position: static; min-width: 0;
+            background: none; border: 0; box-shadow: none; padding: 0;
+          }
+          .world-hud-title {
+            order: 1; display: flex; align-items: baseline; gap: 0.35rem;
+            min-width: 0;
+          }
+          .world-hud-name { font-size: 0.78rem; letter-spacing: 0.05em; }
+          .world-hud-sub { margin-top: 0; white-space: nowrap; }
+          /* The version string is the first thing worth its width on a phone. */
+          .world-hud-version { display: none; }
+          .world-hud-back { order: -1; margin-top: 0; }
+          .world-hud-back-text { display: none; }
+          .world-hud-count { order: 2; margin-left: auto; }
+          .world-hud-count .world-panel-title { display: none; }
+          .world-hud-count-row { margin-top: 0; }
+          .world-hud-count-value { font-size: 0.72rem; }
+
+          .world-signs {
+            order: 3; position: static; transform: none;
+            left: auto; top: auto; flex: none;
+          }
+          .world-sign { padding: 0.22rem; border-radius: 10px; }
+          .world-sign-tube {
+            font-size: 0.56rem; letter-spacing: 0.16em;
+            padding: 0.26rem 0.46rem 0.26rem 0.6rem;
+          }
+          /* Hung from the sign's right edge: centred, it ran off the screen. */
+          .world-sign-tip {
+            left: auto; right: 0; width: min(15rem, 74vw);
+            transform: translate(0, -4px);
+          }
+          .world-sign:hover .world-sign-tip,
+          .world-sign:focus-visible .world-sign-tip { transform: translate(0, 0); }
+          .world-sign-tip::before { left: auto; right: 1.1rem; margin-left: 0; }
+
+          /* The roster, as pills rather than a card: a column of rows in the
+             corner is what pushed everything else off the screen. */
+          .world-hud-roster {
+            top: 3.5rem; left: 0; right: 0; min-width: 0;
+            display: flex; gap: 0.35rem;
+            padding: 0 0.55rem;
+            background: none; border: 0; box-shadow: none;
+            overflow-x: auto; scrollbar-width: none;
+          }
+          .world-hud-roster::-webkit-scrollbar { display: none; }
+          .world-hud-roster .world-panel-title { display: none; }
+          .world-hud-roster .world-row,
+          .world-hud-empty {
+            flex: none; padding: 0.16rem 0.5rem;
+            /* Dimmed by colour rather than by opacity, which on a pill would
+               have faded the pill itself along with the words. */
+            opacity: 1; color: rgba(255, 255, 255, 0.45);
+            background: rgba(13, 16, 22, 0.94);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            white-space: nowrap;
+          }
+          .world-hud-roster .world-row { gap: 0.35rem; }
+          .world-hud-roster .world-row-name { flex: none; }
+
+          .world-hud-log {
+            left: 0.5rem; right: 0.5rem; bottom: 0.5rem; max-width: none;
+            font-size: 0.56rem; padding: 0.5rem 0.6rem;
+          }
+          .world-hud-log-line {
+            gap: 0.4rem; white-space: nowrap; overflow: hidden;
+          }
+          /* Three lines is what fits over the floor without becoming the floor. */
+          .world-hud-log-line:nth-child(n + 4) { display: none; }
+
+          /* Clear of the log, which now spans the whole foot of the screen and
+             stands three lines tall whatever the archive is doing. */
+          .world-credit { bottom: 5.7rem; }
+        }
+
+        /* No hover to open the sign's card with, so a tap has to do it. */
+        @media (hover: none) {
+          .world-sign:focus .world-sign-tip { opacity: 1; }
+        }
       `,
         }}
       />
@@ -439,59 +565,57 @@ export default function WorldPage() {
         onRosterChange={handleRoster}
       />
 
-      {/* Stage sign */}
-      <div className="world-signs">
-        <button
-          type="button"
-          className={`world-sign world-sign-replay ${replayMode ? "world-sign-on" : ""}`}
-          aria-pressed={replayMode}
-          onClick={() => setReplayMode((previous) => !previous)}
-        >
-          <span className="world-sign-tube">REPLAY</span>
-          <span className="world-sign-tip" role="tooltip">
-            {replayMode
-              ? "Replaying recorded sessions. They are ghosted whenever a live agent shares the floor, and stand down as soon as one arrives."
-              : "Fill the quiet with recorded sessions from the archive. Live agents are always staged either way."}
-          </span>
-        </button>
-      </div>
+      {/* The sign and the two head cards.
 
-      {/* Title card */}
-      <div className="world-panel" style={{ top: "1.15rem", left: "1.15rem", minWidth: "13rem" }}>
-        <div style={{ fontSize: "1.32rem", fontWeight: 700, letterSpacing: "0.07em", color: "#fff" }}>
-          WIKI WORLD
+          On a desktop each of the three keeps its own corner and this wrapper
+          is `display: contents`, so it changes nothing. On a phone the three
+          corners were one pile — the cards overlapped each other and buried the
+          sign between them — so there the wrapper becomes the single top bar
+          that carries all three in a row. */}
+      <div className="world-hud-top">
+        <div className="world-signs">
+          <button
+            type="button"
+            className={`world-sign world-sign-replay ${replayMode ? "world-sign-on" : ""}`}
+            aria-pressed={replayMode}
+            onClick={() => setReplayMode((previous) => !previous)}
+          >
+            <span className="world-sign-tube">REPLAY</span>
+            <span className="world-sign-tip" role="tooltip">
+              {replayMode
+                ? "Replaying recorded sessions. They are ghosted whenever a live agent shares the floor, and stand down as soon as one arrives."
+                : "Fill the quiet with recorded sessions from the archive. Live agents are always staged either way."}
+            </span>
+          </button>
         </div>
-        <div style={{ opacity: 0.42, marginTop: "0.2rem" }}>
-          v0.1.0-alpha · {articles.length} specimens
-        </div>
-        <Link
-          href="/"
-          style={{ display: "inline-block", marginTop: "0.4rem", color: "#7fd8ff", textDecoration: "none" }}
-        >
-          ← Agent Memory Wiki
-        </Link>
-      </div>
 
-      {/* Stage occupancy, mirroring the reference's second card */}
-      <div className="world-panel" style={{ top: "7.4rem", left: "1.15rem", minWidth: "13rem" }}>
-        <div className="world-panel-title">ACTIVE AGENTS</div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", marginTop: "0.35rem" }}>
-          <span
-            style={{
-              width: "0.5rem",
-              height: "0.5rem",
-              borderRadius: "50%",
-              background: roster.length > 0 ? "#5fdc7a" : "rgba(255,255,255,0.3)",
-            }}
-          />
-          <span style={{ fontSize: "0.9rem", color: "#fff" }}>
-            {roster.length} / {MAX_CONCURRENT_AGENTS}
-          </span>
+        {/* Title card */}
+        <div className="world-panel world-hud-title">
+          <div className="world-hud-name">WIKI WORLD</div>
+          <div className="world-hud-sub">
+            <span className="world-hud-version">v0.1.0-alpha · </span>
+            {articles.length} specimens
+          </div>
+          <Link href="/" className="world-hud-back">
+            <span aria-hidden="true">←</span>
+            <span className="world-hud-back-text"> Agent Memory Wiki</span>
+          </Link>
+        </div>
+
+        {/* Stage occupancy, mirroring the reference's second card */}
+        <div className="world-panel world-hud-count">
+          <div className="world-panel-title">ACTIVE AGENTS</div>
+          <div className="world-hud-count-row">
+            <span className={`world-hud-dot ${roster.length > 0 ? "world-hud-dot-on" : ""}`} />
+            <span className="world-hud-count-value">
+              {roster.length} / {MAX_CONCURRENT_AGENTS}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Roster */}
-      <div className="world-panel" style={{ top: "1.15rem", right: "1.15rem", minWidth: "13.5rem" }}>
+      <div className="world-panel world-hud-roster">
         {/* No mode word here: the signs over the stage say which mode is on, and
             each row's bead says which cast that avatar belongs to. A third
             reading of the same thing, in a corner, only contradicted them. */}
@@ -499,7 +623,7 @@ export default function WorldPage() {
           ACTIVE AGENTS
         </div>
         {roster.length === 0 ? (
-          <div style={{ opacity: 0.35 }}>
+          <div className="world-hud-empty">
             {loading
               ? "loading archive…"
               : !replayMode
@@ -538,9 +662,9 @@ export default function WorldPage() {
 
       {/* Activity log */}
       {activity.length > 0 && (
-        <div className="world-panel" style={{ bottom: "1.15rem", left: "1.15rem", maxWidth: "22rem" }}>
+        <div className="world-panel world-hud-log">
           {activity.map((line) => (
-            <div key={line.id} style={{ padding: "0.1rem 0", display: "flex", gap: "0.5rem" }}>
+            <div key={line.id} className="world-hud-log-line">
               <span style={{ opacity: 0.35 }}>{line.time}</span>
               <span style={{ color: `hsl(${line.hue.toFixed(0)}, 72%, 62%)` }}>{line.agent}</span>
               <span style={{ opacity: 0.6 }}>{line.text}</span>

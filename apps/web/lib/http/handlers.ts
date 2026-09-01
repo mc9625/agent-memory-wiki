@@ -162,7 +162,45 @@ const json = (body: unknown, status: number, requestId: string, headers?: Header
     },
   });
 
-const errorResponse = (code: string, requestId: string, cause?: unknown): Response => {
+/** One thing wrong with the submission, in terms of the field it is wrong in. */
+interface ErrorDetail {
+  readonly field: string;
+  readonly message: string;
+}
+
+/**
+ * How many field errors a rejection carries.
+ *
+ * Enough to fix the submission in one more attempt, not so many that a payload
+ * built to generate issues turns the error body into an amplifier.
+ */
+const MAX_ERROR_DETAILS = 10;
+
+/**
+ * A Zod failure, as the fields it happened in.
+ *
+ * Only the path and our own refinement messages cross the boundary — never the
+ * value that failed. The messages are authored in `packages/contracts` and say
+ * what the rule is ("Raw HTML is not accepted in the pilot"), which is the part
+ * a submitter cannot otherwise guess.
+ *
+ * The path is the *normalized* payload's, so an agent that posted the `body`
+ * shorthand is told about `body_markdown`. That is the field the archive
+ * actually has, and `/openapi.json` names it, so pointing at it is the answer
+ * that survives being acted on.
+ */
+const validationDetails = (error: z.ZodError): readonly ErrorDetail[] =>
+  error.issues.slice(0, MAX_ERROR_DETAILS).map((issue) => ({
+    field: issue.path.length > 0 ? issue.path.join(".") : "(body)",
+    message: issue.message,
+  }));
+
+const errorResponse = (
+  code: string,
+  requestId: string,
+  cause?: unknown,
+  details?: readonly ErrorDetail[],
+): Response => {
   const safeCode = code in safeMessages ? code : "DEPENDENCY_UNAVAILABLE";
   const causeHeader = cause instanceof Error ? cause.message : cause ? String(cause) : undefined;
   return json(
@@ -171,6 +209,9 @@ const errorResponse = (code: string, requestId: string, cause?: unknown): Respon
         code: safeCode,
         message: safeMessages[safeCode] ?? "A required service is temporarily unavailable.",
         request_id: requestId,
+        // Omitted rather than sent empty: a submitter that sees the key at all
+        // can rely on it listing something.
+        ...(details && details.length > 0 ? { details } : {}),
       },
     },
     statusByCode[safeCode] ?? 503,
@@ -224,16 +265,43 @@ const parseWrite = async (request: Request, requestId: string): Promise<ParsedWr
     idempotencyKey = createHash("sha256").update(body.bytes).digest("hex").slice(0, 32);
   }
 
+  let raw: string;
   try {
-    const raw = new TextDecoder("utf-8", { fatal: true }).decode(body.bytes);
+    raw = new TextDecoder("utf-8", { fatal: true }).decode(body.bytes);
+  } catch {
+    return {
+      ok: false,
+      response: errorResponse("INVALID_REQUEST", requestId, undefined, [
+        { field: "(body)", message: "The request body is not valid UTF-8." },
+      ]),
+    };
+  }
+
+  try {
     return {
       bearerToken,
       idempotencyKey,
       ok: true,
       value: JSON.parse(raw) as unknown,
     };
-  } catch {
-    return { ok: false, response: errorResponse("INVALID_REQUEST", requestId) };
+  } catch (error) {
+    return {
+      ok: false,
+      response: errorResponse("INVALID_REQUEST", requestId, undefined, [
+        {
+          field: "(body)",
+          // The parser's own message names the offending offset, which is the
+          // one piece of information that locates a truncated or trailing-comma
+          // payload. Some of its forms quote a few characters of the input back;
+          // that input is the caller's own, going only to the caller, and the
+          // slice below bounds how much of it comes along.
+          message: `The request body is not valid JSON: ${error instanceof Error ? error.message : "parse failed"}`.slice(
+            0,
+            300,
+          ),
+        },
+      ]),
+    };
   }
 };
 
@@ -306,7 +374,9 @@ export const handleCreateArticle = async (
   if (!parsed.ok) return parsed.response;
   const normalizedValue = normalizeArticlePayload(parsed.value);
   const input = createArticleInputSchema.safeParse(normalizedValue);
-  if (!input.success) return errorResponse("INVALID_REQUEST", requestId);
+  if (!input.success) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, validationDetails(input.error));
+  }
   try {
     await services.admitWrite(parsed.bearerToken, request);
     const result = await services.createArticle({
@@ -384,7 +454,9 @@ export const handleRecordEvent = async (
   const parsed = await parseWrite(request, requestId);
   if (!parsed.ok) return parsed.response;
   const input = recordEventInputSchema.safeParse(parsed.value);
-  if (!input.success) return errorResponse("INVALID_REQUEST", requestId);
+  if (!input.success) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, validationDetails(input.error));
+  }
 
   try {
     await services.admitWrite(parsed.bearerToken, request);
@@ -419,7 +491,9 @@ export const handleReviseArticle = async (
   if (!parsed.ok) return parsed.response;
   const normalizedValue = normalizeRevisePayload(parsed.value);
   const input = reviseArticleInputSchema.safeParse(normalizedValue);
-  if (!input.success) return errorResponse("INVALID_REQUEST", requestId);
+  if (!input.success) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, validationDetails(input.error));
+  }
   try {
     await services.admitWrite(parsed.bearerToken, request);
     const existing = await services.getArticle(idOrSlug);
@@ -590,7 +664,9 @@ export const handleListArticles = async (
     cursor: url.searchParams.get("cursor") ?? undefined,
     limit: url.searchParams.get("limit") ?? undefined,
   });
-  if (!parsed.success) return errorResponse("INVALID_REQUEST", requestId);
+  if (!parsed.success) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, validationDetails(parsed.error));
+  }
   try {
     const input = parsed.data.cursor
       ? { cursor: parsed.data.cursor, limit: parsed.data.limit }
@@ -621,8 +697,23 @@ export const handleSearchArticles = async (
     cursor: url.searchParams.get("cursor") ?? undefined,
     limit: url.searchParams.get("limit") ?? undefined,
   });
-  if (!query || query.trim().length === 0 || [...query].length > 200 || !pagination.success) {
-    return errorResponse("INVALID_REQUEST", requestId);
+  // Two independent rejections share one branch, so the details are assembled
+  // rather than taken from the parse: a caller with a blank `q` and a bad
+  // `limit` should hear about both in one round trip.
+  const paginationDetails = pagination.success ? [] : validationDetails(pagination.error);
+  if (!query || query.trim().length === 0) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, [
+      { field: "q", message: "A search query is required." },
+      ...paginationDetails,
+    ]);
+  }
+  if ([...query].length > 200 || !pagination.success) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, [
+      ...([...query].length > 200
+        ? [{ field: "q", message: "Search query exceeds 200 code points." }]
+        : []),
+      ...paginationDetails,
+    ]);
   }
   try {
     const input = pagination.data.cursor
@@ -645,7 +736,9 @@ export const handleListRevisions = async (
     cursor: url.searchParams.get("cursor") ?? undefined,
     limit: url.searchParams.get("limit") ?? undefined,
   });
-  if (!pagination.success) return errorResponse("INVALID_REQUEST", requestId);
+  if (!pagination.success) {
+    return errorResponse("INVALID_REQUEST", requestId, undefined, validationDetails(pagination.error));
+  }
   try {
     const input = pagination.data.cursor
       ? { cursor: pagination.data.cursor, limit: pagination.data.limit }

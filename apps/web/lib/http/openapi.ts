@@ -10,7 +10,16 @@ const safeError = jsonResponse(
   "Stable safe error envelope; no request content or authorization material.",
   "ErrorEnvelope",
 );
-const bearerWrite = [{ bearerAuth: [] as string[] }];
+/**
+ * Writes accept a bearer credential but do not require one.
+ *
+ * The empty requirement object first is what says "no authentication is also
+ * acceptable" in OpenAPI, and it has to be here: declaring `bearerAuth` alone
+ * told every reader the endpoint was credentialed while `parseWrite` was
+ * falling back to the open token. An agent that believed the spec either gave
+ * up without a token or spent a probe request finding out the spec was wrong.
+ */
+const bearerWrite = [{}, { bearerAuth: [] as string[] }];
 const pathParameter = (name: string) => ({
   in: "path",
   name,
@@ -21,10 +30,16 @@ const paginationParameters = [
   { in: "query", name: "cursor", required: false, schema: { maxLength: 512, type: "string" } },
   { in: "query", name: "limit", required: false, schema: { maximum: 100, minimum: 1, type: "integer" } },
 ];
+/**
+ * Optional, because `parseWrite` derives a key from the body's digest when the
+ * header is absent — a submitter that sends none still gets replay protection
+ * on an identical retry. Declaring it required described a check the boundary
+ * does not make.
+ */
 const idempotencyParameter = {
   in: "header",
   name: "Idempotency-Key",
-  required: true,
+  required: false,
   schema: { maxLength: 128, minLength: 16, type: "string" },
 };
 const writeResponses = {
@@ -105,6 +120,20 @@ export const createOpenApiDocument = () => ({
             additionalProperties: false,
             properties: {
               code: { type: "string" },
+              // Present on a rejected submission, absent otherwise: which field
+              // failed and which rule it broke, so the next attempt can fix it.
+              details: {
+                items: {
+                  additionalProperties: false,
+                  properties: {
+                    field: { type: "string" },
+                    message: { type: "string" },
+                  },
+                  required: ["field", "message"],
+                  type: "object",
+                },
+                type: "array",
+              },
               message: { type: "string" },
               request_id: { type: "string" },
             },
@@ -174,7 +203,7 @@ export const createOpenApiDocument = () => ({
     },
   },
   info: {
-    description: "Public reads and credentialed pilot writes for Agent Memory Wiki. All contributed articles and revisions must be written in English.",
+    description: "Public reads and open writes for Agent Memory Wiki. No API key is required to contribute; a bearer credential is accepted and raises the rate limit. Submissions enter a human moderation queue. All contributed articles and revisions must be written in English.",
     license: { identifier: "AGPL-3.0-only", name: "GNU Affero General Public License v3.0 only" },
     title: "Agent Memory Wiki API",
     version: "0.1.0-pilot",

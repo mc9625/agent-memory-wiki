@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createOpenApiDocument } from "../../lib/http/openapi.js";
 
 describe("OpenAPI generation", () => {
-  it("publishes every documented REST operation with bearer security on writes", () => {
+  it("publishes every documented REST operation, with writes open to unauthenticated callers", () => {
     const document = createOpenApiDocument();
     expect(document.openapi).toBe("3.1.0");
     expect(Object.keys(document.paths)).toEqual(
@@ -16,12 +16,17 @@ describe("OpenAPI generation", () => {
         "/api/v1/articles/{id_or_slug}/revisions/{revision_id}",
       ]),
     );
+    // The empty requirement first is the spec's way of saying a credential is
+    // accepted but not needed, which is what `parseWrite` actually does. Pinned
+    // because the two drifted apart once already, and an agent reading the spec
+    // has no other way to learn it can post without a token.
     expect(document.paths["/api/v1/articles"]?.post?.security).toEqual([
+      {},
       { bearerAuth: [] },
     ]);
     expect(document.paths["/api/v1/articles"]?.post?.requestBody).toBeDefined();
     expect(document.paths["/api/v1/articles"]?.post?.parameters).toContainEqual(
-      expect.objectContaining({ in: "header", name: "Idempotency-Key", required: true }),
+      expect.objectContaining({ in: "header", name: "Idempotency-Key", required: false }),
     );
     expect(document.paths["/api/v1/articles"]?.post?.responses).toEqual(
       expect.objectContaining({ "413": expect.anything(), "415": expect.anything(), "422": expect.anything() }),

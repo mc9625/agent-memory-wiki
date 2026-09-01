@@ -325,6 +325,12 @@ export function WorldCanvas({
     let width = container.clientWidth;
     let height = container.clientHeight;
 
+    /**
+     * Whether the set editor is wanted, read once. Its only cost in production
+     * is this line: the module itself is behind a dynamic import below.
+     */
+    const editing = new URLSearchParams(window.location.search).has("edit");
+
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
@@ -358,24 +364,82 @@ export function WorldCanvas({
      * tight enough that the outer rooms run off the edges, which is what makes
      * the building read as bigger than the frame.
      */
-    const frustum = 16.6;
+    // Followed the rooms in: at ROOM_INSET 5 the building is ten units narrower
+    // on both floor axes, and holding the old 16.6 would have spent the whole
+    // compaction on bare tile instead of on the set.
+    const frustum = 13.6;
+    /**
+     * Portrait relief.
+     *
+     * The vertical half-height is what the framing is built around, so a
+     * portrait viewport keeps all of it and pays for the narrow width: at a
+     * phone's 0.46 aspect the frustum is barely 7.6 units across, and the rooms
+     * either side of the hub leave the frame entirely. So on a tall viewport
+     * the frustum grows until at least PORTRAIT_MIN_HALF_WIDTH of floor is in
+     * shot — but no further than PORTRAIT_MAX_SCALE, because zooming out is
+     * paid for in avatar size and the avatars are what the page is for.
+     */
+    const PORTRAIT_MIN_HALF_WIDTH = 16;
+    const PORTRAIT_MAX_SCALE = 2;
+    /**
+     * The corner offices are dressing for a wide frame's empty corners. A
+     * portrait frame has none — there they read as three rooms adrift on the
+     * tile — so they fade out with the shape of the window rather than the size
+     * of it, and the frame loop eases between the two.
+     */
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let sceneryTarget = 1;
+    let sceneryOpacity = 1;
     const camera = new THREE.OrthographicCamera(-frustum, frustum, frustum, -frustum, 0.1, 400);
     const applyCameraFrustum = () => {
       const aspect = width / height;
-      camera.left = -frustum * aspect;
-      camera.right = frustum * aspect;
-      camera.top = frustum;
-      camera.bottom = -frustum;
+      const half =
+        aspect >= 1
+          ? frustum
+          : Math.min(
+              frustum * PORTRAIT_MAX_SCALE,
+              Math.max(frustum, PORTRAIT_MIN_HALF_WIDTH / aspect),
+            );
+      // Every unit of zoom-out is spent evenly above and below a target that
+      // sits at the hub, and the building's mass does not: the whole of the
+      // extra room appeared as bare tile along the bottom edge. A little of it
+      // is handed back to the top, which leaves the building centred between
+      // the bar above it and the log below.
+      sceneryTarget = aspect >= 1 ? 1 : 0;
+      elevationTarget = aspect >= 1 ? LANDSCAPE_ELEVATION : PORTRAIT_ELEVATION;
+      const lift = (half - frustum) * 0.15;
+      camera.left = -half * aspect;
+      camera.right = half * aspect;
+      camera.top = half + lift;
+      camera.bottom = -half + lift;
       camera.updateProjectionMatrix();
     };
-    // Direction (1, 0.8165, 1) is elevation 30° at azimuth 45°.
     const CAMERA_TARGET = new THREE.Vector3(0, 0, 1);
-    camera.position.set(
-      CAMERA_TARGET.x + 110,
-      CAMERA_TARGET.y + 89.8,
-      CAMERA_TARGET.z + 110,
-    );
-    camera.lookAt(CAMERA_TARGET);
+    /** Horizontal run to the camera, azimuth 45°: 110 out along each floor axis. */
+    const CAMERA_RUN = Math.hypot(110, 110);
+    /** The reference's angle: sin(30°) = 0.5, the two-across one-down staircase. */
+    const LANDSCAPE_ELEVATION = Math.PI / 6;
+    /**
+     * Portrait stands the camera up.
+     *
+     * The four rooms form a symmetric cross, and at 30° that cross projects as a
+     * wide, shallow diamond — the worst silhouette a tall frame could ask for,
+     * which is why portrait had to zoom out so far to hold it. Screen height
+     * scales with sin(elevation), so standing the camera up to 42° makes the
+     * same building 40% taller in the frame without giving up any width. The
+     * cost is the staircase: portrait is no longer the reference's 2:1.
+     */
+    const PORTRAIT_ELEVATION = (45 * Math.PI) / 180;
+    let elevation = LANDSCAPE_ELEVATION;
+    let elevationTarget = LANDSCAPE_ELEVATION;
+    const placeCamera = (elevation: number): void => {
+      camera.position.set(
+        CAMERA_TARGET.x + 110,
+        CAMERA_TARGET.y + CAMERA_RUN * Math.tan(elevation),
+        CAMERA_TARGET.z + 110,
+      );
+      camera.lookAt(CAMERA_TARGET);
+    };
     applyCameraFrustum();
 
     /**
@@ -450,6 +514,13 @@ export function WorldCanvas({
 
     const environment = buildEnvironment();
     scene.add(environment.group);
+    // The first frame is not a change of shape, so nothing about it is animated:
+    // a phone would have watched three rooms it never asked for fade away, from
+    // an angle that was swinging while it did.
+    sceneryOpacity = sceneryTarget;
+    environment.setSceneryOpacity(sceneryOpacity);
+    elevation = elevationTarget;
+    placeCamera(elevation);
 
     /**
      * Post chain: render, ground-truth ambient occlusion, then tone map.
@@ -538,6 +609,29 @@ export function WorldCanvas({
       onChange: applyVisuals,
       onRebuild: () => setBuildToken((token) => token + 1),
     });
+
+    /*
+     * The set editor, on `?edit=1`.
+     *
+     * Imported dynamically rather than at the top of the file, so none of it is
+     * in the bundle a visitor downloads — it is a development tool, and the only
+     * trace of it in production is the `has("edit")` above. It arrives a frame
+     * or two late, which is why the disposer is a variable: the effect can be
+     * torn down before the import resolves.
+     */
+    let disposeEditor = () => {};
+    let editorWanted = editing;
+    if (editing) {
+      void import("./world-editor").then(({ mountEditor }) => {
+        if (!editorWanted) return;
+        disposeEditor = mountEditor({
+          container,
+          canvas: renderer.domElement,
+          camera,
+          environment,
+        });
+      });
+    }
 
     const actors: Actor[] = [];
     let replayQueue: AgentPlan[] = [];
@@ -1362,9 +1456,14 @@ export function WorldCanvas({
         if (!replayMode) retireReplayCast(now);
       }
 
-      ingestLiveEvents(now);
-      if (replayMode) stageReplay(now);
-      stageCleaners(now);
+      // Nothing is staged while the set is being edited: an actor mid-leg is
+      // walking a path derived from a floor the editor is moving under it, and
+      // an empty floor is what you want to look at anyway.
+      if (!editing) {
+        ingestLiveEvents(now);
+        if (replayMode) stageReplay(now);
+        stageCleaners(now);
+      }
 
       for (let index = actors.length - 1; index >= 0; index -= 1) {
         const actor = actors[index];
@@ -1387,6 +1486,24 @@ export function WorldCanvas({
       promoteWaiting();
       applyGhosting();
       layoutBubbles(now);
+
+      // What the shape of the window asks for, eased rather than switched: the
+      // corner offices fade and the camera stands up or lies back on the same
+      // half-second clock, so a rotation reads as one move instead of three.
+      if (sceneryOpacity !== sceneryTarget || elevation !== elevationTarget) {
+        const step = reducedMotion.matches ? 1 : delta / 0.5;
+        const ease = (from: number, to: number, span: number): number =>
+          to > from ? Math.min(to, from + step * span) : Math.max(to, from - step * span);
+
+        if (sceneryOpacity !== sceneryTarget) {
+          sceneryOpacity = ease(sceneryOpacity, sceneryTarget, 1);
+          environment.setSceneryOpacity(sceneryOpacity);
+        }
+        if (elevation !== elevationTarget) {
+          elevation = ease(elevation, elevationTarget, PORTRAIT_ELEVATION - LANDSCAPE_ELEVATION);
+          placeCamera(elevation);
+        }
+      }
 
       // Hub crystal: slow breathing, plus a flash when an article is created.
       hubPulse = Math.max(0, hubPulse - delta * 0.85);
@@ -1432,6 +1549,8 @@ export function WorldCanvas({
         if (actor) removeActor(actor, index);
       }
       disposeTunePanel();
+      editorWanted = false;
+      disposeEditor();
       environment.dispose();
       composer.dispose();
       renderer.dispose();

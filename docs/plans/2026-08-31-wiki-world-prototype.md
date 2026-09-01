@@ -1,13 +1,28 @@
 # Wiki World — handoff
 
 **Date:** 2026-08-31; art, lighting, colour, traffic and shading passes all
-2026-09-01; shipped 2026-09-01; the human-visitor pass of §10 also 2026-09-01
-**Status:** **in production, with unshipped work in the tree.** #78 (`2bf443d`)
-and #79 (`b719288`) are live at <https://agent-memory-wiki.vercel.app/world>,
-linked from the home art entry as *Walk the archive →*. On top of that, the
-whole of **§10 is uncommitted** on branch `docs/world-handoff`: the user asked
-explicitly for no PR until they say the word. Verified green (lint, typecheck,
-115 tests) but not merged, not deployed. **Do not open a PR unprompted.**
+2026-09-01; shipped 2026-09-01; the human-visitor pass of §10, the portrait
+pass, the compaction pass and the set editor also 2026-09-01
+**Status:** **in production, with two branches ahead of it.** `main` is at
+**#82 (`e6fd280`)** and live at <https://agent-memory-wiki.vercel.app/world>,
+linked from the home art entry as *Visit Wiki World →*. #78–#82 are shipped; §10
+below was among them.
+
+Two branches carry everything since, neither pushed at the time of writing —
+the user calls the deploy:
+
+- **`feat/world-portrait-and-compaction`** (`353b8bb`), one commit, five files:
+  the **portrait and mobile** pass (§"Portrait and mobile") and the
+  **compaction** pass with the adjustments after it (§"Compaction"), which is
+  where the room spacing, the entrance corridor, the fountain and the concourse
+  dressing live. 19 files / **123 tests**.
+- **`feat/world-editor`**, branched off it, five commits: the clearance
+  measurement, the floor plan as a value, the prop stamps, the room-frame
+  consolidation and the editor itself (§"The set editor"). 20 files / **131
+  tests**.
+
+Both green on `pnpm lint`, typecheck and `next build`. **Do not open a PR
+unprompted.**
 
 **Route:** `/world` — an isometric room-scale companion to `/sky`
 **Reference art:** `~/Downloads/ebbebea6-c72a-4693-8807-d23206ddcd03.png` — the
@@ -666,10 +681,11 @@ open a PR for it until they ask. Then, in rough order:
 
 ## 8. Background processes
 
-The `pnpm dev` on port 3100 left by the earlier session was killed on
-2026-09-01; nothing is expected to be listening. Check with
-`lsof -nP -iTCP:3100 -sTCP:LISTEN` before starting another. Port 3000 belongs to
-an unrelated Vite app of the user's; do not kill it.
+**A `pnpm dev` is running on port 3100** as of the end of the compaction session
+— it was used for every screenshot in that pass and left up. Check with
+`lsof -nP -iTCP:3100 -sTCP:LISTEN` before starting another, and kill that pid
+rather than starting a second. Port 3000 belongs to an unrelated Vite app of the
+user's; do not kill it.
 
 ---
 
@@ -973,3 +989,730 @@ apps/web/test/world-choreography.test.ts       +4 tests
 
 `pnpm lint`, `pnpm --filter @agent-memory-wiki/web typecheck` clean;
 `npx vitest run --project web` → 19 files, **115 tests** passing.
+
+---
+
+## Portrait and mobile — 2026-09-01, uncommitted
+
+Not a PR yet. Three files are modified in the working tree; `main` is at #82
+(`e6fd280`, the home link renamed *Visit Wiki World →*).
+
+### What was wrong
+
+A phone screenshot, 390 CSS px wide:
+
+- The title card (`minWidth: 13rem`) and the roster (`13.5rem`) are 26.5rem
+  together against 24.4rem of viewport, so they overlapped and the version line
+  read `33 speci…`.
+- The REPLAY sign is `top: 1.15rem; left: 50%` — exactly under both of them. The
+  page's only control was unreachable.
+- A second card repeated `ACTIVE AGENTS` as a count, under the title.
+- The log, at `maxWidth: 22rem`, covered about 40% of the floor.
+- `camera.top/bottom` were pinned to the frustum and only the width followed the
+  aspect, so a portrait frame held ±7.6 units of floor against a desktop's ±26.6
+  and the building ran off both sides.
+
+### The HUD
+
+Every panel's position was an inline style, which no media query can override,
+so all four moved into classes (`.world-hud-title/count/roster/log`) at the same
+values. Above them sits `.world-hud-top`, which is `display: contents` on a
+desktop — it changes nothing there — and becomes the top bar on a phone.
+
+Under `max-width: 720px` **or** `max-height: 520px`, which also catches a phone
+held sideways:
+
+- one bar: `← WIKI WORLD · n specimens`, `● n/6`, `REPLAY`, in that flex order;
+- the roster as a horizontally scrolling row of pills, its own heading dropped
+  because the count is in the bar;
+- the log full width at the foot, clamped to three lines by
+  `:nth-child(n + 4) { display: none }`, lines truncated rather than wrapped;
+- the sign's tooltip hung from its right edge, and opened by tap:
+  `@media (hover: none) { .world-sign:focus .world-sign-tip { opacity: 1 } }`;
+- bubbles capped at `min(20rem, 68vw)`, credit lifted clear of the log.
+
+### The camera
+
+`applyCameraFrustum` now reads the shape of the window, not just its ratio:
+
+- **Width.** In portrait the frustum grows until `PORTRAIT_MIN_HALF_WIDTH` (20)
+  of floor is in shot, capped at `PORTRAIT_MAX_SCALE` (2) so the avatars survive.
+- **Lift.** All that extra room otherwise appears as bare tile along the bottom,
+  because the target sits at the hub and the building's mass does not. `lift =
+  (half - frustum) * 0.15` hands a little back to the top.
+- **Elevation.** The four rooms are a symmetric cross, which at 30° projects as a
+  wide shallow diamond — the worst silhouette a tall frame could ask for. Screen
+  height scales with `sin(elevation)`, so portrait stands the camera up to 45°:
+  the building fills 78% of the frame's height against 61% at 30°, measured at
+  1145×1570. Landscape and desktop keep the reference's 30°.
+
+  The horizontal crop is unchanged by this — screen x depends on `(x − z)` alone
+  — so on a 390px phone the LINKS and ARCHIVE signs still sit outside the edges,
+  and no angle would bring them in.
+
+### The corner offices
+
+The three rooms at (-25,-27), (-27,25), (27,-25) exist to keep a wide shot's
+corners off bare floor. A portrait frame has no such corners, so there they read
+as rooms adrift. `BuiltEnvironment.setSceneryOpacity` fades them out.
+
+They needed materials of their own: the four channel materials are shared with
+the building — an outer desk is the same material as a desk in EDIT — so fading
+them where they stood would have faded the building too. Each mesh in the group
+gets a clone, blending is switched on only while the fade runs, and `castShadow`
+goes at the start of it so a shadow does not hold at full strength under a room
+that is leaving.
+
+The fade and the elevation share one half-second clock in the frame loop, so a
+rotation reads as one move; `prefers-reduced-motion` snaps both. The first frame
+is not a change of shape and is not animated.
+
+### Rejected: a portrait room layout
+
+Moving the rooms for portrait was considered and dropped. It would not have paid:
+the cross is symmetric, so any rearrangement that keeps it projects as the same
+wide diamond. Only re-authoring the set into a diagonal stack would help.
+
+It is also three unsynchronised sources of truth. `ROOMS` feeds `wallBoxes` and
+collision, but `WAYPOINTS` is a separate table of twelve literal nodes — move a
+room without them and agents walk into walls, silently. `environment.ts` places
+59 props at literal coordinates and reads `ROOMS` five times; signs, room lights,
+carpets, planters and glass are all hand-written numbers. And every one of them
+is a module-level `const` consumed at import, so a portrait variant means a
+second coordinate set plus a scene rebuild on each rotation, with the actors in
+flight to re-path.
+
+### Files
+
+```
+apps/web/app/world/page.tsx                 HUD classes, the mobile media query
+apps/web/components/world/world-canvas.tsx  frustum, lift, elevation, the eased clock
+apps/web/components/world/environment.ts    outerOffices group, setSceneryOpacity
+```
+
+Verified with Playwright at 390×844, 844×390, 1145×1570 and 1440×900: the bar
+does not overlap (title ends at 183px, count 251–301, sign 308–381), the pill
+strip scrolls (624px of chips in 390), the log shows three lines, and the desktop
+frame is pixel-unchanged. `pnpm lint`, typecheck and `next build` clean;
+`npx vitest run --project web` → 19 files, **123 tests** passing.
+
+---
+
+## Compaction — 2026-09-01, uncommitted
+
+On top of the portrait pass, still not a PR. The user's note: *"nel mockup
+originale la disposizione degli elementi era molto più compatta, gli ambienti
+erano più vicini"* — and measured against the reference it is true. The plan put
+26 units of bare tile between the READ and ARCHIVE facades, nearly two room
+widths; the reference's plaza is about half that, which is why the shot read as
+four rooms scattered on a floor rather than one office around a lobby.
+
+### One knob, not a hundred coordinates
+
+The obvious move — restate every coordinate at a tighter spacing — is the one
+the "rejected: a portrait room layout" note above argues against, and for the
+same reason: `ROOMS`, `WAYPOINTS` and `environment.ts`'s 59 literal placements
+are three tables that have to agree, and nothing checks two of them.
+
+So nothing was restated. `layout.ts` gained **`ROOM_INSET`** (5) and
+**`ROOM_SHIFT`**, which slides each room along its own axis towards the hub —
+READ east, ARCHIVE west, EDIT south, LINKS north, the entrance three quarters of
+that on the diagonal. The authored plan is now `PLAN_ROOMS`, and `ROOMS` is that
+plan with the shift applied to every centre, seat, standby spot and glass spot.
+Waypoints and obstacles carry the room they travel with and are shifted the same
+way. In `environment.ts` each room's props go into a `THREE.Group` positioned by
+`ROOM_SHIFT` — `inRoom(id, …)` — so every literal in that file still reads
+against the same plan `layout.ts` states, and a room moves in one place.
+
+Two consequences worth keeping:
+
+- **A coordinate in this file now means one of two things**, and which one
+  depends on whether it is inside an `inRoom` block. Props are authored in the
+  room's own frame; anything read out of `layout.ts` — the carpets, the obstacle
+  list — is already shifted and is placed at the root. Both are commented.
+- **`inRoom` hands the body its *authored* room**, so the READ armchairs and the
+  EDIT desks still derive from `plan.seats` without picking up the shift twice.
+
+### What the inset broke, and why each fix is where it is
+
+Pulling the rooms in shortens every corridor, and three things that had room
+before stopped having it. All three were found by measuring, not by looking: a
+throwaway test walked every route leg past every wall, obstacle and the plinth
+and printed the closest approach.
+
+- **The way out to the entrance runs through a notch.** LINKS' east face never
+  moves off x 5, because LINKS slides in z, so ARCHIVE's west face alone sets
+  that corridor's width. One junction in the middle of it was not enough: the
+  hub waypoint sits on the same 45° diagonal as LINKS' front corner, so a single
+  node drew a leg **straight over that corner** (measured clearance 0.00). It is
+  two nodes now, `c_e` and `c_s`, down the middle of the channel and then out —
+  which is also what a corridor between two rooms looks like. Both are derived
+  from the two facades rather than written flat, so they follow the knob.
+- **ARCHIVE does not take the full inset.** At the full 5 the channel above was
+  three units wide, half of it spoken for by an actor's ±1.2 lane offset, and
+  the way in to the building read as a gap between two panes rather than as a
+  way in. `ARCHIVE_RELIEF` (2) hands ARCHIVE back two of its five, which puts
+  the channel at five units. The cost is that ARCHIVE stands two units further
+  from the hub than the other three rooms, which does not read: the reference
+  does not stand its rooms at equal distances either. Both facades are now taken
+  off the rooms themselves rather than written down, so the junctions, the notch
+  centre and the corner offices all follow whatever the shifts are set to.
+- **The plinth is 6.2 across, not the 5.4 the old comment claimed**, and the
+  legs that pass it lost half their margin. `c_ne` moved to two units off
+  ARCHIVE's facade and `d_edit` off the middle of EDIT's opening to x 3.5; the
+  worst plinth clearance is 0.82 (it was 1.5). `d_read` moved to z −0.5 for the
+  same reason. Both openings are six units wide, so there is room to lean away
+  from the plinth without leaving the doorway.
+- **Three plaza props were standing in what became a wall.** The info pillar and
+  the kiosk hug a facade, so they went into that room's frame and keep their
+  distance at any inset — the pillar to the *north* of ARCHIVE's doorway, which
+  is where the reference has it, because south of it is now the channel. The two
+  small plants sit on the diagonal, belong to neither room, and were moved by
+  hand out of what is now floor inside EDIT and READ.
+
+### The frame followed the rooms in
+
+A building ten units narrower on both floor axes under the same camera is a
+building with more bare tile around it, which is the opposite of the ask. The
+frustum came down 16.6 → **13.6**, the same ratio as the building's own
+(22/27), so the set holds the frame exactly as it did and the avatars are
+bigger. `PORTRAIT_MIN_HALF_WIDTH` came down 20 → 16 for the same reason, which
+leaves the portrait framing where the portrait pass put it. The three corner
+offices moved in by the inset too: left where they were they would have stood
+off across bare floor.
+
+### The three adjustments after it (same session)
+
+Asked for on the strength of the shot, and all three are one value each in the
+same tables:
+
+- **Two hedges at the reception, not four**, and the desk moved down with them.
+  The outer pair stood four units further out on the same diagonal and read as a
+  hedge run rather than as a reception.
+- **`LINKS_RELIEF`, 2 → 3 → 4.** LINKS' plaque covered READ's third armchair. At
+  a relief of 2 the plaque cleared the chair but LINKS' west wall — 6.4 high,
+  raised for that plaque — still hid it; 3 cleared the chair; 4 was asked for on
+  top, as straight down. The unit of −X that came with the first two steps was
+  given back at the third: **+Z alone moves a thing down *and* left in equal
+  parts**, so −X is what buys left, and the last step was to be down only. That
+  relation is worth keeping in mind for any move on this floor.
+- **The entrance nearly stopped taking the inset.** It reads better *out* of the
+  plaza: the reception belongs at the bottom of the frame, where the reference
+  runs the building off the edge. At a shift of (0, 0) the desk's base and its
+  step fell outside a 16:9 frame, so it takes a unit and a half — enough to sit
+  on the edge without being cut by it.
+- **The concourse that opened up between the reception and the two near rooms
+  was then dressed**, since it was the one bare patch in the frame: the kiosk
+  moved out into it from beside LINKS' doorway, one of the reception's hedges
+  went against LINKS' east glass, and two more stand outside ARCHIVE's east
+  glass, which is the wall the frame's bottom-right corner looks straight at.
+  None of them is in `OBSTACLES` — the kiosk and the LINKS hedge sit three units
+  or more off the line the entrance route takes, and no route reaches ARCHIVE's
+  east side at all, which is served only by the doorway on the far one.
+- **ARCHIVE's info pillar came round to its doorway.** North of the room, where
+  the reference has it, ARCHIVE's own north wall stands in front of it and hides
+  all but the top; beside the door on the screen-right side it reads.
+- **The fountain moved with it**, `ROOM_SHIFT.hub` (0.6, 1.6), down the screen
+  and a little left, so it sits under the shifted LINKS rather than square in
+  the middle of a plaza that is no longer square. Two things had to follow:
+  - **the hub waypoint is tagged to move with the fountain.** The plinth's south
+    face and the hub node are three units apart and *every* corridor leg crosses
+    that gap, so a fountain that moved south on its own would have pushed the
+    READ leg into its own corner (measured 1.21 → 0.27).
+  - **the node then went from z 3 to 3.6.** Moving with the fountain is not
+    enough on its own, because the fountain moves *along* those legs rather than
+    away from them; the extra half unit is what puts the worst of them back at
+    0.94.
+
+The fountain is now built inside `inRoom("hub", …)` like any other room, and
+that block returns the crystal and its material — the two things
+`world-canvas.tsx` animates.
+
+### Two things about working in this repo, learned the hard way
+
+- **Do not run `prettier --write` here.** There is no prettier config and no
+  format script: the repo is *eslint*-checked and happens to be prettier's
+  output at **`--print-width 100`**, with two deliberately longer lines
+  (`wallMaterial`'s 101 and `addCarpet`'s texture ternary at 103). A plain
+  `npx prettier --write` reformats at the default 80 and buries the real diff.
+  Worse, prettier **keeps an object literal split once it has been split**, so a
+  second run at 100 does not undo it — the recovery is to join every line ending
+  in `{` to the next (skipping comment lines), reformat at 100, and put those
+  two long lines back by hand.
+- **Measure the routes, do not look at them.** Every clearance figure in this
+  section came from a throwaway test under `test/`, deleted after use: walk
+  `findPath` over all room pairs plus the last leg out to every seat and standby
+  spot, and for each leg print the closest approach to every wall box, every
+  `OBSTACLES` footprint and the hub plinth (6.2 × 6.2 at the fountain's own
+  shift, which is *not* in `OBSTACLES`). Sort ascending and read the top ten.
+  Two clearances that read fine on screen — a leg over LINKS' corner and a leg
+  through the plinth — were exactly 0.00, and neither was visible in a
+  screenshot of an empty floor.
+
+### Where it stands
+
+Verified at 1600×900, 390×844 and 844×390. `pnpm lint`, typecheck and
+`next build` clean; `npx vitest run --project web` → 19 files, **123 tests**.
+
+Final values, all in `layout.ts` unless said otherwise: `ROOM_INSET` 5,
+`ARCHIVE_RELIEF` 2, `LINKS_RELIEF` 4 (with LINKS' x nudge back at 0),
+`ROOM_SHIFT.hub` (0.6, 1.6) with the hub waypoint at authored z 3.6,
+`ROOM_SHIFT.entrance` (−1.5, −1.5), and `frustum` 13.6 with
+`PORTRAIT_MIN_HALF_WIDTH` 16 in `world-canvas.tsx`.
+
+Known, and both pre-existing rather than caused by this:
+
+1. **The two hub standby spots route through the plinth.** The legs from the hub
+   waypoint out to the two spots behind the fountain cross it, and moving the
+   fountain moved both together so it is unchanged rather than fixed. The plinth
+   is not in `OBSTACLES`, so no test sees it. The fix is to re-author those two
+   spots beside the plinth instead of behind it — two coordinates — and it was
+   left alone because nothing in this pass asked for it.
+2. ~~One lane in six brushes the channel glass.~~ Fixed by `ARCHIVE_RELIEF`:
+   the channel is five units wide, and the widest lane offset is 1.2, so every
+   lane clears both panes.
+
+To change the spacing: `ROOM_INSET` in `layout.ts`, one value, with
+`ARCHIVE_RELIEF` beside it holding the entrance corridor open. Below 4 the plaza
+gets its bare tile back; above 5, raise the relief with it or the corridor
+closes again.
+
+---
+
+## The set editor — 2026-09-01, branch `feat/world-editor`
+
+Asked for as: *"un editor che mi consenta di muovere gli elementi manualmente
+wysiwyg sia le stanze complete che i singoli elementi… permettendoti però di
+ricostruire i path, gli ostacoli, ecc"* — with the standing instruction to plan
+first and to say if it made the project less stable.
+
+Five commits, in this order, each green on its own.
+
+### What it is, and the one thing it deliberately is not
+
+`/world?edit=1` turns the page into a WYSIWYG editor for the set. Click a room
+or a prop, drag it on the floor, and the panel measures what that did to the
+walk graph *while you drag*. Arrow keys nudge, `q`/`e` change height, `r`
+rotates by 15°, the snap cycles free / 0.25 / 0.5 / 1, and Export hands back the
+numbers to paste.
+
+**It does not rebuild the waypoint graph, and that is a decision rather than a
+gap.** The graph is authored: twelve nodes plus an adjacency table saying which
+corridors exist. It encodes where a corridor *is*, not the shortest way across
+an empty floor. Generating it from the geometry means a grid navmesh, and a grid
+navmesh would cut the plaza diagonally and lose the thing the reference art is
+about. What travels automatically is what already did — nodes tagged to a room
+move with it, and the three plaza junctions re-derive from the facades either
+side of them. Everything else is measured and reported, and fixing it is a
+human's call.
+
+**It does not write to disk either.** The floor is authored in two files whose
+prose carries the reasoning behind every coordinate; a tool that rewrote them
+would eventually mangle that prose, and a tool that only *proposes* numbers
+costs nothing when it is wrong. Export names each change by the authored
+position it was written at, which is what makes the line greppable back to the
+call that wrote it.
+
+### The four things that had to exist first
+
+**1. Measurement, not a boolean** (`lib/world/validate.ts`). `layout.ts` answers
+"does this leg cross a wall or clip a prop". The editor needs "by how much", and
+so does anyone moving a room: the two worst things this set has shipped were a
+leg over LINKS' corner and a leg through the plinth, both at a measured 0.00 and
+neither visible in a screenshot. §"Compaction" found both with a throwaway
+script and deleted it twice. It is a module now, and the test beside it pins
+what the floor measures today: **exactly two legs touch anything** — the walk
+out to the two hub standby spots behind the fountain, the known rough edge —
+and everything else clears more than an avatar's width. A third zero means
+something moved and took a route with it.
+
+`HUB_PLINTH` moved into `layout.ts` at the same time. It stays out of
+`OBSTACLES` on purpose: listing it would make those two standby spots
+unreachable rather than fix them.
+
+**2. The floor plan as a value** (`deriveFloor` in `layout.ts`). Everything the
+shifts touch was computed once at import into module constants — right for a
+plan that never changes, wrong for asking what a *different* arrangement would
+do. `deriveFloor(shift)` returns rooms, waypoints, obstacles, plinth and wall
+boxes together; `DEFAULT_FLOOR` is that applied to `ROOM_SHIFT`, and every
+export the page already used is one of its fields, so no consumer changed.
+`findPath`, `segmentCrossesWall` and `segmentHitsObstacle` take a floor,
+defaulting to that one.
+
+Verified by identity rather than by reading: rooms, waypoints, obstacles, plinth
+and all thirty-six room-to-room paths dumped to JSON before and after, and the
+two files are the same. **Reuse that trick for any change to this file.**
+
+**3. Stamps, not a data table** (`environment.ts`). A prop had geometry and a
+position and no identity, so a tool that drags one has nothing to call it.
+Lifting sixty-five placements into a data table would have restated two days of
+by-eye tuning as an unreviewable diff. Instead `place`, `placeVoxel` and
+`placeText` record what they were given on the object itself —
+`userData.editable` carries a positional id, the geometry key, the room frame,
+and the coordinates as authored. Lettering that sits on a prop passes that
+prop's id to both calls, so a dragged plaque does not slide out from under its
+own letters.
+
+**4. A room that is actually one thing.** Carpets, doorway strips, obstacle
+props and room lights were placed at the root from the already-shifted tables.
+That worked — `plan + shift` is what those tables hold — but it split a room
+across two frames, so moving its group would have left its floor, its planters
+and its lamp behind. All three now go into the room's own frame from the plan,
+which also collapses the ambiguity §"Compaction" left behind: outside the corner
+offices and the concourse plants, which belong to no room, every coordinate in
+`environment.ts` is in the plan now.
+
+### What the panel shows, and why that is the whole point
+
+Six tightest clearances, green while a leg has room, amber inside the ±1.2 lane
+budget, red at zero. Drag ARCHIVE two and a half units west and the corridor
+legs past the plinth go **0.94 → 0.14**, because `c_ne` is measured off
+ARCHIVE's own facade. Nothing about that is visible in the frame; it is a number
+that turns amber under your hand. That single behaviour is the reason the
+measurement had to come before the editor.
+
+`MAX_LANE` is a budget to read a figure against, not a number to subtract from
+it: the offset is perpendicular to the leg, so a doorway node standing a unit
+off its own facade is not brought closer to it by a lane running past.
+
+### Cost in production
+
+One `URLSearchParams` read in `world-canvas.tsx`, plus the `userData` stamps.
+The editor is a dynamic import: `next build` puts it in a 10KB chunk of its own
+that the world page's bundle does not reference. Actors are not staged while it
+is on — an actor mid-leg is walking a path derived from a floor that is moving
+under it, and an empty floor is what you want to look at anyway. The activity
+log is hidden, because it owns the same corner as the panel and was swallowing
+its clicks.
+
+### Verified
+
+Driven end to end with Playwright against the dev server: room picking resolves
+at five points across the floor, a prop drag moves its obstacle footprint with
+it (`archive seat 0` 1.21 → 0.95 and the export line names
+`PLAN_OBSTACLES archive-crates-w`), and a room drag breaks two corridors and
+says which. The two refactors were checked against screenshots at 1600×900 —
+the set is in the same pixels, and the only differences in the frame are the
+avatars and the HUD.
+
+### Where it stands, and what is worth doing next
+
+- **Waypoints are not draggable yet.** They are the one part of the plan the
+  editor reports on but cannot move, and they are also the fix for most of what
+  it reports. Rendering the twelve nodes as pickable markers is the obvious
+  next step and needs no new machinery: they are already a table.
+- **The two hub standby spots still route through the plinth.** Unchanged, and
+  now pinned by a test rather than by a paragraph. Two coordinates.
+- **Export is one-way.** Applying a patch is a human's or an agent's job; that
+  is the point, but a `--check` that reads the current source and says whether
+  it matches the last export would close the loop without writing anything.
+
+
+---
+
+## The editor's first layout — 2026-09-01, branch `feat/world-editor`
+
+The first set of numbers to come back out of `?edit=1` and go into the source.
+Fourteen lines pasted from Export: three room shifts and eleven props, one of
+which was a no-op. Applied verbatim, then measured.
+
+### What the export could not tell us
+
+Three of the moves broke a clearance and one fixed one, and **none of the four
+was visible in the frame or caught by a test**, because all four props involved
+are placed by hand in `environment.ts` and were in no list at all. The editor's
+own panel reported the plinth, which is in `layout.ts`; it could not report the
+other three, and that gap is what the pass below closes.
+
+| | before | after the paste | fixed to |
+|---|---|---|---|
+| `lounge-table` · links standby 2 | 1.70 | **0.00** | 1.45 |
+| `info-pillar` · edit→read leg 2 | 0.93 | **0.42** | 1.15 |
+| `read→edit leg 2` · plinth | 0.94 | **0.64** | 1.04 |
+| `kiosk` · entrance standby 1 | **0.00** | 5.50 | — |
+
+The kiosk row is the one worth staring at: it had been at zero since the
+concourse was dressed, through two passes and a ship, and the thing that found
+it was measuring a prop that had moved for an unrelated reason.
+
+### The four repairs
+
+- **LINKS' side table had landed on that room's third standby spot** — not near
+  it, on it, so an avatar queuing there wore it. Walked north to `z 25.4`. The
+  standby row is a straight queue at `x -1`; bending the queue round the
+  furniture would have been the worse trade.
+- **The info pillar and `c_ne` are derived from the same facade**, so ARCHIVE
+  moving east carried them together and closed them to 0.42. The pillar went a
+  unit north; it stays south of the wall that would hide it.
+- **The fountain moved south again and took the READ corridor with it.** The hub
+  waypoint travels with the hub, so its own relation to the plinth held — but
+  `d_read` does not travel with anything, and that leg came back at 0.64. The
+  hub node's gap to the plinth's south face went 3.6 → 4.6, which is the third
+  time this number has moved and always for this leg. **If the fountain moves
+  again, check `read→edit leg 2` first.**
+- **The two hub standby spots that had routed through the plinth since the
+  compaction pass are gone**, re-authored at `(±5.5, 0.6)` — beside the fountain
+  rather than behind it, which is the fix §"The set editor" described and
+  nothing had asked for. Both legs now measure 1.82. The floor has **no leg
+  touching anything**, and `world-validate.test.ts` pins that rather than
+  pinning the two zeroes.
+
+### `PLAN_SCENERY`: measured, not placed
+
+`PLAN_OBSTACLES` is a *placement* list — `environment.ts` draws a prop for every
+entry — so a prop that file already authors by hand cannot be added to it
+without drawing it twice. That is why the kiosk, the pillar, the lounge pair and
+the four plaza plants were in nothing: the only list that could have held them
+would have duplicated them.
+
+`PLAN_SCENERY` in `layout.ts` is the other half. A footprint per hand-placed
+prop that stands on open floor near a route, carried on `Floor.scenery`, read by
+`validate.ts`, placed by nobody. It deliberately **does not change pathing**:
+`findPath` still routes around `PLAN_OBSTACLES` alone, and a prop here is
+something the clearance test reports rather than something the graph swerves
+for — the same division the editor draws.
+
+Two things to know before adding to it: the footprint is the prop's widest part
+*at the height an avatar occupies*, which for `plantTall` is the canopy at
+y 1.95 and not the pot; and a prop placed at a rotation needs the bound of the
+rotated box, which is why the kiosk is 1.56 square rather than 1.2 × 1.0.
+
+The cost is a second place to edit when one of these moves. That is the trade
+the waypoint table already makes, and the test is what catches the drift.
+
+### Consequences for the layout knobs
+
+- `LINKS_RELIEF` went 4 → **2.5** and `ARCHIVE_RELIEF` 2 → **3.25**, and both
+  rooms now carry a nudge *across* their own axis (`links.x` +1.5,
+  `archive.z` +0.5) that the relief formula has no slot for. `ROOM_INSET` is
+  still the one knob for the spacing; the cross-axis terms are framing and do
+  not scale with it.
+- **LINKS' east face moves now.** The `ARCHIVE_RELIEF` docblock used to say it
+  never left x 5 because LINKS slid in z alone. With the x nudge the notch out
+  to the entrance is 4.75 rather than 5, so both reliefs bear on that corridor.
+- `ROOM_SHIFT.hub` (0.6, 1.6) → **(1, 2.75)**.
+
+### Still open
+
+- **The editor measures a dragged *room* against the scenery, but not a dragged
+  *prop*.** `walkClearances(candidateFloor())` sees `Floor.scenery`, so a room
+  drag now reports it; the prop-drag path resolves its selection through
+  `PLAN_OBSTACLES` alone, so dragging a scenery prop moves it on screen without
+  moving its footprint in the measurement. Export has the same shape: it emits a
+  `PLAN_OBSTACLES` line and no `PLAN_SCENERY` one.
+- Two pre-existing tight pairs are unchanged and were tight before this pass:
+  `archive seat 2 · archive-crates-e` at 0.87 and `read glass · read-table` at
+  0.97. Both clear `AVATAR_CLEARANCE`.
+
+### The editor's second pass — drag, turn, clone, delete, undo
+
+Four requests, all on `?edit=1`.
+
+- **The panel drags by its title bar.** It owns the bottom-left corner, and the
+  corner it owns is sometimes the one holding the prop you are placing in it. It
+  positions from `bottom` until first grabbed and from `top` after — an element
+  cannot be dragged in y while `bottom` is what pins it — and clamps so 40px of
+  it always stays on screen, or the grip would be ungrabbable.
+- **Rotation is by fixed turn, 90° by default** (`r` / shift-`r`, or the two
+  buttons; the step cycles 90 / 45 / 15). 90 first because the set is built on
+  the floor's own axes: everything in `environment.ts` is at 0, ±π/2 or π, and a
+  prop at some other angle reads as dropped rather than laid out.
+  - **It turns the group about its anchor, not each object about its own
+    centre**, which is what it used to do. A sign is its plaque *and* the
+    lettering placed in front of it; spinning both in place at ninety degrees
+    left the letters facing out of the wall they are painted on.
+  - **A room does not rotate**, and says so. Its walls, doorways, seats and
+    waypoints are authored axis-aligned in `layout.ts` and none of them would
+    follow, so turning the frame would silently disagree with the walk graph.
+  - Rotation is now **exported**, which it never was: the panel turned things and
+    the patch said nothing. It comes back spelled the way the file spells it —
+    `CAMERA_FACING`, `-Math.PI / 2` — with a plain number as the signal that a
+    prop has been left off-axis.
+- **Clone (`c`) and delete (`del`).** Neither writes anything. A clone has no
+  call to amend, so it exports as a line to *write*, naming the prop it was
+  copied from and that prop's authored position, which is what makes the
+  original one grep away; the builder argument comes back as `<builder>`,
+  because it is a function reference this module cannot name and a guess at
+  `F.something` is a paste that does not compile. A deletion exports as the call
+  to remove, named by its authored position, plus its footprint entry if it has
+  one. Cloning shares geometry and material, so a copy costs a transform and
+  nothing on the GPU.
+- **Undo (`ctrl`/`cmd-z`)** is a stack of closures that put back the fields one
+  action touched — there is no serialisable document here to diff, only a scene
+  graph and four maps. An entry is taken *before* the change, so a drag captures
+  on pointer-down and pushes on pointer-up, and only if it went anywhere: a
+  click that merely selects is not an action to undo.
+
+### Three defects this pass found in the editor as it stood
+
+All three were found by driving the page, not by reading it.
+
+- **The scenery footprints were not wired to anything.** `PLAN_SCENERY` named
+  its entries readably (`kiosk`) and `environment.ts` stamps positional ids
+  (`kiosk#1`), so the lookup never matched and the list was dead on arrival. It
+  carries a `prop` field naming the stamp now. With it wired, dragging the kiosk
+  ten units back onto the entrance route takes the panel to **0.10** — before,
+  the prop moved on screen and the panel reported the floor it had *before* the
+  drag, which is worse than reporting nothing.
+- **A cloned object's rotation exported as 0 however it was turned.**
+  `Object3D.copy` carries orientation as a quaternion, and the Euler derived
+  back from one is only *an* equivalent: a half-turn about Y comes back as
+  (π, 0, π), not (0, π, 0). The copy looked right and reported `rotationY` 0.
+  Copying the source's Euler outright keeps the screen and the patch agreeing.
+- **The glass swallowed every pick.** Every room is glazed on the sides facing
+  the camera, so the pane was the first thing the ray met and the props inside a
+  room were unselectable — which makes rotate, clone and delete useless exactly
+  where they are wanted. Picking now prefers the nearest hit that is not a pane,
+  falling back to the pane so one is still selectable over empty floor. A grid
+  scan of the frame reaches 72 distinct props, desks and crates included.
+
+Verified by driving the running page: the panel moves from (12, 570) to
+(660, 110); `r` takes a pane from `Math.PI / 2` to `Math.PI` and the export says
+so; a clone selects itself and exports as a new call inside the right `inRoom`
+frame; deleting a scenery prop drops its footprint from the measurement and
+exports both the call and the entry; and twenty undos return the export to
+`nothing moved yet.` No console errors.
+
+**Still one-way, deliberately.** Export proposes, a human applies. A `--check`
+that reads the current source and says whether it matches the last export is
+still the thing that would close the loop without writing.
+
+---
+
+## The fountain, and the editor's third layout — 2026-09-01
+
+The user's report, alongside a second export: *"la fontana dell'hub non sembra
+essere considerata tra gli ostacoli. vedo che gli agenti la attraversano."*
+Both true, and they are two different problems.
+
+### The fountain was not an obstacle, and that is now fixed
+
+`PLAN_PLINTH` sat outside `Floor.obstacles` by design — §"The set editor"
+records why: two of the hub's standby spots stood *behind* it, so listing it
+would have made them unreachable rather than fixed anything, and the note said
+the fix was to re-author those two spots beside it. That was done earlier the
+same day. **The exception had outlived its reason**, so `deriveFloor` now puts
+the fountain in `Floor.obstacles` like everything else, under a new
+`ObstacleKind` of `"fountain"`. It is still placed by the hub's own dressing:
+`PLAN_OBSTACLES` is a placement list and the fountain is not in it.
+
+### But that is bookkeeping. Walking through it was geometry
+
+Listing it changes nothing on screen, because avatars do not consult the
+obstacle list — they walk the authored waypoint legs. The reason they walked
+through the water is arithmetic:
+
+- the tightest leg passed the plinth at **1.04**;
+- an actor does not walk the centre line, it takes a lane offset of up to
+  `MAX_LANE` (1.2), and `AVATAR_CLEARANCE` (0.55) of body reaches past that.
+
+So the bar is **1.75**, and at 1.04 three of the six lanes drove through the
+fountain. This is the first clearance on this floor with a *target* rather than
+a floor of "more than an avatar's width", and the target is written down in the
+test.
+
+**Sliding waypoints could not reach it.** The hub node was the obvious lever and
+it tops out: at plan z 5.6 the leg reaches 1.67, and past 6.1 the hub's own
+waypoint stands outside the hub room. Moving `d_read` south instead trades the
+fountain against READ's doorway planter — a sweep of the whole (x, z) grid for
+that node has no cell where both clear. The node is back at 4.6, where it was.
+
+**Routing round it did.** The east side of the plaza has had junctions since the
+compaction pass, for exactly this reason: the plinth is between the hub and
+EDIT, so that route steps out east first. The fix is to say the same thing about
+the other three quadrants and mean it:
+
+- **`c_w`**, new, a unit and a half west of the plinth's west face and a little
+  past its south one, measured off the fountain so it follows it. `hub`–`d_read`
+  is **gone**: BFS counts hops and would have taken the shorter, worse route.
+- **`hub`–`c_ne` is gone too.** With the west fixed, that leg became the binding
+  one at 1.59 — it cut the fountain's *south-east* corner. EDIT is now reached
+  through `c_e`, which already stood clear of the plinth with a run to both.
+
+The floor now clears the fountain by **1.82** everywhere, and READ↔EDIT reads
+`read → d_read → c_w → hub → c_e → c_ne → d_edit → edit`: a walk around a
+fountain rather than through it.
+
+`read-planter-s` moved half a unit south with it, to 3.5. The new west route
+passes it on the way in and clipped it at 0.80; it now measures 1.10, at the
+price of overhanging the glazed panel it is tucked under by 0.3.
+
+### A note on the lanes, not acted on
+
+`LANES` is `[0, 0.8, -0.8, 0.4, -0.4, 1.2]` — five symmetric offsets and one
+stray. The widest lane exists on one side of a corridor only, so which side of a
+leg a prop stands on decides whether the sixth actor clears it. `MAX_LANE` is
+honest about the number; the asymmetry looks unintended. Left alone because
+nothing asked for it and it is a behaviour change, not a measurement.
+
+### What the layout paste moved
+
+`ROOM_SHIFT.archive` to (-0.75, 0.5) (`ARCHIVE_RELIEF` 4.25); the kiosk, the
+info pillar, both LINKS lounge pieces, a plaza plant, two entrance plants, two
+glass runs and the hub sign; READ's low table turned a quarter turn; a hedge
+cloned from `read-planter-s`; and LINKS' second picture frame deleted.
+
+Two things needed a hand:
+
+- **READ's low table landed in the fan of legs out of READ's own waypoint**, at
+  0.00 against four of them including the walk in through the doorway. Its z
+  came back from 0.75 to 3.5. This is the third time this table has had to be
+  moved off that line.
+- **The cloned hedge keeps READ's frame**, because that is the frame the prop it
+  was copied from lives in — so it travels with READ while standing behind
+  LINKS' north wall. Kept as exported and commented, because re-homing it
+  silently changes where it lands the next time a room moves. Worth a look.
+
+Still open: `links seat 1 · scenery:lounge-table` at **0.65**. That clears an
+avatar's width and reads as a side table beside a chair, so it was left alone —
+but it is the tightest thing on the floor now.
+
+### Two bugs in the editor, both visible in the paste itself
+
+- **A footprint tracked its prop from the wrong anchor.** `movedObstacles` and
+  `movedScenery` recorded `plan + (position − selectionOrigin)`, and a
+  selection's origin is taken afresh on every click — so a prop dragged,
+  released, clicked and dragged again recorded only the second drag. Two entries
+  in the paste disagreed with their own `place` lines because of it
+  (`lounge-table` by (1.5, 2.75), `info-pillar` by (0.25, 1.0)); the `place`
+  lines were the correct ones and are what was applied. The anchor is the
+  prop's **authored** position now, which is fixed and stateless.
+- **A quarter turn did not swap a footprint's extents.** READ's table was turned
+  90° and its exported footprint kept `width: 1.8, depth: 1.1` — a footprint at
+  right angles to the prop standing in it, which is the one thing
+  `PLAN_OBSTACLES` exists to prevent. The export swaps them now and says it did.
+  The placement loop had the same gap in the other direction: `coffee-table` was
+  placed at rotation 0 whatever its footprint said, so it now turns by its own
+  extents the way a planter does.
+
+### LINKS' lounge corner — the table, and a red chair
+
+**The table went back beside its chair**, from authored (-7.25, 20) to
+(-6, 14.5). Where the editor left it it stood 0.65 off the walk into LINKS'
+middle seat, the tightest thing on the floor; it now measures 1.55, with 0.15
+between the two footprints — a side table beside a chair, which is what it is.
+
+Worth recording *why* 0.65 was not the emergency it looked like, because the
+same arithmetic applies to every seat on this floor. **The last leg of a walk
+carries no lane offset.** `legTarget` in `world-canvas.tsx` returns the waypoint
+unchanged when `isFinal`, because the last point of a path is the seat the actor
+reserved and is already its own. So the bar for a leg into a seat is
+`AVATAR_CLEARANCE` alone (0.55), not the `MAX_LANE + AVATAR_CLEARANCE` (1.75)
+that the fountain needed — the lane budget applies to corridors, where a crowd
+shares a line, and tapers to nothing at the destination. `archive seat 2` has
+sat at 0.87 against its crates for the same reason.
+
+**The chair is red.** It was a slate blue, in the same family as LINKS' cyan
+screen and teal weave; a red is the only warm thing in that room.
+
+It took two goes, and the second is the point. `0xa8443f` — a fair mid red on
+paper, at the blue's own lightness — sampled off the screen at **`0x261215`**,
+which is black. That corner is the darkest place in the set: the key at azimuth
+70 never reaches those faces and the AO in the corner takes what is left. At
+`0xe0655a` / `0xf98c80` / `0xed7468` the same faces read `0x5c1a1f` with the
+cushion at `0xa22b2c`, brighter than the blue it replaced ever managed
+(`0x18273d`), and it reads as red rather than as maroon.
+
+That is the third time this file has recorded the same lesson — §3.1 for the
+plaque, §10.2 for Claude's orange, this. **Sample the pixels, do not judge the
+hex**, and expect a warm hue in an unlit corner to need authoring two stops up.
