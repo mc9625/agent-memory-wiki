@@ -88,35 +88,89 @@ export const createTextTexture = (
 };
 
 /**
- * The corridor floor: a light tile with a darker grout line, repeated by the
- * material rather than by geometry.
+ * The corridor floor: light tiles with a darker grout line and a faint grain,
+ * repeated by the material rather than by geometry.
+ *
+ * The canvas holds a GRID x GRID block of tiles rather than one, and every tile
+ * in it gets its own tint jitter and its own grain. With a single tile the
+ * material repeated the identical square across the whole plate and the floor
+ * read as printed paper; sixteen of them is enough that the eye stops finding
+ * the period. The grout still lands on a continuous grid, because each tile
+ * draws its joint on the same two edges and the block tiles seamlessly.
  */
 export const createTileTexture = (
   tint: string,
   grout: string,
   repeat: number,
 ): THREE.CanvasTexture => {
-  const size = 128;
+  const TILE = 128;
+  const GRID = 4;
+  const size = TILE * GRID;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("world: 2d canvas is unavailable");
 
-  context.fillStyle = tint;
-  context.fillRect(0, 0, size, size);
-  context.fillStyle = grout;
-  context.fillRect(0, 0, size, 4);
-  context.fillRect(0, 0, 4, size);
-  // A faint highlight along the opposite edges reads as a bevelled tile.
-  context.fillStyle = "rgba(255, 255, 255, 0.35)";
-  context.fillRect(4, size - 3, size - 4, 3);
-  context.fillRect(size - 3, 4, 3, size - 4);
+  const base = Number.parseInt(tint.slice(1), 16);
+  /** The tint, every channel moved by the same amount and clamped. */
+  const shifted = (delta: number): string => {
+    const channel = (offset: number): number =>
+      Math.max(0, Math.min(255, ((base >> offset) & 0xff) + delta));
+    return `rgb(${channel(16)}, ${channel(8)}, ${channel(0)})`;
+  };
+
+  for (let row = 0; row < GRID; row += 1) {
+    for (let column = 0; column < GRID; column += 1) {
+      const x = column * TILE;
+      const y = row * TILE;
+
+      // Most tiles sit within a few levels of the tint; roughly one in six is
+      // fired a stop off, which is what a real run of maiolica does.
+      const outlier = Math.random() < 0.17;
+      context.fillStyle = shifted(Math.round((Math.random() - 0.5) * (outlier ? 26 : 11)));
+      context.fillRect(x, y, TILE, TILE);
+
+      /*
+       * Grain, before the grout so the joint stays a clean line.
+       *
+       * Two passes, because they survive different distances. The broad patches
+       * are what still reads once the tile is twenty screen pixels and the
+       * mipmap has averaged everything finer away; the speckle only shows when
+       * the camera is close. Both are held near the threshold of visible on
+       * purpose — this is here to stop the floor being a flat slab, not to make
+       * it a stone.
+       */
+      const patches = 4 + Math.floor(Math.random() * 5);
+      for (let patch = 0; patch < patches; patch += 1) {
+        context.fillStyle = patch % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.032)";
+        const spread = 10 + Math.random() * 22;
+        context.fillRect(x + Math.random() * TILE, y + Math.random() * TILE, spread, spread);
+      }
+      const specks = 70 + Math.floor(Math.random() * 60);
+      for (let speck = 0; speck < specks; speck += 1) {
+        context.fillStyle = speck % 2 === 0 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.055)";
+        context.fillRect(x + Math.random() * TILE, y + Math.random() * TILE, 3, 3);
+      }
+
+      // The joint goes on two edges only, so neighbours share one line rather
+      // than drawing two side by side.
+      context.fillStyle = grout;
+      context.fillRect(x, y, TILE, 4);
+      context.fillRect(x, y, 4, TILE);
+      // A faint highlight along the opposite edges reads as a bevelled tile.
+      context.fillStyle = "rgba(255, 255, 255, 0.35)";
+      context.fillRect(x + 4, y + TILE - 3, TILE - 4, 3);
+      context.fillRect(x + TILE - 3, y + 4, 3, TILE - 4);
+    }
+  }
 
   const texture = finish(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(repeat, repeat);
+  // `repeat` counts tiles across the plate, and the canvas already carries GRID
+  // of them per axis.
+  texture.repeat.set(repeat / GRID, repeat / GRID);
   return texture;
 };
 
