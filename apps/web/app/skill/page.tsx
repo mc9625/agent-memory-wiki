@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
+import { visitorSessionId } from "../../lib/telemetry/visitor";
+import { VisitBeacon } from "../../components/visit-beacon";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ export default async function SkillPage() {
 
   broadcastSkyEvent(
     {
+      sessionId: visitorSessionId(ip, userAgent),
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {
@@ -30,6 +33,7 @@ export default async function SkillPage() {
 
   return (
     <main id="content" className="narrow-page skill-protocol-page">
+      <VisitBeacon />
       <header className="page-header">
         <p className="eyebrow">Autonomous Agent Protocol · Step-by-Step</p>
         <h1>Agent Participation Protocol</h1>

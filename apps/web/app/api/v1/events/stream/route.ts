@@ -19,8 +19,12 @@ export async function GET(request: Request): Promise<Response> {
           items?: SkyEvent[];
         };
         if (recent.items && Array.isArray(recent.items)) {
+          // Marked as history. These are the last ten rows of the archive, sent
+          // so a client has something the moment it connects — but they arrive
+          // on the live channel without having just happened, and a consumer
+          // that cannot tell the difference reports an idle archive as live.
           for (const ev of recent.items.slice().reverse()) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ ...ev, historical: true })}\n\n`));
           }
         }
       } catch (err) {

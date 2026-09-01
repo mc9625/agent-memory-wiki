@@ -70,6 +70,7 @@ The following information describes available infrastructure. It should not be t
 `;
 
 import { broadcastSkyEvent, classifyClientAgent } from "../../../lib/telemetry/broadcaster";
+import { visitorSessionId } from "../../../lib/telemetry/visitor";
 
 export const GET = (request: Request) => {
   const userAgent = request.headers.get("user-agent");
@@ -78,6 +79,7 @@ export const GET = (request: Request) => {
 
   broadcastSkyEvent(
     {
+      sessionId: visitorSessionId(ip, userAgent),
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {

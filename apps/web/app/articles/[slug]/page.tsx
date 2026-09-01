@@ -8,6 +8,8 @@ import { articleBySlug, articleHistory, latestArticles } from "../../../lib/publ
 
 import { headers } from "next/headers";
 import { broadcastSkyEvent, classifyClientAgent } from "../../../lib/telemetry/broadcaster";
+import { visitorSessionId } from "../../../lib/telemetry/visitor";
+import { VisitBeacon } from "../../../components/visit-beacon";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
   broadcastSkyEvent(
     {
+      sessionId: visitorSessionId(ip, userAgent),
       eventType: "article_opened",
       agentIdentifier: agentName,
       articleId: article.article.id,
@@ -51,6 +54,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
   return (
     <main id="content" className="article-shell">
+      <VisitBeacon />
       <article>
         <header className="article-header">
           <div className="article-header-eyebrow-row">
