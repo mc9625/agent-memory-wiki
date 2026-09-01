@@ -75,7 +75,83 @@ export interface Room {
 
 const ROOM_SIZE = 14;
 
-export const ROOMS: readonly Room[] = [
+/**
+ * How far each room is pulled in towards the hub, in world units.
+ *
+ * The plan below is authored at the original spacing, which put 26 units of
+ * bare tile between the READ and ARCHIVE facades — nearly two room widths, and
+ * roughly twice what the reference art shows. Rather than restate a hundred
+ * coordinates at a tighter spacing, every room keeps its authored numbers and
+ * this one value slides it along its own axis: READ east, ARCHIVE west, EDIT
+ * south, LINKS north. Everything that belongs to a room — its seats, its
+ * standby queue, its glass spot, its doorway waypoint, its planters, and the
+ * props `environment.ts` dresses it with — moves by the same vector, so the
+ * relative geometry inside a room is untouched and only the plaza shrinks.
+ *
+ * The one room that does not take the full inset is ARCHIVE — see
+ * `ARCHIVE_RELIEF`.
+ */
+export const ROOM_INSET = 5;
+
+/**
+ * How much of the inset ARCHIVE gives back.
+ *
+ * The way out to the entrance runs through the notch between LINKS' east face,
+ * which never moves off x 5 because LINKS slides in z, and ARCHIVE's west face.
+ * So ARCHIVE's inset alone sets that corridor's width, and at the full 5 it was
+ * three units — half of it spoken for by an actor's ±1.2 lane offset. Two units
+ * back puts it at five, which is a corridor rather than a gap, at the price of
+ * ARCHIVE standing two units further from the hub than the other three. That
+ * asymmetry is invisible: the reference does not stand its rooms at equal
+ * distances either.
+ */
+const ARCHIVE_RELIEF = 2;
+
+/**
+ * How much of the inset LINKS gives back, for a reason of the frame rather than
+ * of the floor: LINKS' plaque stands on its west wall, six units up, and at the
+ * full inset it covered READ's third armchair. Two units back drops it clear.
+ * It went 2 → 3 → 4 by eye. At 2 the plaque cleared the chair but the wall
+ * itself, six units up, still hid it. The unit of -X that came with the first
+ * two steps has since been given back: +Z alone moves a thing down *and* left in
+ * equal parts, so -X buys left and the last step was asked for as straight down.
+ */
+const LINKS_RELIEF = 4;
+
+/** Which way each room slides. The hub is the thing they slide towards. */
+export const ROOM_SHIFT: Readonly<Record<RoomId, Point>> = {
+  read: { x: ROOM_INSET, z: 0 },
+  edit: { x: 0, z: ROOM_INSET },
+  links: { x: 0, z: -(ROOM_INSET - LINKS_RELIEF) },
+  archive: { x: -(ROOM_INSET - ARCHIVE_RELIEF), z: 0 },
+  /*
+   * The fountain is not a room, but it moves the same way: down the screen and
+   * a little to its left, to sit under the shifted LINKS rather than square in
+   * the middle of a plaza that is no longer square. Its waypoint is tagged to
+   * move with it — the plinth's south face and the hub node are only three
+   * units apart and every corridor leg crosses that gap, so a fountain that
+   * moved south on its own would push the READ leg into its own corner.
+   */
+  hub: { x: 0.6, z: 1.6 },
+  // The entrance is on the diagonal, so it takes the inset on both axes — but
+  // three quarters of it, because it also has to stay south of ARCHIVE's front
+  // corner, which does not move in z at all.
+  // The reception is the one thing that reads better *out* of the plaza: it sits
+  // at the bottom of the frame, where the reference has the building running off
+  // the edge. It takes a unit and a half rather than the full inset, which is
+  // what keeps the desk's base and its step inside the frame at 16:9.
+  entrance: { x: -1.5, z: -1.5 },
+};
+
+const shifted = (point: Point, by: Point): Point => ({ x: point.x + by.x, z: point.z + by.z });
+
+/**
+ * The floor plan as authored, at the original spacing. `ROOMS` is this plan
+ * with `ROOM_SHIFT` applied; `environment.ts` places its props in this frame
+ * and lets a parent group carry the shift, so both files stay readable against
+ * the same numbers.
+ */
+export const PLAN_ROOMS: readonly Room[] = [
   {
     // Armchairs face +X, towards the hub and the camera, with the bookshelves
     // on the -Z wall behind them.
@@ -221,6 +297,17 @@ export const ROOMS: readonly Room[] = [
   },
 ];
 
+export const ROOMS: readonly Room[] = PLAN_ROOMS.map((room) => {
+  const by = ROOM_SHIFT[room.id];
+  return {
+    ...room,
+    center: shifted(room.center, by),
+    seats: room.seats.map((seat) => shifted(seat, by)),
+    standby: room.standby.map((spot) => shifted(spot, by)),
+    ...(room.glass ? { glass: { ...room.glass, at: shifted(room.glass.at, by) } } : {}),
+  };
+});
+
 const roomIndex = new Map<RoomId, Room>(ROOMS.map((room) => [room.id, room]));
 
 export const getRoom = (id: RoomId): Room => {
@@ -235,30 +322,85 @@ export const getRoom = (id: RoomId): Room => {
  * `c_*` nodes are the two corridor junctions that exist only to route around
  * the hub plinth and out to the entrance.
  */
-export const WAYPOINTS: Readonly<Record<string, Point>> = {
+const PLAN_WAYPOINTS: Readonly<Record<string, Point>> = {
   read: { x: -21, z: 0 },
   edit: { x: 2, z: -21 },
   links: { x: -5, z: 20 },
   archive: { x: 20, z: 0 },
-  hub: { x: 0, z: 3 },
+  // Three and a half units clear of the plinth's south face, not three: every
+  // corridor leg starts here and passes the plinth's corner, and the fountain's
+  // own shift ate half the margin those legs had.
+  hub: { x: 0, z: 3.6 },
   entrance: { x: 14, z: 14 },
 
-  d_read: { x: -12, z: -2 },
-  d_edit: { x: 2, z: -12 },
+  // Both doorway nodes on the plinth's side of the plaza sit off the middle of
+  // their opening: pulling the rooms in shortened these legs without moving the
+  // plinth, and a leg that used to pass 1.5 units off its corner passed 0.8.
+  // Both openings are six units wide, so there is room to lean away.
+  d_read: { x: -12, z: -0.5 },
+  d_edit: { x: 3.5, z: -12 },
   d_links: { x: -2, z: 12 },
   d_archive: { x: 12, z: 2 },
+};
+
+/** The room each waypoint travels with. The plaza junctions belong to nobody. */
+const WAYPOINT_ROOM: Readonly<Record<string, RoomId>> = {
+  hub: "hub",
+  read: "read",
+  d_read: "read",
+  edit: "edit",
+  d_edit: "edit",
+  links: "links",
+  d_links: "links",
+  archive: "archive",
+  d_archive: "archive",
+  entrance: "entrance",
+};
+
+/**
+ * ARCHIVE's west facade, which is the east edge of the plaza and the one thing
+ * the two corridor junctions have to stay clear of. Read off the room rather
+ * than written down, so it cannot drift from whatever the shift is set to.
+ */
+const ARCHIVE_FACE_X = getRoom("archive").center.x - getRoom("archive").width / 2;
+
+/** LINKS' east facade, the other side of the channel out to the entrance. */
+const LINKS_FACE_X = getRoom("links").center.x + getRoom("links").width / 2;
+
+/**
+ * Middle of that channel. It is the tightest thing on the floor, which is what
+ * `ARCHIVE_RELIEF` exists to widen.
+ */
+const NOTCH_X = (LINKS_FACE_X + ARCHIVE_FACE_X) / 2;
+
+export const WAYPOINTS: Readonly<Record<string, Point>> = {
+  ...Object.fromEntries(
+    Object.entries(PLAN_WAYPOINTS).map(([id, point]) => {
+      const room = WAYPOINT_ROOM[id];
+      return [id, room ? shifted(point, ROOM_SHIFT[room]) : point];
+    }),
+  ),
 
   // EDIT is the one room the hub cannot reach in a straight line: the plinth
-  // sits between them, so the route steps out to the east first.
-  c_ne: { x: 5.5, z: 0 },
-  c_se: { x: 7, z: 7 },
+  // sits between them, so the route steps out to the east first. All three
+  // junctions are measured off the facades either side of them rather than
+  // written flat, because the plaza they stand in is what the inset changes.
+  c_ne: { x: ARCHIVE_FACE_X - 2, z: 0 },
+  // The way out to the entrance runs through the notch between LINKS' east
+  // face and ARCHIVE's west one, and it takes two nodes rather than one: the
+  // hub sits on the same 45° diagonal as LINKS' corner, so a single node in the
+  // notch draws a leg straight over that corner. Down the middle of the channel
+  // and then out, which is also what a corridor between two rooms looks like.
+  c_e: { x: NOTCH_X, z: 4 },
+  c_s: { x: NOTCH_X, z: 11 },
 };
 
 const ADJACENCY: Readonly<Record<string, readonly string[]>> = {
-  hub: ["d_read", "d_links", "d_archive", "c_ne", "c_se"],
+  hub: ["d_read", "d_links", "d_archive", "c_ne", "c_e"],
   c_ne: ["hub", "d_edit"],
-  c_se: ["hub", "entrance"],
-  entrance: ["c_se"],
+  c_e: ["hub", "c_s"],
+  c_s: ["c_e", "entrance"],
+  entrance: ["c_s"],
   d_read: ["hub", "read"],
   d_edit: ["c_ne", "edit"],
   d_links: ["hub", "links"],
@@ -346,6 +488,8 @@ export type ObstacleKind = "planter" | "crates" | "table";
 
 export interface Obstacle {
   readonly id: string;
+  /** The room this prop stands with, and therefore the shift it travels by. */
+  readonly room: RoomId;
   /** Footprint centre. */
   readonly x: number;
   readonly z: number;
@@ -361,7 +505,7 @@ export interface Obstacle {
  */
 export const AVATAR_CLEARANCE = 0.55;
 
-export const OBSTACLES: readonly Obstacle[] = [
+const PLAN_OBSTACLES: readonly Obstacle[] = [
   // The plaza itself carries no planters. Two used to flank the plinth, and
   // between them and the four corridor pairs the middle of the shot was more
   // hedge than floor. (Only two ever fit anyway: five routes fan out of the hub
@@ -371,18 +515,40 @@ export const OBSTACLES: readonly Obstacle[] = [
   // tucked under the glazed panel on either side of the opening, clear of the
   // route that runs through it. Loose in the middle of the plaza they read as
   // dropped at random, because nothing in the plan lines them up.
-  { id: "read-planter-n", x: -12.2, z: -7, width: 0.95, depth: 3.6, kind: "planter" },
-  { id: "read-planter-s", x: -12.2, z: 3, width: 0.95, depth: 3.6, kind: "planter" },
-  { id: "edit-planter-w", x: -3, z: -12.2, width: 3.6, depth: 0.95, kind: "planter" },
-  { id: "edit-planter-e", x: 7, z: -12.2, width: 3.6, depth: 0.95, kind: "planter" },
+  { id: "read-planter-n", room: "read", x: -12.2, z: -7, width: 0.95, depth: 3.6, kind: "planter" },
+  { id: "read-planter-s", room: "read", x: -12.2, z: 3, width: 0.95, depth: 3.6, kind: "planter" },
+  { id: "edit-planter-w", room: "edit", x: -3, z: -12.2, width: 3.6, depth: 0.95, kind: "planter" },
+  { id: "edit-planter-e", room: "edit", x: 7, z: -12.2, width: 3.6, depth: 0.95, kind: "planter" },
 
   // READ's low table, moved off the line the doorway takes to the armchairs.
-  { id: "read-table", x: -18.6, z: 2.6, width: 1.8, depth: 1.1, kind: "table" },
+  { id: "read-table", room: "read", x: -18.6, z: 2.6, width: 1.8, depth: 1.1, kind: "table" },
 
   // ARCHIVE's cardboard. The first stack used to stand in the doorway.
-  { id: "archive-crates-w", x: 15.2, z: -3.6, width: 2.4, depth: 1.1, kind: "crates" },
-  { id: "archive-crates-e", x: 24.4, z: -3.4, width: 2.4, depth: 1.1, kind: "crates" },
+  {
+    id: "archive-crates-w",
+    room: "archive",
+    x: 15.2,
+    z: -3.6,
+    width: 2.4,
+    depth: 1.1,
+    kind: "crates",
+  },
+  {
+    id: "archive-crates-e",
+    room: "archive",
+    x: 24.4,
+    z: -3.4,
+    width: 2.4,
+    depth: 1.1,
+    kind: "crates",
+  },
 ];
+
+/** The list above, each prop moved with the room it stands in. */
+export const OBSTACLES: readonly Obstacle[] = PLAN_OBSTACLES.map((obstacle) => {
+  const by = ROOM_SHIFT[obstacle.room];
+  return { ...obstacle, x: obstacle.x + by.x, z: obstacle.z + by.z };
+});
 
 /**
  * True when the straight segment between two points passes within `clearance`
@@ -398,8 +564,18 @@ export const segmentHitsObstacle = (
 
   for (const obstacle of OBSTACLES) {
     const bounds: readonly (readonly [number, number, number, number])[] = [
-      [from.x, dx, obstacle.x - obstacle.width / 2 - clearance, obstacle.x + obstacle.width / 2 + clearance],
-      [from.z, dz, obstacle.z - obstacle.depth / 2 - clearance, obstacle.z + obstacle.depth / 2 + clearance],
+      [
+        from.x,
+        dx,
+        obstacle.x - obstacle.width / 2 - clearance,
+        obstacle.x + obstacle.width / 2 + clearance,
+      ],
+      [
+        from.z,
+        dz,
+        obstacle.z - obstacle.depth / 2 - clearance,
+        obstacle.z + obstacle.depth / 2 + clearance,
+      ],
     ];
 
     let enter = 0;
