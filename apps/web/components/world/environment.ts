@@ -111,6 +111,14 @@ export interface BuiltEnvironment {
   /** Faces emitted by the voxel compiler, reported for the console banner. */
   readonly voxelFaceCount: number;
   /**
+   * The group each room's props ride in, positioned at that room's shift.
+   *
+   * Exposed for `?edit=1`, which previews a room move by moving its frame:
+   * every coordinate inside it is authored in the plan, so the frame is the one
+   * place a whole room can be moved without restating anything.
+   */
+  readonly roomFrames: ReadonlyMap<RoomId, THREE.Group>;
+  /**
    * Fades the three corner offices, which exist only to keep the corners of a
    * wide shot off bare floor. A portrait frame has no such corners to fill —
    * there they read as rooms floating on their own — so the page fades them
@@ -212,6 +220,8 @@ export const buildEnvironment = (): BuiltEnvironment => {
    */
   const roomFrames = new Map<RoomId, THREE.Group>();
   let parent: THREE.Group = group;
+  /** The room whose frame `place` is currently adding to, or null at the root. */
+  let currentRoom: RoomId | null = null;
   const inRoom = <T>(id: RoomId, dress: (plan: Room) => T): T => {
     let frame = roomFrames.get(id);
     if (!frame) {
@@ -224,9 +234,43 @@ export const buildEnvironment = (): BuiltEnvironment => {
     const plan = PLAN_ROOMS.find((room) => room.id === id);
     if (!plan) throw new Error(`Unknown room: ${id}`);
     parent = frame;
+    currentRoom = id;
     const built = dress(plan);
     parent = group;
+    currentRoom = null;
     return built;
+  };
+
+  /**
+   * What the editor needs to know about a placed object, recorded on the object
+   * itself rather than in a table beside it.
+   *
+   * `?edit=1` walks the built scene looking for these: a prop with no stamp is
+   * a prop it cannot select, and a prop it can select it can also name in the
+   * patch it exports. The id is positional — `plant-tall#3` is the third of
+   * that key placed — so the authored transform travels with it, because that
+   * is what makes an exported line greppable back to the call that wrote it.
+   *
+   * Nothing in the page reads this. It costs one object per prop.
+   */
+  const placedCount = new Map<string, number>();
+  const stamp = (
+    object: THREE.Object3D,
+    key: string,
+    id: string | undefined,
+    x: number,
+    y: number,
+    z: number,
+    rotationY: number,
+  ): void => {
+    const seen = (placedCount.get(key) ?? 0) + 1;
+    placedCount.set(key, seen);
+    object.userData.editable = {
+      id: id ?? `${key}#${seen}`,
+      key,
+      room: currentRoom,
+      authored: { x, y, z, rotationY },
+    };
   };
 
   const propCache = new Map<string, BuiltProp>();
@@ -242,6 +286,8 @@ export const buildEnvironment = (): BuiltEnvironment => {
     y: number,
     z: number,
     rotationY = 0,
+    /** Overrides the positional id, to tie a prop to the lettering on it. */
+    id?: string,
   ): THREE.Group => {
     let prop = propCache.get(key);
     if (!prop) {
@@ -275,6 +321,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
       holder.add(mesh);
     }
 
+    stamp(holder, key, id, x, y, z, rotationY);
     parent.add(holder);
     return holder;
   };
@@ -301,6 +348,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
     mesh.rotation.y = rotationY;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    stamp(mesh, key, undefined, x, 0, z, rotationY);
     parent.add(mesh);
     return mesh;
   };
@@ -319,9 +367,15 @@ export const buildEnvironment = (): BuiltEnvironment => {
       readonly padding?: number;
       /** Skips tone mapping, so the glyphs stay over the bloom threshold. */
       readonly glow?: boolean;
+      /**
+       * The id of the prop this lettering is printed on, so `?edit=1` moves the
+       * two together. Without it a dragged plaque slides out from under its own
+       * letters.
+       */
+      readonly id?: string;
     } = {},
   ): void => {
-    const { glow = false, ...textOptions } = options;
+    const { glow = false, id, ...textOptions } = options;
     const { texture, aspect } = createTextTexture(lines, { color, ...textOptions });
     textures.push(texture);
     const geometry = track(new THREE.PlaneGeometry(height * aspect, height));
@@ -339,6 +393,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
     // out of the surface it is printed on only if it is turned the other way.
     mesh.rotation.y = rotationY + Math.PI;
     mesh.renderOrder = 3;
+    stamp(mesh, "text", id, x, y, z, rotationY);
     parent.add(mesh);
   };
 
@@ -631,10 +686,16 @@ export const buildEnvironment = (): BuiltEnvironment => {
       HUB_TEXT,
     );
 
-    place("sign-hub", () => F.roomSign(4.0, 0x33415f), 0, 6.0, -3, CAMERA_FACING).scale.setScalar(
-      0.85,
-    );
-    placeText(["HUB"], 2.2, 0.17, 6.0, -2.83, CAMERA_FACING);
+    place(
+      "sign-hub",
+      () => F.roomSign(4.0, 0x33415f),
+      0,
+      6.0,
+      -3,
+      CAMERA_FACING,
+      "sign-hub",
+    ).scale.setScalar(0.85);
+    placeText(["HUB"], 2.2, 0.17, 6.0, -2.83, CAMERA_FACING, "#e6e3db", { id: "sign-hub" });
 
     return { hubCrystal, hubCrystalMaterial };
   });
@@ -670,8 +731,10 @@ export const buildEnvironment = (): BuiltEnvironment => {
   /* -------------------------------------------------------------- entrance */
 
   inRoom("entrance", () => {
-    place("reception", F.receptionDesk, 19.4, 0, 19.4, CAMERA_FACING);
-    placeText(["WELCOME,", "AGENT!", ":)"], 2.3, 19.58, 3.1, 19.58, CAMERA_FACING, "#eae6dc");
+    place("reception", F.receptionDesk, 19.4, 0, 19.4, CAMERA_FACING, "reception");
+    placeText(["WELCOME,", "AGENT!", ":)"], 2.3, 19.58, 3.1, 19.58, CAMERA_FACING, "#eae6dc", {
+      id: "reception",
+    });
     // Two, flanking the desk. The outer pair stood four units further out on
     // the same diagonal and read as a hedge run rather than as a reception.
     place("plant-tall", F.plantTall, 15.4, 0, 22.4);
@@ -748,10 +811,20 @@ export const buildEnvironment = (): BuiltEnvironment => {
         sign.y,
         sign.z,
         sign.rotationY,
+        `sign-${sign.room}`,
       );
       const forwardX = -Math.sin(sign.rotationY) * 0.24;
       const forwardZ = -Math.cos(sign.rotationY) * 0.24;
-      placeText([sign.room], 3.0, sign.x + forwardX, sign.y, sign.z + forwardZ, sign.rotationY);
+      placeText(
+        [sign.room],
+        3.0,
+        sign.x + forwardX,
+        sign.y,
+        sign.z + forwardZ,
+        sign.rotationY,
+        "#e6e3db",
+        { id: `sign-${sign.room}` },
+      );
     });
   }
 
@@ -892,6 +965,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
     hubCrystalMaterial,
     roomLights,
     voxelFaceCount,
+    roomFrames,
     setSceneryOpacity,
     dispose() {
       for (const geometry of geometries) geometry.dispose();
