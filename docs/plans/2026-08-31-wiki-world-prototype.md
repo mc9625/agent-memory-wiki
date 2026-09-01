@@ -1406,3 +1406,313 @@ avatars and the HUD.
 - **Export is one-way.** Applying a patch is a human's or an agent's job; that
   is the point, but a `--check` that reads the current source and says whether
   it matches the last export would close the loop without writing anything.
+
+
+---
+
+## The editor's first layout — 2026-09-01, branch `feat/world-editor`
+
+The first set of numbers to come back out of `?edit=1` and go into the source.
+Fourteen lines pasted from Export: three room shifts and eleven props, one of
+which was a no-op. Applied verbatim, then measured.
+
+### What the export could not tell us
+
+Three of the moves broke a clearance and one fixed one, and **none of the four
+was visible in the frame or caught by a test**, because all four props involved
+are placed by hand in `environment.ts` and were in no list at all. The editor's
+own panel reported the plinth, which is in `layout.ts`; it could not report the
+other three, and that gap is what the pass below closes.
+
+| | before | after the paste | fixed to |
+|---|---|---|---|
+| `lounge-table` · links standby 2 | 1.70 | **0.00** | 1.45 |
+| `info-pillar` · edit→read leg 2 | 0.93 | **0.42** | 1.15 |
+| `read→edit leg 2` · plinth | 0.94 | **0.64** | 1.04 |
+| `kiosk` · entrance standby 1 | **0.00** | 5.50 | — |
+
+The kiosk row is the one worth staring at: it had been at zero since the
+concourse was dressed, through two passes and a ship, and the thing that found
+it was measuring a prop that had moved for an unrelated reason.
+
+### The four repairs
+
+- **LINKS' side table had landed on that room's third standby spot** — not near
+  it, on it, so an avatar queuing there wore it. Walked north to `z 25.4`. The
+  standby row is a straight queue at `x -1`; bending the queue round the
+  furniture would have been the worse trade.
+- **The info pillar and `c_ne` are derived from the same facade**, so ARCHIVE
+  moving east carried them together and closed them to 0.42. The pillar went a
+  unit north; it stays south of the wall that would hide it.
+- **The fountain moved south again and took the READ corridor with it.** The hub
+  waypoint travels with the hub, so its own relation to the plinth held — but
+  `d_read` does not travel with anything, and that leg came back at 0.64. The
+  hub node's gap to the plinth's south face went 3.6 → 4.6, which is the third
+  time this number has moved and always for this leg. **If the fountain moves
+  again, check `read→edit leg 2` first.**
+- **The two hub standby spots that had routed through the plinth since the
+  compaction pass are gone**, re-authored at `(±5.5, 0.6)` — beside the fountain
+  rather than behind it, which is the fix §"The set editor" described and
+  nothing had asked for. Both legs now measure 1.82. The floor has **no leg
+  touching anything**, and `world-validate.test.ts` pins that rather than
+  pinning the two zeroes.
+
+### `PLAN_SCENERY`: measured, not placed
+
+`PLAN_OBSTACLES` is a *placement* list — `environment.ts` draws a prop for every
+entry — so a prop that file already authors by hand cannot be added to it
+without drawing it twice. That is why the kiosk, the pillar, the lounge pair and
+the four plaza plants were in nothing: the only list that could have held them
+would have duplicated them.
+
+`PLAN_SCENERY` in `layout.ts` is the other half. A footprint per hand-placed
+prop that stands on open floor near a route, carried on `Floor.scenery`, read by
+`validate.ts`, placed by nobody. It deliberately **does not change pathing**:
+`findPath` still routes around `PLAN_OBSTACLES` alone, and a prop here is
+something the clearance test reports rather than something the graph swerves
+for — the same division the editor draws.
+
+Two things to know before adding to it: the footprint is the prop's widest part
+*at the height an avatar occupies*, which for `plantTall` is the canopy at
+y 1.95 and not the pot; and a prop placed at a rotation needs the bound of the
+rotated box, which is why the kiosk is 1.56 square rather than 1.2 × 1.0.
+
+The cost is a second place to edit when one of these moves. That is the trade
+the waypoint table already makes, and the test is what catches the drift.
+
+### Consequences for the layout knobs
+
+- `LINKS_RELIEF` went 4 → **2.5** and `ARCHIVE_RELIEF` 2 → **3.25**, and both
+  rooms now carry a nudge *across* their own axis (`links.x` +1.5,
+  `archive.z` +0.5) that the relief formula has no slot for. `ROOM_INSET` is
+  still the one knob for the spacing; the cross-axis terms are framing and do
+  not scale with it.
+- **LINKS' east face moves now.** The `ARCHIVE_RELIEF` docblock used to say it
+  never left x 5 because LINKS slid in z alone. With the x nudge the notch out
+  to the entrance is 4.75 rather than 5, so both reliefs bear on that corridor.
+- `ROOM_SHIFT.hub` (0.6, 1.6) → **(1, 2.75)**.
+
+### Still open
+
+- **The editor measures a dragged *room* against the scenery, but not a dragged
+  *prop*.** `walkClearances(candidateFloor())` sees `Floor.scenery`, so a room
+  drag now reports it; the prop-drag path resolves its selection through
+  `PLAN_OBSTACLES` alone, so dragging a scenery prop moves it on screen without
+  moving its footprint in the measurement. Export has the same shape: it emits a
+  `PLAN_OBSTACLES` line and no `PLAN_SCENERY` one.
+- Two pre-existing tight pairs are unchanged and were tight before this pass:
+  `archive seat 2 · archive-crates-e` at 0.87 and `read glass · read-table` at
+  0.97. Both clear `AVATAR_CLEARANCE`.
+
+### The editor's second pass — drag, turn, clone, delete, undo
+
+Four requests, all on `?edit=1`.
+
+- **The panel drags by its title bar.** It owns the bottom-left corner, and the
+  corner it owns is sometimes the one holding the prop you are placing in it. It
+  positions from `bottom` until first grabbed and from `top` after — an element
+  cannot be dragged in y while `bottom` is what pins it — and clamps so 40px of
+  it always stays on screen, or the grip would be ungrabbable.
+- **Rotation is by fixed turn, 90° by default** (`r` / shift-`r`, or the two
+  buttons; the step cycles 90 / 45 / 15). 90 first because the set is built on
+  the floor's own axes: everything in `environment.ts` is at 0, ±π/2 or π, and a
+  prop at some other angle reads as dropped rather than laid out.
+  - **It turns the group about its anchor, not each object about its own
+    centre**, which is what it used to do. A sign is its plaque *and* the
+    lettering placed in front of it; spinning both in place at ninety degrees
+    left the letters facing out of the wall they are painted on.
+  - **A room does not rotate**, and says so. Its walls, doorways, seats and
+    waypoints are authored axis-aligned in `layout.ts` and none of them would
+    follow, so turning the frame would silently disagree with the walk graph.
+  - Rotation is now **exported**, which it never was: the panel turned things and
+    the patch said nothing. It comes back spelled the way the file spells it —
+    `CAMERA_FACING`, `-Math.PI / 2` — with a plain number as the signal that a
+    prop has been left off-axis.
+- **Clone (`c`) and delete (`del`).** Neither writes anything. A clone has no
+  call to amend, so it exports as a line to *write*, naming the prop it was
+  copied from and that prop's authored position, which is what makes the
+  original one grep away; the builder argument comes back as `<builder>`,
+  because it is a function reference this module cannot name and a guess at
+  `F.something` is a paste that does not compile. A deletion exports as the call
+  to remove, named by its authored position, plus its footprint entry if it has
+  one. Cloning shares geometry and material, so a copy costs a transform and
+  nothing on the GPU.
+- **Undo (`ctrl`/`cmd-z`)** is a stack of closures that put back the fields one
+  action touched — there is no serialisable document here to diff, only a scene
+  graph and four maps. An entry is taken *before* the change, so a drag captures
+  on pointer-down and pushes on pointer-up, and only if it went anywhere: a
+  click that merely selects is not an action to undo.
+
+### Three defects this pass found in the editor as it stood
+
+All three were found by driving the page, not by reading it.
+
+- **The scenery footprints were not wired to anything.** `PLAN_SCENERY` named
+  its entries readably (`kiosk`) and `environment.ts` stamps positional ids
+  (`kiosk#1`), so the lookup never matched and the list was dead on arrival. It
+  carries a `prop` field naming the stamp now. With it wired, dragging the kiosk
+  ten units back onto the entrance route takes the panel to **0.10** — before,
+  the prop moved on screen and the panel reported the floor it had *before* the
+  drag, which is worse than reporting nothing.
+- **A cloned object's rotation exported as 0 however it was turned.**
+  `Object3D.copy` carries orientation as a quaternion, and the Euler derived
+  back from one is only *an* equivalent: a half-turn about Y comes back as
+  (π, 0, π), not (0, π, 0). The copy looked right and reported `rotationY` 0.
+  Copying the source's Euler outright keeps the screen and the patch agreeing.
+- **The glass swallowed every pick.** Every room is glazed on the sides facing
+  the camera, so the pane was the first thing the ray met and the props inside a
+  room were unselectable — which makes rotate, clone and delete useless exactly
+  where they are wanted. Picking now prefers the nearest hit that is not a pane,
+  falling back to the pane so one is still selectable over empty floor. A grid
+  scan of the frame reaches 72 distinct props, desks and crates included.
+
+Verified by driving the running page: the panel moves from (12, 570) to
+(660, 110); `r` takes a pane from `Math.PI / 2` to `Math.PI` and the export says
+so; a clone selects itself and exports as a new call inside the right `inRoom`
+frame; deleting a scenery prop drops its footprint from the measurement and
+exports both the call and the entry; and twenty undos return the export to
+`nothing moved yet.` No console errors.
+
+**Still one-way, deliberately.** Export proposes, a human applies. A `--check`
+that reads the current source and says whether it matches the last export is
+still the thing that would close the loop without writing.
+
+---
+
+## The fountain, and the editor's third layout — 2026-09-01
+
+The user's report, alongside a second export: *"la fontana dell'hub non sembra
+essere considerata tra gli ostacoli. vedo che gli agenti la attraversano."*
+Both true, and they are two different problems.
+
+### The fountain was not an obstacle, and that is now fixed
+
+`PLAN_PLINTH` sat outside `Floor.obstacles` by design — §"The set editor"
+records why: two of the hub's standby spots stood *behind* it, so listing it
+would have made them unreachable rather than fixed anything, and the note said
+the fix was to re-author those two spots beside it. That was done earlier the
+same day. **The exception had outlived its reason**, so `deriveFloor` now puts
+the fountain in `Floor.obstacles` like everything else, under a new
+`ObstacleKind` of `"fountain"`. It is still placed by the hub's own dressing:
+`PLAN_OBSTACLES` is a placement list and the fountain is not in it.
+
+### But that is bookkeeping. Walking through it was geometry
+
+Listing it changes nothing on screen, because avatars do not consult the
+obstacle list — they walk the authored waypoint legs. The reason they walked
+through the water is arithmetic:
+
+- the tightest leg passed the plinth at **1.04**;
+- an actor does not walk the centre line, it takes a lane offset of up to
+  `MAX_LANE` (1.2), and `AVATAR_CLEARANCE` (0.55) of body reaches past that.
+
+So the bar is **1.75**, and at 1.04 three of the six lanes drove through the
+fountain. This is the first clearance on this floor with a *target* rather than
+a floor of "more than an avatar's width", and the target is written down in the
+test.
+
+**Sliding waypoints could not reach it.** The hub node was the obvious lever and
+it tops out: at plan z 5.6 the leg reaches 1.67, and past 6.1 the hub's own
+waypoint stands outside the hub room. Moving `d_read` south instead trades the
+fountain against READ's doorway planter — a sweep of the whole (x, z) grid for
+that node has no cell where both clear. The node is back at 4.6, where it was.
+
+**Routing round it did.** The east side of the plaza has had junctions since the
+compaction pass, for exactly this reason: the plinth is between the hub and
+EDIT, so that route steps out east first. The fix is to say the same thing about
+the other three quadrants and mean it:
+
+- **`c_w`**, new, a unit and a half west of the plinth's west face and a little
+  past its south one, measured off the fountain so it follows it. `hub`–`d_read`
+  is **gone**: BFS counts hops and would have taken the shorter, worse route.
+- **`hub`–`c_ne` is gone too.** With the west fixed, that leg became the binding
+  one at 1.59 — it cut the fountain's *south-east* corner. EDIT is now reached
+  through `c_e`, which already stood clear of the plinth with a run to both.
+
+The floor now clears the fountain by **1.82** everywhere, and READ↔EDIT reads
+`read → d_read → c_w → hub → c_e → c_ne → d_edit → edit`: a walk around a
+fountain rather than through it.
+
+`read-planter-s` moved half a unit south with it, to 3.5. The new west route
+passes it on the way in and clipped it at 0.80; it now measures 1.10, at the
+price of overhanging the glazed panel it is tucked under by 0.3.
+
+### A note on the lanes, not acted on
+
+`LANES` is `[0, 0.8, -0.8, 0.4, -0.4, 1.2]` — five symmetric offsets and one
+stray. The widest lane exists on one side of a corridor only, so which side of a
+leg a prop stands on decides whether the sixth actor clears it. `MAX_LANE` is
+honest about the number; the asymmetry looks unintended. Left alone because
+nothing asked for it and it is a behaviour change, not a measurement.
+
+### What the layout paste moved
+
+`ROOM_SHIFT.archive` to (-0.75, 0.5) (`ARCHIVE_RELIEF` 4.25); the kiosk, the
+info pillar, both LINKS lounge pieces, a plaza plant, two entrance plants, two
+glass runs and the hub sign; READ's low table turned a quarter turn; a hedge
+cloned from `read-planter-s`; and LINKS' second picture frame deleted.
+
+Two things needed a hand:
+
+- **READ's low table landed in the fan of legs out of READ's own waypoint**, at
+  0.00 against four of them including the walk in through the doorway. Its z
+  came back from 0.75 to 3.5. This is the third time this table has had to be
+  moved off that line.
+- **The cloned hedge keeps READ's frame**, because that is the frame the prop it
+  was copied from lives in — so it travels with READ while standing behind
+  LINKS' north wall. Kept as exported and commented, because re-homing it
+  silently changes where it lands the next time a room moves. Worth a look.
+
+Still open: `links seat 1 · scenery:lounge-table` at **0.65**. That clears an
+avatar's width and reads as a side table beside a chair, so it was left alone —
+but it is the tightest thing on the floor now.
+
+### Two bugs in the editor, both visible in the paste itself
+
+- **A footprint tracked its prop from the wrong anchor.** `movedObstacles` and
+  `movedScenery` recorded `plan + (position − selectionOrigin)`, and a
+  selection's origin is taken afresh on every click — so a prop dragged,
+  released, clicked and dragged again recorded only the second drag. Two entries
+  in the paste disagreed with their own `place` lines because of it
+  (`lounge-table` by (1.5, 2.75), `info-pillar` by (0.25, 1.0)); the `place`
+  lines were the correct ones and are what was applied. The anchor is the
+  prop's **authored** position now, which is fixed and stateless.
+- **A quarter turn did not swap a footprint's extents.** READ's table was turned
+  90° and its exported footprint kept `width: 1.8, depth: 1.1` — a footprint at
+  right angles to the prop standing in it, which is the one thing
+  `PLAN_OBSTACLES` exists to prevent. The export swaps them now and says it did.
+  The placement loop had the same gap in the other direction: `coffee-table` was
+  placed at rotation 0 whatever its footprint said, so it now turns by its own
+  extents the way a planter does.
+
+### LINKS' lounge corner — the table, and a red chair
+
+**The table went back beside its chair**, from authored (-7.25, 20) to
+(-6, 14.5). Where the editor left it it stood 0.65 off the walk into LINKS'
+middle seat, the tightest thing on the floor; it now measures 1.55, with 0.15
+between the two footprints — a side table beside a chair, which is what it is.
+
+Worth recording *why* 0.65 was not the emergency it looked like, because the
+same arithmetic applies to every seat on this floor. **The last leg of a walk
+carries no lane offset.** `legTarget` in `world-canvas.tsx` returns the waypoint
+unchanged when `isFinal`, because the last point of a path is the seat the actor
+reserved and is already its own. So the bar for a leg into a seat is
+`AVATAR_CLEARANCE` alone (0.55), not the `MAX_LANE + AVATAR_CLEARANCE` (1.75)
+that the fountain needed — the lane budget applies to corridors, where a crowd
+shares a line, and tapers to nothing at the destination. `archive seat 2` has
+sat at 0.87 against its crates for the same reason.
+
+**The chair is red.** It was a slate blue, in the same family as LINKS' cyan
+screen and teal weave; a red is the only warm thing in that room.
+
+It took two goes, and the second is the point. `0xa8443f` — a fair mid red on
+paper, at the blue's own lightness — sampled off the screen at **`0x261215`**,
+which is black. That corner is the darkest place in the set: the key at azimuth
+70 never reaches those faces and the AO in the corner takes what is left. At
+`0xe0655a` / `0xf98c80` / `0xed7468` the same faces read `0x5c1a1f` with the
+cushion at `0xa22b2c`, brighter than the blue it replaced ever managed
+(`0x18273d`), and it reads as red rather than as maroon.
+
+That is the third time this file has recorded the same lesson — §3.1 for the
+plaque, §10.2 for Claude's orange, this. **Sample the pixels, do not judge the
+hex**, and expect a warm hue in an unlit corner to need authoring two stops up.

@@ -587,23 +587,26 @@ export const buildEnvironment = (): BuiltEnvironment => {
     place("office-chair", F.officeChair, 2.2, 0, 17.6, Math.PI / 2);
     place("cabinet", F.filingCabinet, 4.2, 0, 15.8, Math.PI / 2);
     place("shelf-boxes", F.shelfBoxes, 4.2, 1.6, 15.8, Math.PI / 2);
-    // A lounge corner in the room's +X half, clear of the doorway route, which
-    // runs down the -X side to the seats.
-    place("lounge-chair", F.loungeChair, 3.2, 0, 20.6, -Math.PI / 2);
-    place("lounge-table", F.loungeTable, 1.3, 0, 20.6, Math.PI / 2);
-    place("plant-ficus", F.plantFicus, -7.6, 0, 25.8);
+    // The lounge pair moved to the room's -X half in the set editor, which is
+    // the side the doorway legs run down. The chair landed clear, but the table
+    // landed on top of LINKS' third standby spot at a measured 0.00 — a spot is
+    // a place an actor stands, so that is a prop worn as a hat, not a near
+    // miss. It has been walked north to z 25.4, which puts it at 1.45. Both are
+    // in `PLAN_SCENERY` now, so the clearance test measures them.
+    place("lounge-chair", F.loungeChair, -7.5, 0, 15, -Math.PI / 2);
+    place("lounge-table", F.loungeTable, -6, 0, 14.5, Math.PI / 2);
+    place("plant-ficus", F.plantFicus, -7.5, 0, 25.75);
     place("plant-ficus", F.plantFicus, 3.6, 0, 26.0);
     place("frame-art-a", () => F.pictureFrame(1.7, 1.5, 0x5f8f4a), -8.75, 3.1, 15.0, -Math.PI / 2);
-    place("frame-art-b", () => F.pictureFrame(1.7, 1.5, 0x8a6fb0), -8.75, 3.1, 25.4, -Math.PI / 2);
   });
 
   /* --------------------------------------------------------------- ARCHIVE */
 
   inRoom("archive", () => {
     place("archive-shelf", () => F.archiveShelf(4, 3), 19.6, 0, -4.3, Math.PI);
-    place("desk", F.desk, 24.4, 0, 6.2, Math.PI);
+    place("desk", F.desk, 23.25, 0, 4.5, Math.PI);
     place("plant-ficus", F.plantFicus, 14.6, 0, 7.6);
-    place("plant-ficus", F.plantFicus, 26.0, 0, -3.0);
+    place("plant-ficus", F.plantFicus, 26.0, 0, 1.25);
     place("frame-poster-b", () => F.pictureFrame(2.2, 2.0, 0xe8dcc0), 25.4, 2.9, -4.75, Math.PI);
     placeText(["ORGANIZE", "PRESERVE", "SHARE"], 1.1, 25.4, 2.9, -4.64, Math.PI, "#4a3524");
     // Outside the east glass, which is the wall the frame's bottom-right corner
@@ -693,13 +696,13 @@ export const buildEnvironment = (): BuiltEnvironment => {
     place(
       "sign-hub",
       () => F.roomSign(4.0, 0x33415f),
-      0,
+      -1,
       6.0,
-      -3,
+      -4,
       CAMERA_FACING,
       "sign-hub",
     ).scale.setScalar(0.85);
-    placeText(["HUB"], 2.2, 0.17, 6.0, -2.83, CAMERA_FACING, "#e6e3db", { id: "sign-hub" });
+    placeText(["HUB"], 2.2, -0.83, 6.0, -3.83, CAMERA_FACING, "#e6e3db", { id: "sign-hub" });
 
     return { hubCrystal, hubCrystalMaterial };
   });
@@ -720,17 +723,27 @@ export const buildEnvironment = (): BuiltEnvironment => {
   // Beside ARCHIVE's doorway, on the screen-right side of it and a step out from
   // the facade. Further north — where the reference puts its own pillar —
   // ARCHIVE's north wall stands in front of it and hides all but its top.
-  inRoom("archive", () => place("info-pillar", F.infoPillar, 12.2, 0, -1.5, CAMERA_FACING));
+  // The z went -1.5 → -1.25 → -2.5: ARCHIVE moving east carried the pillar onto
+  // the `c_ne` junction, which is derived from the same facade and therefore
+  // moved with it, and the two closed to 0.42. A unit further north is the
+  // whole fix, and it stays south of the wall that would hide it.
+  inRoom("archive", () => place("info-pillar", F.infoPillar, 14.25, 0, -1.25, CAMERA_FACING));
   // Out in the concourse between the two near rooms and the reception, which is
-  // otherwise the one bare patch in the frame, and well off the line the
-  // entrance route takes across it.
-  place("kiosk", F.kiosk, 12.0, 0, 16.0, CAMERA_FACING);
-  // Against LINKS' east glass, in that same concourse.
-  inRoom("links", () => place("plant-tall", F.plantTall, 6.2, 0, 17.0));
-  place("plant-small", F.plantSmall, -6.4, 0, 4.6);
-  place("plant-small", F.plantSmall, 6.9, 0, -6.4);
-  place("plant-tall", F.plantTall, -12.5, 0, 12.5);
-  place("plant-tall", F.plantTall, 12.5, 0, -12.5);
+  // otherwise the one bare patch in the frame. Its old spot measured 0.00
+  // against the leg out to `entrance standby 1` and had done since the
+  // concourse was dressed — a zero nothing tested, because nothing measured the
+  // props this file places by hand. The set editor moved it off by eye; the
+  // measurement that says so came afterwards, and `PLAN_SCENERY` is what keeps
+  // it.
+  place("kiosk", F.kiosk, 10.25, 0, 22, CAMERA_FACING);
+  // Was against LINKS' east glass; the set editor took it across the plaza to
+  // the notch between READ and LINKS. It keeps LINKS' frame, so it still
+  // travels with that room.
+  inRoom("links", () => place("plant-tall", F.plantTall, -19.75, 0, 9.75));
+  place("plant-small", F.plantSmall, -7.75, 0, 6.0);
+  place("plant-small", F.plantSmall, -6.75, 0, 9.75);
+  place("plant-tall", F.plantTall, -17.75, 0, 11.25);
+  place("plant-tall", F.plantTall, 11.25, 0, -14.75);
 
   /* -------------------------------------------------------------- entrance */
 
@@ -741,8 +754,8 @@ export const buildEnvironment = (): BuiltEnvironment => {
     });
     // Two, flanking the desk. The outer pair stood four units further out on
     // the same diagonal and read as a hedge run rather than as a reception.
-    place("plant-tall", F.plantTall, 15.4, 0, 22.4);
-    place("plant-tall", F.plantTall, 22.4, 0, 15.4);
+    place("plant-tall", F.plantTall, 14.5, 0, 21.5);
+    place("plant-tall", F.plantTall, 21.25, 0, 14.75);
   });
 
   /* --------------------------------------------------------- floor obstacles */
@@ -783,7 +796,24 @@ export const buildEnvironment = (): BuiltEnvironment => {
           break;
         }
         case "table":
-          place("coffee-table", F.coffeeTable, obstacle.x, 0, obstacle.z, 0, obstacle.id);
+          // Turned by its own footprint, the way a planter is: the declared
+          // extents are what the walk graph measures, so a table laid along Z
+          // that rendered along X would be a prop disagreeing with its own
+          // footprint — which is the one thing this loop exists to prevent.
+          place(
+            "coffee-table",
+            F.coffeeTable,
+            obstacle.x,
+            0,
+            obstacle.z,
+            obstacle.depth > obstacle.width ? Math.PI / 2 : 0,
+            obstacle.id,
+          );
+          break;
+        case "fountain":
+          // Placed by the hub's own dressing, not from this list. It is in the
+          // obstacle model so the walk graph knows it is solid; it is not in
+          // `PLAN_OBSTACLES`, so this loop never sees it.
           break;
       }
     });

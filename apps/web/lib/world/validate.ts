@@ -155,20 +155,24 @@ export const hazards = (floor: Floor = DEFAULT_FLOOR): readonly Hazard[] => {
     enterable: false,
   }));
 
-  return [
-    ...walls,
-    ...props,
-    {
-      id: "plinth",
-      rect: {
-        minX: floor.plinth.x - floor.plinth.width / 2,
-        maxX: floor.plinth.x + floor.plinth.width / 2,
-        minZ: floor.plinth.z - floor.plinth.depth / 2,
-        maxZ: floor.plinth.z + floor.plinth.depth / 2,
-      },
-      enterable: false,
+  // Measured, never routed around: `Floor.scenery` is the set's hand-placed
+  // dressing, and a leg that grazes one of those is a report rather than a bug
+  // in the graph.
+  const dressing: Hazard[] = floor.scenery.map((prop) => ({
+    id: `scenery:${prop.id}`,
+    rect: {
+      minX: prop.x - prop.width / 2,
+      maxX: prop.x + prop.width / 2,
+      minZ: prop.z - prop.depth / 2,
+      maxZ: prop.z + prop.depth / 2,
     },
-  ];
+    enterable: false,
+  }));
+
+  // The fountain used to be added here by hand, because it was the one solid
+  // thing `Floor.obstacles` did not carry. It is an obstacle now, so it arrives
+  // with the rest and reports as `prop:plinth`.
+  return [...walls, ...props, ...dressing];
 };
 
 const key = (from: Point, to: Point): string =>

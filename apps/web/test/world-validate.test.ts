@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { AVATAR_CLEARANCE } from "../lib/world/layout";
-import { routeLegs, segmentToRect, walkClearances, type Rect } from "../lib/world/validate";
+import {
+  MAX_LANE,
+  routeLegs,
+  segmentToRect,
+  walkClearances,
+  type Rect,
+} from "../lib/world/validate";
 
 const rect: Rect = { minX: -1, maxX: 1, minZ: -1, maxZ: 1 };
 
@@ -35,22 +41,36 @@ describe("floor clearances", () => {
     expect(routeLegs().length).toBeGreaterThan(20);
   });
 
-  it("has exactly two legs that touch the scenery, both behind the fountain", () => {
+  it("has no leg that touches the scenery", () => {
     /*
-     * The known rough edge, pinned so it cannot spread. The hub's last two
-     * standby spots stand behind the plinth, so the walk out to them crosses
-     * it. The plinth is deliberately not an obstacle — listing it would make
-     * those spots unreachable rather than fix them — and the fix is to
-     * re-author the two spots beside it, which nothing has asked for.
+     * This used to pin two known zeroes: the hub's last two standby spots stood
+     * behind the plinth, so the walk out to them crossed it. They have since
+     * been re-authored beside the fountain rather than behind it, and the floor
+     * now has none at all.
      *
-     * If a third zero ever appears here, something moved and took a route with
-     * it. Both of the zeroes this file exists for were invisible on screen.
+     * If a zero ever appears here, something moved and took a route with it.
+     * Every zero this file has caught was invisible on screen.
      */
     const touching = walkClearances().filter((clearance) => clearance.distance === 0);
-    expect(touching.map((clearance) => `${clearance.leg} / ${clearance.hazard}`)).toEqual([
-      "hub standby 1 / plinth",
-      "hub standby 2 / plinth",
-    ]);
+    expect(touching.map((clearance) => `${clearance.leg} / ${clearance.hazard}`)).toEqual([]);
+  });
+
+  it("keeps every leg a lane and a body clear of the fountain", () => {
+    /*
+     * The one clearance with a target rather than a floor, because it is the
+     * one that was reported from the running page: agents were walking through
+     * the water. An actor does not walk the centre line — it takes a lane
+     * offset of up to `MAX_LANE` — and `AVATAR_CLEARANCE` of body reaches past
+     * that, so anything under the sum is an avatar in the fountain.
+     *
+     * It is met by routing round the plinth rather than by squeezing past it:
+     * `c_w` to the west and `c_e` to the east mean neither READ nor EDIT is
+     * reached from the hub in a straight line. Restore either direct edge and
+     * this fails.
+     */
+    const fountain = walkClearances().filter((clearance) => clearance.hazard === "prop:plinth");
+    expect(fountain.length).toBeGreaterThan(0);
+    expect(fountain[0]!.distance).toBeGreaterThanOrEqual(MAX_LANE + AVATAR_CLEARANCE);
   });
 
   it("leaves an avatar room to pass everywhere else", () => {

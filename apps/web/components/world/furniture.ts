@@ -113,12 +113,30 @@ export const coffeeTable = (): BuiltProp =>
  * The LINKS lounge chair: the reference's slate-blue tub chair, lower and
  * squarer than the reading room's armchair and half the sofa's width.
  */
+/*
+ * Red, asked for by name. It was a slate blue, which put it in the same family
+ * as LINKS' own cyan screen and teal weave and left the corner reading as one
+ * colour; a red is the only warm thing in that room.
+ *
+ * Three tones, the same three steps the blue had — body, a lighter cushion, and
+ * the back and arms between them — but authored **far** lighter than they read.
+ * This chair stands in the room's north-west corner, which is the darkest spot
+ * in the set: the key at azimuth 70 never reaches those faces and the AO in the
+ * corner takes what is left. A first attempt at `0xa8443f`, a fair mid red on
+ * paper, sampled off the screen at `0x261215` — near black. At these values the
+ * same faces read `0x5c1a1f` with the cushion at `0xa22b2c`, which is brighter
+ * than the blue it replaced ever managed (`0x18273d`).
+ *
+ * The lesson is the one §3.1 records for the plaque and §10.2 for Claude's
+ * orange, and it costs a rebuild every time it is relearnt: sample the pixels,
+ * do not judge the hex.
+ */
 export const loungeChair = (): BuiltProp =>
   buildProp((kit) => {
-    kit.box(0, 0.34, 0, 1.5, 0.68, 1.4, 0x53708f);
-    kit.box(0, 0.76, 0, 1.36, 0.2, 1.26, 0x6d8aa8);
-    kit.box(0, 1.0, 0.6, 1.5, 1.0, 0.3, 0x5f7c9c);
-    for (const side of [-1, 1]) kit.box(side * 0.68, 0.82, -0.05, 0.22, 0.62, 1.4, 0x5f7c9c);
+    kit.box(0, 0.34, 0, 1.5, 0.68, 1.4, 0xe0655a);
+    kit.box(0, 0.76, 0, 1.36, 0.2, 1.26, 0xf98c80);
+    kit.box(0, 1.0, 0.6, 1.5, 1.0, 0.3, 0xed7468);
+    for (const side of [-1, 1]) kit.box(side * 0.68, 0.82, -0.05, 0.22, 0.62, 1.4, 0xed7468);
   });
 
 /** The LINKS side table: a mug, a stack of paper and a small pot. */
