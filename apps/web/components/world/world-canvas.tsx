@@ -129,6 +129,13 @@ export interface WorldCanvasProps {
   readonly initialArticles: readonly SkyArticle[];
   readonly initialEvents: readonly SkyEvent[];
   readonly liveEvent: SkyEvent | null;
+  /**
+   * Whether to keep the stage populated from the recorded archive between live
+   * events. Off, the only avatars on screen are the ones a live event put
+   * there, and an idle archive means an empty floor — which is the honest
+   * picture when nothing is happening, and the reason the switch exists.
+   */
+  readonly replay?: boolean;
   /** Called whenever the roster changes, so the HUD can mirror it. */
   readonly onRosterChange?: (
     roster: readonly { name: string; status: string; hue: number }[],
@@ -149,12 +156,14 @@ export function WorldCanvas({
   initialArticles,
   initialEvents,
   liveEvent,
+  replay = true,
   onRosterChange,
 }: WorldCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const plansRef = useRef<readonly AgentPlan[]>([]);
   const pendingLiveRef = useRef<SkyEvent[]>([]);
+  const replayRef = useRef(replay);
   const rosterCallbackRef = useRef(onRosterChange);
   const articleCountRef = useRef(0);
   // Bumped by the tuning panel when a value baked into the geometry changes.
@@ -162,6 +171,7 @@ export function WorldCanvas({
   const [buildToken, setBuildToken] = useState(0);
 
   rosterCallbackRef.current = onRosterChange;
+  replayRef.current = replay;
   articleCountRef.current = initialArticles.length;
 
   useEffect(() => {
@@ -768,7 +778,7 @@ export function WorldCanvas({
       const elapsed = clock.getElapsedTime();
 
       ingestLiveEvents(now);
-      stageReplay(now);
+      if (replayRef.current) stageReplay(now);
 
       for (let index = actors.length - 1; index >= 0; index -= 1) {
         const actor = actors[index];
