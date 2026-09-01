@@ -15,7 +15,7 @@
  * in the page.
  */
 
-import { HUB_PLINTH, OBSTACLES, ROOMS, WAYPOINTS, findPath, type Point } from "./layout";
+import { DEFAULT_FLOOR, findPath, type Floor, type Point } from "./layout";
 
 /** An axis-aligned footprint on the XZ plane. */
 export interface Rect {
@@ -129,20 +129,22 @@ export const segmentToRect = (from: Point, to: Point, rect: Rect): number => {
 
 /* ----------------------------------------------------------------- the floor */
 
-/** Every footprint on the floor a leg is measured against. */
-export const hazards = (): readonly Hazard[] => {
-  const walls: Hazard[] = ROOMS.filter((room) => !room.open).map((room) => ({
-    id: `wall:${room.id}`,
-    rect: {
-      minX: room.center.x - room.width / 2,
-      maxX: room.center.x + room.width / 2,
-      minZ: room.center.z - room.depth / 2,
-      maxZ: room.center.z + room.depth / 2,
-    },
-    enterable: true,
-  }));
+/** Every footprint on the given floor a leg is measured against. */
+export const hazards = (floor: Floor = DEFAULT_FLOOR): readonly Hazard[] => {
+  const walls: Hazard[] = floor.rooms
+    .filter((room) => !room.open)
+    .map((room) => ({
+      id: `wall:${room.id}`,
+      rect: {
+        minX: room.center.x - room.width / 2,
+        maxX: room.center.x + room.width / 2,
+        minZ: room.center.z - room.depth / 2,
+        maxZ: room.center.z + room.depth / 2,
+      },
+      enterable: true,
+    }));
 
-  const props: Hazard[] = OBSTACLES.map((obstacle) => ({
+  const props: Hazard[] = floor.obstacles.map((obstacle) => ({
     id: `prop:${obstacle.id}`,
     rect: {
       minX: obstacle.x - obstacle.width / 2,
@@ -159,10 +161,10 @@ export const hazards = (): readonly Hazard[] => {
     {
       id: "plinth",
       rect: {
-        minX: HUB_PLINTH.x - HUB_PLINTH.width / 2,
-        maxX: HUB_PLINTH.x + HUB_PLINTH.width / 2,
-        minZ: HUB_PLINTH.z - HUB_PLINTH.depth / 2,
-        maxZ: HUB_PLINTH.z + HUB_PLINTH.depth / 2,
+        minX: floor.plinth.x - floor.plinth.width / 2,
+        maxX: floor.plinth.x + floor.plinth.width / 2,
+        minZ: floor.plinth.z - floor.plinth.depth / 2,
+        maxZ: floor.plinth.z + floor.plinth.depth / 2,
       },
       enterable: false,
     },
@@ -180,7 +182,7 @@ const key = (from: Point, to: Point): string =>
  * Deduplicated, because the shared corridor legs otherwise appear once per room
  * pair and bury everything else.
  */
-export const routeLegs = (): readonly Leg[] => {
+export const routeLegs = (floor: Floor = DEFAULT_FLOOR): readonly Leg[] => {
   const legs = new Map<string, Leg>();
   const add = (id: string, from: Point, to: Point): void => {
     const seen = key(from, to);
@@ -188,10 +190,10 @@ export const routeLegs = (): readonly Leg[] => {
     legs.set(seen, { id, from, to });
   };
 
-  for (const from of ROOMS) {
-    for (const to of ROOMS) {
+  for (const from of floor.rooms) {
+    for (const to of floor.rooms) {
       if (from.id === to.id) continue;
-      const path = findPath(from.id, to.id);
+      const path = findPath(from.id, to.id, floor);
       for (let index = 1; index < path.length; index += 1) {
         const previous = path[index - 1];
         const current = path[index];
@@ -201,8 +203,8 @@ export const routeLegs = (): readonly Leg[] => {
     }
   }
 
-  for (const room of ROOMS) {
-    const arrival = WAYPOINTS[room.id];
+  for (const room of floor.rooms) {
+    const arrival = floor.waypoints[room.id];
     if (!arrival) continue;
     room.seats.forEach((seat, index) => add(`${room.id} seat ${index}`, arrival, seat));
     room.standby.forEach((spot, index) => add(`${room.id} standby ${index}`, arrival, spot));
@@ -219,11 +221,11 @@ export const routeLegs = (): readonly Leg[] => {
  * it: walking into a room through its doorway is the point, and reporting it as
  * a zero would drown the two that matter.
  */
-export const walkClearances = (): readonly Clearance[] => {
+export const walkClearances = (floor: Floor = DEFAULT_FLOOR): readonly Clearance[] => {
   const found: Clearance[] = [];
-  const all = hazards();
+  const all = hazards(floor);
 
-  for (const leg of routeLegs()) {
+  for (const leg of routeLegs(floor)) {
     for (const hazard of all) {
       const entering = pointInRect(leg.from, hazard.rect) || pointInRect(leg.to, hazard.rect);
       if (hazard.enterable && entering) continue;

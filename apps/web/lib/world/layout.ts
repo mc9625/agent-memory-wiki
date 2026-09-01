@@ -297,25 +297,6 @@ export const PLAN_ROOMS: readonly Room[] = [
   },
 ];
 
-export const ROOMS: readonly Room[] = PLAN_ROOMS.map((room) => {
-  const by = ROOM_SHIFT[room.id];
-  return {
-    ...room,
-    center: shifted(room.center, by),
-    seats: room.seats.map((seat) => shifted(seat, by)),
-    standby: room.standby.map((spot) => shifted(spot, by)),
-    ...(room.glass ? { glass: { ...room.glass, at: shifted(room.glass.at, by) } } : {}),
-  };
-});
-
-const roomIndex = new Map<RoomId, Room>(ROOMS.map((room) => [room.id, room]));
-
-export const getRoom = (id: RoomId): Room => {
-  const room = roomIndex.get(id);
-  if (!room) throw new Error(`Unknown room: ${id}`);
-  return room;
-};
-
 /**
  * Waypoint graph. Room nodes share the room's id so a path can end on one
  * directly; the `d_*` nodes are the doorways just outside each room, and the
@@ -357,44 +338,6 @@ const WAYPOINT_ROOM: Readonly<Record<string, RoomId>> = {
   entrance: "entrance",
 };
 
-/**
- * ARCHIVE's west facade, which is the east edge of the plaza and the one thing
- * the two corridor junctions have to stay clear of. Read off the room rather
- * than written down, so it cannot drift from whatever the shift is set to.
- */
-const ARCHIVE_FACE_X = getRoom("archive").center.x - getRoom("archive").width / 2;
-
-/** LINKS' east facade, the other side of the channel out to the entrance. */
-const LINKS_FACE_X = getRoom("links").center.x + getRoom("links").width / 2;
-
-/**
- * Middle of that channel. It is the tightest thing on the floor, which is what
- * `ARCHIVE_RELIEF` exists to widen.
- */
-const NOTCH_X = (LINKS_FACE_X + ARCHIVE_FACE_X) / 2;
-
-export const WAYPOINTS: Readonly<Record<string, Point>> = {
-  ...Object.fromEntries(
-    Object.entries(PLAN_WAYPOINTS).map(([id, point]) => {
-      const room = WAYPOINT_ROOM[id];
-      return [id, room ? shifted(point, ROOM_SHIFT[room]) : point];
-    }),
-  ),
-
-  // EDIT is the one room the hub cannot reach in a straight line: the plinth
-  // sits between them, so the route steps out to the east first. All three
-  // junctions are measured off the facades either side of them rather than
-  // written flat, because the plaza they stand in is what the inset changes.
-  c_ne: { x: ARCHIVE_FACE_X - 2, z: 0 },
-  // The way out to the entrance runs through the notch between LINKS' east
-  // face and ARCHIVE's west one, and it takes two nodes rather than one: the
-  // hub sits on the same 45° diagonal as LINKS' corner, so a single node in the
-  // notch draws a leg straight over that corner. Down the middle of the channel
-  // and then out, which is also what a corridor between two rooms looks like.
-  c_e: { x: NOTCH_X, z: 4 },
-  c_s: { x: NOTCH_X, z: 11 },
-};
-
 const ADJACENCY: Readonly<Record<string, readonly string[]>> = {
   hub: ["d_read", "d_links", "d_archive", "c_ne", "c_e"],
   c_ne: ["hub", "d_edit"],
@@ -409,68 +352,6 @@ const ADJACENCY: Readonly<Record<string, readonly string[]>> = {
   edit: ["d_edit"],
   links: ["d_links"],
   archive: ["d_archive"],
-};
-
-interface WallBox {
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
-  readonly doorways: readonly Side[];
-}
-
-const wallBoxes: readonly WallBox[] = ROOMS.filter((room) => !room.open).map((room) => ({
-  minX: room.center.x - room.width / 2,
-  maxX: room.center.x + room.width / 2,
-  minZ: room.center.z - room.depth / 2,
-  maxZ: room.center.z + room.depth / 2,
-  doorways: room.doorways,
-}));
-
-const EPSILON = 1e-6;
-
-/**
- * True when the straight segment between two points would enter or leave a
- * room through a side that carries no doorway.
- *
- * Used by the layout tests rather than at runtime: the graph is authored so
- * this never happens, and the test is what keeps it that way when the plan
- * changes.
- */
-export const segmentCrossesWall = (from: Point, to: Point): boolean => {
-  const inside = (point: Point, box: WallBox): boolean =>
-    point.x >= box.minX && point.x <= box.maxX && point.z >= box.minZ && point.z <= box.maxZ;
-
-  for (const box of wallBoxes) {
-    const fromInside = inside(from, box);
-    const toInside = inside(to, box);
-    if (fromInside === toInside) continue;
-
-    // Exactly one end is inside, so the segment crosses the boundary once.
-    // Find which of the four faces it passes through.
-    const dx = to.x - from.x;
-    const dz = to.z - from.z;
-    const candidates: readonly { side: Side; t: number }[] = [
-      { side: "-x", t: Math.abs(dx) < EPSILON ? -1 : (box.minX - from.x) / dx },
-      { side: "+x", t: Math.abs(dx) < EPSILON ? -1 : (box.maxX - from.x) / dx },
-      { side: "-z", t: Math.abs(dz) < EPSILON ? -1 : (box.minZ - from.z) / dz },
-      { side: "+z", t: Math.abs(dz) < EPSILON ? -1 : (box.maxZ - from.z) / dz },
-    ];
-
-    for (const candidate of candidates) {
-      if (candidate.t < 0 || candidate.t > 1) continue;
-      const x = from.x + dx * candidate.t;
-      const z = from.z + dz * candidate.t;
-      const onFace =
-        x >= box.minX - EPSILON &&
-        x <= box.maxX + EPSILON &&
-        z >= box.minZ - EPSILON &&
-        z <= box.maxZ + EPSILON;
-      if (!onFace) continue;
-      if (!box.doorways.includes(candidate.side)) return true;
-    }
-  }
-  return false;
 };
 
 /**
@@ -544,33 +425,197 @@ const PLAN_OBSTACLES: readonly Obstacle[] = [
   },
 ];
 
+interface WallBox {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+  readonly doorways: readonly Side[];
+}
+
 /**
- * The hub fountain's footprint, which is the one solid thing on the floor that
- * is deliberately *not* an obstacle.
+ * The plan position of the hub fountain, in the hub's own frame.
  *
- * Two of the hub's standby spots stand behind it, so listing it here would make
- * `findPath` unable to reach them and would fail the route tests rather than fix
- * anything — the real fix is to re-author those two spots beside the plinth, and
- * nothing has asked for it. But every corridor leg passes its corner, so a floor
- * plan that cannot state where it is cannot be measured: `validate.ts` reads it
- * from here.
+ * The fountain is the one solid thing on the floor that is deliberately *not*
+ * an obstacle: two of the hub's standby spots stand behind it, so listing it
+ * would make `findPath` unable to reach them and would fail the route tests
+ * rather than fix anything. The fix is to re-author those two spots beside it,
+ * and nothing has asked for it. But every corridor leg passes its corner, so a
+ * floor plan that cannot say where it is cannot be measured: `validate.ts`
+ * reads it from here.
  *
  * 6.2 across is the base slab in `furniture.ts`'s `hubPlinth`, which is its
- * widest part. The centre is the plan position `environment.ts` places it at,
- * carried by the hub's own shift like everything else in that room.
+ * widest part, and (0, -3) is where `environment.ts` places it.
  */
-export const HUB_PLINTH = {
-  x: 0 + ROOM_SHIFT.hub.x,
-  z: -3 + ROOM_SHIFT.hub.z,
-  width: 6.2,
-  depth: 6.2,
-} as const;
+const PLAN_PLINTH = { x: 0, z: -3, width: 6.2, depth: 6.2 } as const;
 
-/** The list above, each prop moved with the room it stands in. */
-export const OBSTACLES: readonly Obstacle[] = PLAN_OBSTACLES.map((obstacle) => {
-  const by = ROOM_SHIFT[obstacle.room];
-  return { ...obstacle, x: obstacle.x + by.x, z: obstacle.z + by.z };
-});
+/* ------------------------------------------------------------ the derivation */
+
+/**
+ * One arrangement of the floor: the authored plan with a set of room shifts
+ * applied to everything that travels with a room.
+ *
+ * There is exactly one of these in the page — `DEFAULT_FLOOR`, built from
+ * `ROOM_SHIFT`, and the exports below are its fields. It is a value rather than
+ * a set of module constants so that a *candidate* arrangement can be derived
+ * and measured without touching the one the scene is built from: moving a room
+ * shortens corridors, and whether that leaves an avatar room to pass is a
+ * question `validate.ts` answers by walking a floor, not by looking at one.
+ */
+export interface Floor {
+  readonly shift: Readonly<Record<RoomId, Point>>;
+  readonly rooms: readonly Room[];
+  readonly waypoints: Readonly<Record<string, Point>>;
+  readonly obstacles: readonly Obstacle[];
+  /** The fountain's footprint, shifted with the hub. */
+  readonly plinth: {
+    readonly x: number;
+    readonly z: number;
+    readonly width: number;
+    readonly depth: number;
+  };
+  readonly room: (id: RoomId) => Room;
+  /** Room footprints with their doorways, which is what wall crossing tests. */
+  readonly wallBoxes: readonly WallBox[];
+}
+
+export const deriveFloor = (shift: Readonly<Record<RoomId, Point>>): Floor => {
+  const rooms: readonly Room[] = PLAN_ROOMS.map((room) => {
+    const by = shift[room.id];
+    return {
+      ...room,
+      center: shifted(room.center, by),
+      seats: room.seats.map((seat) => shifted(seat, by)),
+      standby: room.standby.map((spot) => shifted(spot, by)),
+      ...(room.glass ? { glass: { ...room.glass, at: shifted(room.glass.at, by) } } : {}),
+    };
+  });
+
+  const index = new Map<RoomId, Room>(rooms.map((room) => [room.id, room]));
+  const room = (id: RoomId): Room => {
+    const found = index.get(id);
+    if (!found) throw new Error(`Unknown room: ${id}`);
+    return found;
+  };
+
+  /*
+   * ARCHIVE's west facade is the east edge of the plaza and the one thing the
+   * two corridor junctions have to stay clear of; LINKS' east facade is the
+   * other side of the channel out to the entrance; and the middle of that
+   * channel is the tightest thing on the floor, which is what `ARCHIVE_RELIEF`
+   * exists to widen. All three are read off the rooms rather than written down,
+   * so they cannot drift from whatever the shifts are set to.
+   */
+  const archiveFaceX = room("archive").center.x - room("archive").width / 2;
+  const linksFaceX = room("links").center.x + room("links").width / 2;
+  const notchX = (linksFaceX + archiveFaceX) / 2;
+
+  const waypoints: Readonly<Record<string, Point>> = {
+    ...Object.fromEntries(
+      Object.entries(PLAN_WAYPOINTS).map(([id, point]) => {
+        const owner = WAYPOINT_ROOM[id];
+        return [id, owner ? shifted(point, shift[owner]) : point];
+      }),
+    ),
+
+    // EDIT is the one room the hub cannot reach in a straight line: the plinth
+    // sits between them, so the route steps out to the east first.
+    c_ne: { x: archiveFaceX - 2, z: 0 },
+    // The way out to the entrance runs through the notch between LINKS' east
+    // face and ARCHIVE's west one, and it takes two nodes rather than one: the
+    // hub sits on the same 45° diagonal as LINKS' corner, so a single node in
+    // the notch draws a leg straight over that corner. Down the middle of the
+    // channel and then out, which is also what a corridor between two rooms
+    // looks like.
+    c_e: { x: notchX, z: 4 },
+    c_s: { x: notchX, z: 11 },
+  };
+
+  return {
+    shift,
+    rooms,
+    waypoints,
+    room,
+    obstacles: PLAN_OBSTACLES.map((obstacle) => {
+      const by = shift[obstacle.room];
+      return { ...obstacle, x: obstacle.x + by.x, z: obstacle.z + by.z };
+    }),
+    plinth: {
+      ...PLAN_PLINTH,
+      x: PLAN_PLINTH.x + shift.hub.x,
+      z: PLAN_PLINTH.z + shift.hub.z,
+    },
+    wallBoxes: rooms
+      .filter((candidate) => !candidate.open)
+      .map((candidate) => ({
+        minX: candidate.center.x - candidate.width / 2,
+        maxX: candidate.center.x + candidate.width / 2,
+        minZ: candidate.center.z - candidate.depth / 2,
+        maxZ: candidate.center.z + candidate.depth / 2,
+        doorways: candidate.doorways,
+      })),
+  };
+};
+
+/** The floor the page is built from. */
+export const DEFAULT_FLOOR = deriveFloor(ROOM_SHIFT);
+
+export const ROOMS = DEFAULT_FLOOR.rooms;
+export const WAYPOINTS = DEFAULT_FLOOR.waypoints;
+export const OBSTACLES = DEFAULT_FLOOR.obstacles;
+export const HUB_PLINTH = DEFAULT_FLOOR.plinth;
+export const getRoom = DEFAULT_FLOOR.room;
+
+const EPSILON = 1e-6;
+
+/**
+ * True when the straight segment between two points would enter or leave a
+ * room through a side that carries no doorway.
+ *
+ * Used by the layout tests rather than at runtime: the graph is authored so
+ * this never happens, and the test is what keeps it that way when the plan
+ * changes. Takes a floor so a candidate arrangement can be tested before it
+ * becomes the one the page is built from.
+ */
+export const segmentCrossesWall = (
+  from: Point,
+  to: Point,
+  floor: Floor = DEFAULT_FLOOR,
+): boolean => {
+  const inside = (point: Point, box: WallBox): boolean =>
+    point.x >= box.minX && point.x <= box.maxX && point.z >= box.minZ && point.z <= box.maxZ;
+
+  for (const box of floor.wallBoxes) {
+    const fromInside = inside(from, box);
+    const toInside = inside(to, box);
+    if (fromInside === toInside) continue;
+
+    // Exactly one end is inside, so the segment crosses the boundary once.
+    // Find which of the four faces it passes through.
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const candidates: readonly { side: Side; t: number }[] = [
+      { side: "-x", t: Math.abs(dx) < EPSILON ? -1 : (box.minX - from.x) / dx },
+      { side: "+x", t: Math.abs(dx) < EPSILON ? -1 : (box.maxX - from.x) / dx },
+      { side: "-z", t: Math.abs(dz) < EPSILON ? -1 : (box.minZ - from.z) / dz },
+      { side: "+z", t: Math.abs(dz) < EPSILON ? -1 : (box.maxZ - from.z) / dz },
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate.t < 0 || candidate.t > 1) continue;
+      const x = from.x + dx * candidate.t;
+      const z = from.z + dz * candidate.t;
+      const onFace =
+        x >= box.minX - EPSILON &&
+        x <= box.maxX + EPSILON &&
+        z >= box.minZ - EPSILON &&
+        z <= box.maxZ + EPSILON;
+      if (!onFace) continue;
+      if (!box.doorways.includes(candidate.side)) return true;
+    }
+  }
+  return false;
+};
 
 /**
  * True when the straight segment between two points passes within `clearance`
@@ -580,11 +625,12 @@ export const segmentHitsObstacle = (
   from: Point,
   to: Point,
   clearance: number = AVATAR_CLEARANCE,
+  floor: Floor = DEFAULT_FLOOR,
 ): boolean => {
   const dx = to.x - from.x;
   const dz = to.z - from.z;
 
-  for (const obstacle of OBSTACLES) {
+  for (const obstacle of floor.obstacles) {
     const bounds: readonly (readonly [number, number, number, number])[] = [
       [
         from.x,
@@ -623,10 +669,14 @@ export const segmentHitsObstacle = (
  * Shortest waypoint path between two nodes, inclusive of both ends. Returns an
  * empty array when either node is unknown or unreachable.
  */
-export const findPath = (from: string, to: string): readonly Point[] => {
+export const findPath = (
+  from: string,
+  to: string,
+  floor: Floor = DEFAULT_FLOOR,
+): readonly Point[] => {
   if (!(from in ADJACENCY) || !(to in ADJACENCY)) return [];
   if (from === to) {
-    const only = WAYPOINTS[to];
+    const only = floor.waypoints[to];
     return only ? [only] : [];
   }
 
@@ -661,7 +711,7 @@ export const findPath = (from: string, to: string): readonly Point[] => {
 
   const points: Point[] = [];
   for (const node of nodes) {
-    const point = WAYPOINTS[node];
+    const point = floor.waypoints[node];
     if (point) points.push(point);
   }
   return points;
