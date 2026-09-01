@@ -325,6 +325,12 @@ export function WorldCanvas({
     let width = container.clientWidth;
     let height = container.clientHeight;
 
+    /**
+     * Whether the set editor is wanted, read once. Its only cost in production
+     * is this line: the module itself is behind a dynamic import below.
+     */
+    const editing = new URLSearchParams(window.location.search).has("edit");
+
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
@@ -603,6 +609,29 @@ export function WorldCanvas({
       onChange: applyVisuals,
       onRebuild: () => setBuildToken((token) => token + 1),
     });
+
+    /*
+     * The set editor, on `?edit=1`.
+     *
+     * Imported dynamically rather than at the top of the file, so none of it is
+     * in the bundle a visitor downloads — it is a development tool, and the only
+     * trace of it in production is the `has("edit")` above. It arrives a frame
+     * or two late, which is why the disposer is a variable: the effect can be
+     * torn down before the import resolves.
+     */
+    let disposeEditor = () => {};
+    let editorWanted = editing;
+    if (editing) {
+      void import("./world-editor").then(({ mountEditor }) => {
+        if (!editorWanted) return;
+        disposeEditor = mountEditor({
+          container,
+          canvas: renderer.domElement,
+          camera,
+          environment,
+        });
+      });
+    }
 
     const actors: Actor[] = [];
     let replayQueue: AgentPlan[] = [];
@@ -1427,9 +1456,14 @@ export function WorldCanvas({
         if (!replayMode) retireReplayCast(now);
       }
 
-      ingestLiveEvents(now);
-      if (replayMode) stageReplay(now);
-      stageCleaners(now);
+      // Nothing is staged while the set is being edited: an actor mid-leg is
+      // walking a path derived from a floor the editor is moving under it, and
+      // an empty floor is what you want to look at anyway.
+      if (!editing) {
+        ingestLiveEvents(now);
+        if (replayMode) stageReplay(now);
+        stageCleaners(now);
+      }
 
       for (let index = actors.length - 1; index >= 0; index -= 1) {
         const actor = actors[index];
@@ -1515,6 +1549,8 @@ export function WorldCanvas({
         if (actor) removeActor(actor, index);
       }
       disposeTunePanel();
+      editorWanted = false;
+      disposeEditor();
       environment.dispose();
       composer.dispose();
       renderer.dispose();
