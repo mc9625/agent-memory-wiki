@@ -193,6 +193,18 @@ export const agentHue = (identifier: string): number => {
 };
 
 /**
+ * The plans worth replaying, which is the agents and not the visitors.
+ *
+ * A recorded human is a person who was reading the wiki an hour ago, and
+ * putting them back on the floor makes the archive look busier with *people*
+ * than it was — the one claim this view should never overstate. Their sessions
+ * stay in the archive and still count; they are simply not re-enacted. A human
+ * reading right now is another matter, and arrives on the live stream.
+ */
+export const replayPlans = (events: readonly SkyEvent[]): readonly AgentPlan[] =>
+  buildAgentPlans(events).filter((plan) => !isHumanAgent(plan.agentIdentifier));
+
+/**
  * The rooms a cleaner works through, in the order it walks them.
  *
  * The hub comes first because it is the middle of the shot: an empty archive
