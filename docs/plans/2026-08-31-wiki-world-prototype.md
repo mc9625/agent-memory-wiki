@@ -1,11 +1,13 @@
 # Wiki World — handoff
 
 **Date:** 2026-08-31; art, lighting, colour, traffic and shading passes all
-2026-09-01; shipped 2026-09-01
-**Status:** **in production.** Merged as #78 (`2bf443d`) and #79 (`b719288`) and
-live at <https://agent-memory-wiki.vercel.app/world>, linked from the home art
-entry as *Walk the archive →*. Nothing is unstaged any more; the two follow-up
-passes of 2026-09-01 are in §3.2 and §9.
+2026-09-01; shipped 2026-09-01; the human-visitor pass of §10 also 2026-09-01
+**Status:** **in production, with unshipped work in the tree.** #78 (`2bf443d`)
+and #79 (`b719288`) are live at <https://agent-memory-wiki.vercel.app/world>,
+linked from the home art entry as *Walk the archive →*. On top of that, the
+whole of **§10 is uncommitted** on branch `docs/world-handoff`: the user asked
+explicitly for no PR until they say the word. Verified green (lint, typecheck,
+115 tests) but not merged, not deployed. **Do not open a PR unprompted.**
 
 **Route:** `/world` — an isometric room-scale companion to `/sky`
 **Reference art:** `~/Downloads/ebbebea6-c72a-4693-8807-d23206ddcd03.png` — the
@@ -531,9 +533,11 @@ hub `x 620 y 180 w 460 h 360`, entrance `x 480 y 620 w 700 h 280`.
 
 1. **Speech bubbles overlap** when two agents share a room. Offset the bubble's
    screen Y by the actor's seat index. Still the top of the list — the avatars
-   themselves no longer overlap, but their captions do.
+   themselves no longer overlap, but their captions do. Seen again in §10's
+   screenshots with two readers in READ, so this is not theoretical.
 2. **No real occlusion.** Walls are open towards the camera so it does not show.
 3. ~~The `● LIVE` badge never returns to `○ REPLAY`.~~ Fixed in #79; see §9.
+   The *other* half of that lie — the SSE backlog — is fixed in §10.
 4. ~~The replay loops the archive, so the room is never empty.~~ Still true by
    default, but it is now a switch; see §9.
 5. `articleCountRef` in `world-canvas.tsx` is assigned but not yet consumed.
@@ -606,7 +610,8 @@ revocation because `getSignKey` prefers `CREDENTIAL_HASH_SECRET`.)
 
 ## 7. Next step
 
-The feature is shipped. What is left, in rough order:
+**First: §10 is sitting uncommitted and the user decides when it ships.** Do not
+open a PR for it until they ask. Then, in rough order:
 
 0. **Ask the user for the next crop.** Two detail passes have run (§3.1, §3.2);
    both worked the same way — one cropped reference at a time, one element
@@ -617,14 +622,12 @@ The feature is shipped. What is left, in rough order:
    `VISUAL_DEFAULTS` in `visual.ts`. They have also handed the whole JSON over
    directly, which is the fastest path. Each row's `↺` returns one value to its
    default and lights up while it is off it.
-1. **Decide whether browser page views belong on the stage.** 14 of the 47
-   sessions in the production archive have a browser user agent, which
-   `displayAgentName` maps to `Explorer`, so a crowd of them walks the floor.
-   They are humans reading the wiki, recorded by the site telemetry — real
-   events, but arguably not agents. Filtering them is a product call and was
-   deliberately left alone. See §9.
+1. ~~**Decide whether browser page views belong on the stage.**~~ Decided: they
+   belong, and they are now drawn as people rather than filtered out. See §10.
 2. **Bubble offsets**, so two agents in one room do not overlap their captions.
-   Still the top of the art list.
+   Still the top of the art list, and §10 made it more visible: a human reader
+   now holds their seat for as long as they are reading, so two captions sit on
+   top of each other for minutes rather than seconds.
 3. **`.vox` assets.** The parser has no callers: there are no `.vox` files in
    the repo. Anything authored in MagicaVoxel can be dropped into
    `apps/web/public/world/` (that directory does not exist yet) and loaded with
@@ -717,3 +720,256 @@ that mode. An idle archive then shows an empty floor and the roster reads
 the live site in another tab. The visit is recorded as `article_opened`, an
 avatar appears, a line lands in the activity log, and the badge goes green for
 two minutes.
+
+---
+
+## 10. The human-visitor pass (2026-09-01, uncommitted)
+
+Everything in this section is **in the working tree, not merged**. The user
+asked for changes to `/world` and said explicitly: no PR per change, wait until
+they call the deploy. Branch `docs/world-handoff`, on top of `28521b9`.
+
+The thread running through it: the archive stream carries two kinds of actor,
+and until now the world drew them as one. Agents submit through the API; people
+read the wiki in a browser and are recorded by the site's own page telemetry.
+Both walk the same floor. Telling them apart, and letting a person behave like a
+person, is what this pass is.
+
+### 10.1 A visitor is now one session, not one per page view
+
+The bug, and it was not a timing bug. `broadcaster.ts` did
+`sessionId: event.sessionId || randomUUID()`, and every page render called it.
+So a reader who opened `/` and then an article produced **two unrelated
+sessions**, hence two unrelated avatars: the first entered the hub, said its
+line, ran out of tasks and walked straight out — before the visitor had finished
+choosing what to read. That is what the user saw when they tested by hand.
+
+`lib/telemetry/visitor.ts` (new) mints the identity:
+`visitorSessionId(ip, userAgent, now)` — a salted SHA-256 of the client address,
+the user agent and a 30-minute bucket, truncated to 32 hex characters.
+
+The choice was put to the user with three options; they picked this one.
+
+- **No cookie, nothing stored on the device**, so no consent question and no
+  middleware. The rejected alternative was a `middleware.ts` setting a session
+  cookie: more accurate, survives NAT, but it writes to the visitor's machine.
+- **Salted on purpose.** Session identifiers travel over the public event
+  stream. An unsalted digest would let anyone confirm that a given address had
+  visited. Salt comes from `TELEMETRY_SESSION_SECRET`, else
+  `CREDENTIAL_HASH_SECRET`, else a constant — this is a display-grouping
+  identifier, not a security boundary, so no new environment variable is
+  required.
+- **Two accepted costs**, both documented in the module: visitors behind one
+  address on the same browser merge into one avatar, and a visit straddling a
+  bucket boundary is seen as two. A sliding window needs per-visitor state,
+  which is the thing this design exists to avoid.
+
+Wired into all seven client-facing broadcast sites: `/`, `/articles/[slug]`,
+`/wanted`, `/skill`, `llms.txt`, `index.md`, `skill/SKILL.md`. Six tests in
+`test/telemetry-visitor.test.ts`.
+
+**A second, independent drop was throttling the article.** The broadcaster's
+2.5-second cooldown was keyed on the address alone, so opening an article within
+2.5 s of the home page had the article silently discarded — the avatar reached
+the hub and never walked to READ. The key is now
+`${address}:${eventType}:${articleId}`, which is per address *and page*. The
+global 6-per-second cap still bounds the total.
+
+### 10.2 People are dressed; agents are one colour
+
+`createAvatar(hue, { human, variant })`. A human gets a flesh head, a coloured
+shirt and trousers that do not match; an agent stays monochrome. That contrast
+*is* the classification, so it has to survive contact with the palette:
+
+- **Shirts are kept out of the flesh band.** The first attempt included an ochre
+  and a warm brick, and a tan shirt under a tan head reads as one bare torso —
+  the head stops being a head. The seven shirts are now crimson, blue, green,
+  violet, magenta, teal and charcoal: nothing near hue 20–40 at a middling
+  saturation.
+- **The outfit is picked by session hash, not by agent name.** Every browsing
+  human classifies to the same name and therefore the same hue, so the session
+  identifier from §10.1 is the *only* thing that separates two readers. Four
+  skins × seven shirts × five trousers, each indexed independently
+  (`pick(palette, stride)` with strides 1 / 4 / 28), giving 140 outfits.
+- **`avatarPalette(hue, style)` is exported** so the HUD paints the same head.
+  A roster swatch that disagrees with the avatar it stands for is worse than no
+  swatch.
+- **Agents in the orange band had to move.** An agent is one hue with the torso
+  a couple of stops darker — which in the oranges is exactly skin over a tan
+  shirt, and Claude's mascot orange sits in the middle of it. The user sent a
+  screenshot; sampling it gave a `#cca06f` head over a `#986c49` torso from an
+  authored `hsl(18, 72%, 50%)`, because the tone map lifts and desaturates it.
+  Hues **8°–52° now build at `s 0.95, l 0.42`** — same hue, saturated, reads as
+  a machine. Outside the band nothing changed: a blue or violet agent was never
+  going to be mistaken for a face. *The user asked for exactly this ("aumenta un
+  po' la saturazione dell'arancione di Claude"), so it is their call, not a
+  taste change to revert.*
+
+### 10.3 Classifying a human, in both shapes the archive holds
+
+`isHumanAgent()` in `choreography.ts`. Two shapes exist and both must pass:
+events recorded through the API carry the **raw user agent**, while events the
+site broadcasts for its own page views carry the already-classified
+**`Human Explorer`**, which contains no browser token at all.
+
+The first version tested for `chrome` / `safari` anywhere in the string and that
+was too loose. An `agentIdentifier` on an EDIT event is the *claimed* agent name
+from a submission, so any claimed name carrying a browser word would be dressed
+as a human — and EDIT is a room no visitor can reach. The rule is now: exactly
+`human explorer`, or an identifier **starting with `mozilla/`** that does not
+also look like a crawler. Tests cover `Chrome-Assistant/2.1`,
+`safari-research-agent`, GPTBot and bingbot.
+
+`displayAgentName` now puts both shapes under one roster name, `Explorer` — it
+used to yield `Explorer` for a raw user agent and `Human Explorer` for the
+classified one, listing one cast as two.
+
+The user reported seeing a human in EDIT. **It was never reproduced** from local
+data: the only human events in the scratch database map to hub and READ, and a
+90-second watch of the stage never put an Explorer in EDIT. The loose substring
+test above is the one mechanism that could do it, and it is closed. If it turns
+up again, that assumption is wrong and the next place to look is whatever event
+put them there.
+
+### 10.4 The roster flags them
+
+Humans were always *listed* — a 90-second scrape confirmed it. What was missing
+is that nothing said which rows were people: the chip was painted the agent hue,
+so a human's row looked like an agent's.
+
+`RosterEntry` now carries `human`, `head` and `shirt`, resolved once at spawn
+from `avatarPalette`. The chip is the avatar's real head colour with its shirt
+drawn under it as `inset 0 -0.3rem 0`, and the row carries a `HUMAN` tag. It
+reads `[▣] Explorer [HUMAN] Reading`.
+
+### 10.5 A live task lasts until the next event
+
+This replaced an earlier, worse shape. The first fix for §10.1 was a 45-second
+*linger* bolted on after a task ran out — a wait, not a task. The user then
+asked for the right model directly: a reader should stay seated as long as they
+are reading, change bubble when they open another article, walk to the hub when
+they go home, and leave only after being idle.
+
+So for a **live** actor a task no longer lasts `durationMs`. It lasts **until
+the next event**, with `LIVE_IDLE_EXIT_MS` (90 s) as the timeout for the case
+where none ever comes — they closed the laptop, or the beacon in §10.6 never
+fired. Replayed archive actors are untouched: their sessions are finished, so
+their tasks keep their fixed durations. `holdFor(actor, task)` is the one place
+that decides.
+
+Three details that are easy to get wrong:
+
+- **Same room means stay in the chair.** If the next event belongs to the room
+  the actor is already settled in, `beginNextTask` swaps the caption and returns
+  without re-pathing. Standing a reader up to walk a circuit back to the chair
+  they are sitting in is the wrong picture of what happened.
+- **The caption runs on its own clock** (`bubbleMs`, still the choreography's
+  `durationMs`). A speech bubble held up for ninety seconds is a label, not a
+  line of dialogue. For replayed actors the two clocks are equal, so nothing
+  changes for them.
+- **The exit task is exempt from the hold**, or a live actor stands at the
+  entrance for ninety seconds instead of despawning.
+
+An earlier iteration of the linger had to carry the *action* forward rather than
+dropping to `idle`, because the idle pose stands the avatar up — a reader rose
+out of the armchair to wait in it. That trap is gone with the linger, but the
+lesson stands if anyone reintroduces a synthetic task.
+
+### 10.6 Leaving the site is detectable; leaving a page already was
+
+The user asked whether a visitor leaving a page can be detected. The answer
+splits, and the split is the whole design:
+
+- **Moving between pages of the wiki was already detected**, server-side, and
+  needed nothing. Each render broadcasts its own event under the same visit
+  identifier, so opening another article just walks the avatar to the next room.
+  A client-side Next navigation does not raise `pagehide`, which is exactly the
+  behaviour wanted — an internal move is not a departure.
+- **Leaving the site is not knowable server-side at all** — no request is made
+  when a tab closes — so it takes a beacon from the page.
+
+`components/visit-beacon.tsx` (new) registers `pagehide` and calls
+`navigator.sendBeacon("/api/v1/events/leave")`. Mounted on the four page routes:
+`/`, `/articles/[slug]`, `/wanted`, `/skill`.
+
+- **`pagehide`, not `visibilitychange`.** Switching tabs hides a page without
+  leaving it; reporting that as a departure walks an avatar off the floor every
+  time its reader glances elsewhere.
+- **`sendBeacon`, not `fetch`.** A request started during unload is cancelled.
+
+`app/api/v1/events/leave/route.ts` (new) **reads no body**. It re-derives the
+session from the request's own address and user agent, exactly as the page
+render derived it, so a beacon cannot name a session other than its own —
+trusting a client-supplied identifier would let anybody walk any avatar off the
+floor. It broadcasts `agent_session_ended` and **writes nothing to the archive**:
+page views are broadcast, never recorded, and the corpus is what the experiment
+measures. Returns 204.
+
+Two guards in the world for it:
+
+- **`LEAVE_GRACE_MS` (8 s).** A reload also raises `pagehide`, followed a moment
+  later by the page view for the same visit. Acted on at once, that pair walks
+  the avatar to the door and straight back. Any event inside the grace cancels
+  the pending exit (`Actor.exitAt`).
+- **A departure for someone never on stage is ignored.** Spawning an avatar for
+  its own exit puts one at the door for the length of a walk to the same door.
+
+### 10.7 Bug found while verifying: the SSE stream faked liveness
+
+`GET /api/v1/events/stream` replays the last ten archive rows on connect, so a
+client has something immediately. `/world` counted them as live: the `● LIVE`
+badge went green the instant the page loaded and `?live=1` came up already
+populated — over an archive where nothing had happened for hours. This is the
+same honesty problem #79 set out to fix, leaking through the backlog.
+
+Backlog frames now carry `historical: true` (a new optional field on `SkyEvent`)
+and `/world`'s `ingest` drops them; the archive fetch the page already makes
+covers that data. `/sky` is unaffected — it ignores the unknown field. After the
+fix `?live=1` opens on an empty floor, which is the honest picture.
+
+### 10.8 ARCHIVE's parquet
+
+Boards and joint down a full stop, `#d9ba90…` → `#a37a51…`, joint `#b0906a` →
+`#75543a`; on screen `#c9a37a` → `#986d42`. The narrow tonal band between the
+four boards is unchanged — widening it is what turns a parquet into a
+chequerboard at this camera distance, which is how the LINKS tile attempt failed
+in §3.2.
+
+### What is not tested, and why
+
+The §10.5 and §10.6 world logic lives in `world-canvas.tsx`, a THREE/React
+component with no test harness in this repo — only the pure `choreography.ts` /
+`layout.ts` layer is unit-tested, which is the hexagonal split the repo keeps on
+purpose. It was verified instead by driving real events at the running page with
+Playwright and reading the DOM (`.world-row`, `.world-bubble`) plus screenshots.
+That loop is worth reusing: post to `/api/v1/events` with a chosen `sessionId`
+and `agentIdentifier`, then scrape the roster every few seconds.
+
+Confirmed by that method: a reader seated in READ swaps caption from
+`On Forgetting` to `On Remembering` **without leaving the chair**; a following
+`agent_session_started` puts them back on the floor towards the hub
+(`Moving`, log line `entered the hub`); closing the visitor's tab flips them to
+`Leaving` after the grace and not before.
+
+### Files
+
+```
+apps/web/lib/telemetry/visitor.ts              new — the visit identifier
+apps/web/components/visit-beacon.tsx           new — pagehide beacon
+apps/web/app/api/v1/events/leave/route.ts      new — broadcast-only departure
+apps/web/test/telemetry-visitor.test.ts        new — 6 tests
+apps/web/lib/telemetry/broadcaster.ts          throttle key per address AND page
+apps/web/lib/world/choreography.ts             isHumanAgent, stableHash, one name
+apps/web/components/world/avatar.ts            human palettes, avatarPalette, flesh band
+apps/web/components/world/world-canvas.tsx     hold model, exit grace, roster fields
+apps/web/components/world/textures.ts          darker parquet
+apps/web/components/sky-canvas.tsx             SkyEvent.historical
+apps/web/app/api/v1/events/stream/route.ts     marks the backlog
+apps/web/app/world/page.tsx                    drops historical, HUMAN tag, real swatch
+apps/web/app/{page,wanted/page,skill/page}.tsx + articles/[slug]  sessionId + beacon
+apps/web/app/{llms.txt,index.md,skill/SKILL.md}/route.ts          sessionId
+apps/web/test/world-choreography.test.ts       +4 tests
+```
+
+`pnpm lint`, `pnpm --filter @agent-memory-wiki/web typecheck` clean;
+`npx vitest run --project web` → 19 files, **115 tests** passing.

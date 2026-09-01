@@ -6,8 +6,9 @@
  * with the archive's own content licence.
  *
  * World scale: an avatar stands 2.85 units tall, which reads as ~1.8 m, so one
- * metre is roughly 1.58 units. Seat surfaces land at 0.58 to match the seated
- * pose in `avatar.ts`.
+ * metre is roughly 1.58 units. The seated pose in `avatar.ts` puts its hip pivot
+ * at 0.58 and the thigh is 0.34 thick, so a cushion the thigh rests on tops out
+ * at 0.435 rather than at the hip.
  */
 
 import type { VoxelModel } from "./voxel";
@@ -19,32 +20,33 @@ const WOOD = 0xd4a469;
 const WOOD_DARK = 0xb58150;
 
 /**
- * Reading armchair. Eleven voxels wide at 0.145 units puts the cushion top at
- * 0.58 — the height the seated pose expects.
+ * Reading armchair.
+ *
+ * Shallow on purpose. An armchair at this scale is deeper than the avatar's
+ * thigh is long — 0.45 from hip to knee — so a full-depth cushion swallowed the
+ * knees and the shins came out of the front of it. Four rows of cushion put the
+ * front edge at 0.29 from the hips, which is exactly where the shins hang, and
+ * two rows of backrest put the back of it against the torso.
+ *
+ * Heights follow from the same fit. The cushion tops out at 0.435, half a
+ * thigh's thickness below the 0.58 the seated pose puts its hip pivot at, so
+ * the thigh rests ON the cushion instead of halfway through it.
  */
 export const ARMCHAIR: VoxelModel = {
   voxelSize: 0.145,
   palette: { f: FABRIC, d: FABRIC_DARK, s: FABRIC_SHADOW, w: WOOD_DARK },
   layers: [
-    // y0 — four stubby legs.
+    // y0 — four stubby legs, front pair and back pair.
     [
       "ww.......ww",
       "ww.......ww",
       "...........",
       "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
       "ww.......ww",
       "ww.......ww",
     ],
-    // y1-y3 — seat cushion.
+    // y1-y2 — seat cushion, topping out at 0.435.
     [
-      "sssssssssss",
-      "sssssssssss",
-      "sssssssssss",
-      "sssssssssss",
       "sssssssssss",
       "sssssssssss",
       "sssssssssss",
@@ -59,29 +61,9 @@ export const ARMCHAIR: VoxelModel = {
       "fffffffffff",
       "fffffffffff",
       "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
     ],
+    // y3-y4 — armrests down the sides, backrest across the +Z edge.
     [
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-      "fffffffffff",
-    ],
-    // y4-y5 — armrests down the sides, backrest across the +Z edge.
-    [
-      "ff.......ff",
-      "ff.......ff",
-      "ff.......ff",
-      "ff.......ff",
       "ff.......ff",
       "ff.......ff",
       "ff.......ff",
@@ -94,19 +76,11 @@ export const ARMCHAIR: VoxelModel = {
       "ff.......ff",
       "ff.......ff",
       "ff.......ff",
-      "ff.......ff",
-      "ff.......ff",
-      "ff.......ff",
-      "ff.......ff",
       "ddddddddddd",
       "ddddddddddd",
     ],
-    // y6-y8 — backrest only.
+    // y5-y7 — backrest only.
     [
-      "...........",
-      "...........",
-      "...........",
-      "...........",
       "...........",
       "...........",
       "...........",
@@ -119,18 +93,10 @@ export const ARMCHAIR: VoxelModel = {
       "...........",
       "...........",
       "...........",
-      "...........",
-      "...........",
-      "...........",
-      "...........",
       "ddddddddddd",
       "ddddddddddd",
     ],
     [
-      "...........",
-      "...........",
-      "...........",
-      "...........",
       "...........",
       "...........",
       "...........",

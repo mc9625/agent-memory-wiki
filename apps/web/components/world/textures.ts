@@ -212,8 +212,12 @@ export const createParquetTexture = (): THREE.CanvasTexture => {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("world: 2d canvas is unavailable");
 
-  const boards = ["#d9ba90", "#d2b085", "#dcc099", "#cea87c"];
-  context.fillStyle = "#b0906a";
+  // A full stop below the tan the room shipped with: against ARCHIVE's own
+  // lightened joinery the pale boards read as another course of shelving. The
+  // band between them stays as narrow as it was — widening it is what turns a
+  // parquet into a chequerboard at this camera distance.
+  const boards = ["#a37a51", "#9a7049", "#ac855c", "#946a43"];
+  context.fillStyle = "#75543a";
   context.fillRect(0, 0, size, size);
 
   for (let row = 0; row < rows; row += 1) {

@@ -342,7 +342,13 @@ export const buildEnvironment = (): BuiltEnvironment => {
       track(new THREE.BoxGeometry(room.width, 0.16, room.depth)),
       trackMaterial(new THREE.MeshStandardMaterial({ map: texture, roughness: 1, metalness: 0 })),
     );
-    carpet.position.set(room.center.x, 0.08, room.center.z);
+    // Sunk into the concourse rather than laid on top of it. At the full 0.16
+    // the room floor stood proud of the corridor, and everything standing in it
+    // — chair legs, crate corners, an avatar's shoes, the vacuum's head — was
+    // buried to that depth, because props and avatars are all placed at y 0.
+    // Two centimetres of lip is enough to read as an inlay and shallow enough
+    // to hide nothing.
+    carpet.position.set(room.center.x, -0.06, room.center.z);
     carpet.receiveShadow = true;
     group.add(carpet);
 
@@ -359,7 +365,9 @@ export const buildEnvironment = (): BuiltEnvironment => {
           new THREE.MeshStandardMaterial({ color: F.PALETTE.wood, roughness: 0.85, metalness: 0 }),
         ),
       );
-      strip.position.set(room.center.x + offsetX, 0.09, room.center.z + offsetZ);
+      // Same reasoning as the carpet, and more so: the doorway strips are the
+      // one bit of trim an avatar walks straight over.
+      strip.position.set(room.center.x + offsetX, -0.05, room.center.z + offsetZ);
       strip.receiveShadow = true;
       group.add(strip);
     }
@@ -399,8 +407,11 @@ export const buildEnvironment = (): BuiltEnvironment => {
 
   /* ------------------------------------------------------------------ READ */
 
+  // A seat point is where the avatar's hips go, so the chair stands one voxel
+  // behind it: that puts the cushion's front edge under the knees instead of
+  // under the shins, which is what used to swallow them.
   for (const [index, seat] of getRoom("read").seats.entries()) {
-    placeVoxel(`armchair-${index}`, ARMCHAIR, seat.x, seat.z, -Math.PI / 2);
+    placeVoxel(`armchair-${index}`, ARMCHAIR, seat.x - 0.145, seat.z, -Math.PI / 2);
   }
   for (const x of [-25, -21.5, -18]) placeVoxel(`bookshelf-${x}`, BOOKSHELF, x, -8.5, Math.PI);
   place("lamp-table", F.lampTable, -25.6, 0, 3.6, Math.PI);

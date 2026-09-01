@@ -10,15 +10,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { MAX_CONCURRENT_AGENTS, WorldCanvas } from "../../components/world/world-canvas";
+import { Press_Start_2P } from "next/font/google";
+import {
+  MAX_CONCURRENT_AGENTS,
+  WorldCanvas,
+  type RosterEntry,
+} from "../../components/world/world-canvas";
 import type { SkyArticle, SkyEvent } from "../../components/sky-canvas";
 import { agentHue, displayAgentName } from "../../lib/world/choreography";
 
-interface RosterEntry {
-  name: string;
-  status: string;
-  hue: number;
-}
+/** The credit's typeface: a pixel face, loaded here rather than in the root
+ *  layout because /world is the only page that wears it. */
+const pixelFont = Press_Start_2P({
+  subsets: ["latin"],
+  weight: "400",
+  display: "swap",
+});
 
 interface ActivityLine {
   id: string;
@@ -49,37 +56,25 @@ const ROOM_OF_EVENT: Readonly<Record<string, string>> = {
   agent_session_ended: "left the building",
 };
 
-/** How long after a live frame the stage still counts as live. */
-const LIVE_WINDOW_MS = 120_000;
-
 export default function WorldPage() {
   const [articles, setArticles] = useState<SkyArticle[]>([]);
   const [events, setEvents] = useState<SkyEvent[]>([]);
   const [liveEvent, setLiveEvent] = useState<SkyEvent | null>(null);
   const [roster, setRoster] = useState<readonly RosterEntry[]>([]);
   const [activity, setActivity] = useState<ActivityLine[]>([]);
-  const [lastLiveAt, setLastLiveAt] = useState<number | null>(null);
-  const [liveOnly, setLiveOnly] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  /**
+   * Whether the archive replay is running. There is no switch for the live
+   * stage because there is no sense in one: what is happening now is always
+   * staged, and the replay is the thing that fills the floor when nothing is.
+   * With both running the recorded avatars are ghosted behind the live ones.
+   */
+  const [replayMode, setReplayMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const seenIdsRef = useRef(new Set<string>());
 
-  /**
-   * The badge is a statement about the last two minutes, not about the whole
-   * session: it used to latch on at the first live frame and never go back,
-   * which told the viewer "live" over a stage that had been replaying the
-   * archive for an hour.
-   */
-  const live = lastLiveAt !== null && now - lastLiveAt < LIVE_WINDOW_MS;
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 5_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   // ?live=1 opens straight into the live-only stage, so the mode can be linked.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("live") === "1") setLiveOnly(true);
+    if (new URLSearchParams(window.location.search).get("live") === "1") setReplayMode(false);
   }, []);
 
   const handleRoster = useCallback((next: readonly RosterEntry[]) => {
@@ -88,7 +83,9 @@ export default function WorldPage() {
         previous.length === next.length &&
         previous.every(
           (entry, index) =>
-            entry.name === next[index]?.name && entry.status === next[index]?.status,
+            entry.name === next[index]?.name &&
+            entry.status === next[index]?.status &&
+            entry.live === next[index]?.live,
         )
       ) {
         return previous;
@@ -130,14 +127,22 @@ export default function WorldPage() {
   useEffect(() => {
     const ingest = (event: SkyEvent) => {
       if (!event || !event.eventType) return;
+      // The stream opens with the last ten archive rows. They are already in the
+      // fetch this page made for the replay, and treating them as live turned
+      // the badge green and put avatars on the live-only stage the moment it
+      // loaded — over an archive where nothing had happened for hours.
+      if (event.historical) return;
       const key = event.id || `${event.eventType}-${event.createdAt}-${event.agentIdentifier}`;
       if (seenIdsRef.current.has(key)) return;
       seenIdsRef.current.add(key);
       if (seenIdsRef.current.size > 200) seenIdsRef.current.clear();
 
       setLiveEvent(event);
-      setLastLiveAt(Date.now());
-      setNow(Date.now());
+      // Something is actually happening, which is the only thing this page is
+      // really for, so the replay stands down: it exists to fill the time when
+      // the archive is quiet, not to crowd a real agent off its own floor. The
+      // recorded avatars finish what they are doing and walk out.
+      setReplayMode(false);
 
       const hue = agentHue(event.agentIdentifier || "agent");
 
@@ -225,12 +230,135 @@ export default function WorldPage() {
           max-width: 20rem; overflow: hidden; text-overflow: ellipsis;
           transition: opacity 0.35s ease;
         }
+        /* Lifted clear of another caption: its tail would point at that one. */
+        .world-bubble-lifted::after { display: none; }
+
+        /* The card a click on an avatar puts over its head. Same tile as a
+           caption — it is the same avatar speaking — but left-aligned, in four
+           short lines, and a size that does not cover the room underneath. */
+        .world-bubble-card {
+          display: block; text-align: left; white-space: nowrap;
+          font-size: 0.58rem; line-height: 1.5;
+          padding: 0.4rem 0.55rem;
+          max-width: none;
+        }
+        .world-bubble-card-name { font-weight: 700; letter-spacing: 0.04em; }
+        .world-bubble-card div + div { opacity: 0.62; }
+
+        /* A bubble with an icon and no words — the wave, the cleaner's humming.
+           There is nothing to read, so the icon carries the whole tile and is
+           drawn at the size of one. */
+        .world-bubble-icon { font-size: 1.7rem; padding: 0.3rem 0.5rem; line-height: 1; }
+        .world-bubble-glyph { display: inline-block; transform-origin: 50% 80%; }
+        /* iMessage's shake, near enough: a hard jolt that settles in half a
+           second. Applied to the span, because the bubble's own transform is
+           what puts it on screen. */
+        @keyframes world-bubble-shake {
+          0%   { transform: translateX(0) rotate(0deg) scale(0.7); }
+          18%  { transform: translateX(-4px) rotate(-9deg) scale(1.18); }
+          34%  { transform: translateX(4px) rotate(9deg) scale(1.12); }
+          50%  { transform: translateX(-3px) rotate(-6deg) scale(1.08); }
+          66%  { transform: translateX(3px) rotate(5deg) scale(1.04); }
+          82%  { transform: translateX(-1px) rotate(-2deg) scale(1.01); }
+          100% { transform: translateX(0) rotate(0deg) scale(1); }
+        }
+        .world-bubble-shake { animation: world-bubble-shake 0.62s cubic-bezier(0.32, 0.9, 0.36, 1); }
+        @media (prefers-reduced-motion: reduce) {
+          .world-bubble-shake { animation: none; }
+        }
         .world-bubble::after {
           content: ""; position: absolute; bottom: -11px; left: 50%;
           margin-left: -6px; width: 0; height: 0;
           border-left: 6px solid transparent;
           border-right: 6px solid transparent;
           border-top: 8px solid #23262e;
+        }
+
+        /* The two signs over the stage.
+
+           Each is a casing with a tube inside it: the outer button is the
+           frame — dark, rounded, unlit whatever the state — and the inner span
+           is the glass, which is the only part that ever lights. Only one is
+           ever lit, so the dark one carries no glow at all and the pair reads
+           as a switch rather than as two independent lamps. */
+        .world-signs {
+          position: fixed; z-index: 41; top: 1.15rem; left: 50%;
+          transform: translateX(-50%);
+          display: flex; gap: 0.8rem;
+        }
+        .world-sign {
+          position: relative;
+          padding: 0.32rem;
+          border-radius: 14px;
+          cursor: pointer;
+          background: linear-gradient(180deg, #262c38 0%, #141922 100%);
+          border: 2px solid #39414f;
+          box-shadow: 0 3px 0 rgba(8, 10, 14, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+        }
+        .world-sign-tube {
+          display: block;
+          font-family: var(--font-jetbrains-mono, monospace);
+          font-size: 0.8rem; font-weight: 700; letter-spacing: 0.24em;
+          padding: 0.44rem 0.9rem 0.44rem 1.14rem;
+          border-radius: 9px;
+          color: rgba(226, 232, 240, 0.26);
+          background: #0b0e14;
+          border: 2px solid rgba(226, 232, 240, 0.13);
+          transition: color 0.28s ease, border-color 0.28s ease,
+            box-shadow 0.28s ease, text-shadow 0.28s ease, background 0.28s ease;
+        }
+        .world-sign:focus-visible { outline: 2px solid #7fd8ff; outline-offset: 3px; }
+
+        /* The sign's own tooltip, rather than the browser's: a title attribute
+           waits about a second before it says anything, which for a control
+           with one button and a non-obvious effect is a second too long. */
+        .world-sign-tip {
+          position: absolute; top: calc(100% + 0.5rem); left: 50%;
+          transform: translate(-50%, -4px);
+          width: 15rem;
+          padding: 0.5rem 0.6rem;
+          font-family: var(--font-jetbrains-mono, monospace);
+          font-size: 0.58rem; line-height: 1.45; letter-spacing: 0;
+          font-weight: 400; text-align: left;
+          color: rgba(255, 255, 255, 0.82);
+          background: rgba(13, 16, 22, 0.97);
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          border-radius: 6px;
+          box-shadow: 0 8px 22px rgba(6, 8, 12, 0.5);
+          opacity: 0; pointer-events: none;
+          transition: opacity 0.12s ease, transform 0.12s ease;
+        }
+        /* The nib, which is what ties the card to the sign above it. */
+        .world-sign-tip::before {
+          content: ""; position: absolute; bottom: 100%; left: 50%;
+          margin-left: -5px; border: 5px solid transparent;
+          border-bottom-color: rgba(255, 255, 255, 0.16);
+        }
+        .world-sign:hover .world-sign-tip,
+        .world-sign:focus-visible .world-sign-tip {
+          opacity: 1;
+          transform: translate(-50%, 0);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .world-sign-tip { transition: none; }
+        }
+        .world-sign-replay.world-sign-on .world-sign-tube {
+          color: #46e884;
+          border-color: #46e884;
+          background: rgba(8, 38, 22, 0.95);
+          text-shadow: 0 0 6px rgba(70, 232, 132, 0.95), 0 0 18px rgba(70, 232, 132, 0.7);
+          box-shadow: 0 0 18px rgba(70, 232, 132, 0.55), inset 0 0 14px rgba(70, 232, 132, 0.35);
+        }
+        /* The tube's own flicker, small enough to read as a sign rather than a
+           fault, and gone entirely for anybody who asked for less motion. */
+        @keyframes world-sign-hum {
+          0%, 100% { filter: brightness(1); }
+          47% { filter: brightness(1.09); }
+          52% { filter: brightness(0.94); }
+        }
+        .world-sign-on .world-sign-tube { animation: world-sign-hum 3.4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .world-sign-on .world-sign-tube { animation: none; }
         }
 
         .world-panel {
@@ -245,6 +373,33 @@ export default function WorldPage() {
           box-shadow: 0 6px 22px rgba(10, 14, 22, 0.35);
         }
         .world-panel-title { letter-spacing: 0.16em; opacity: 0.5; font-size: 0.6rem; }
+
+        /* Which cast a roster row belongs to, in the signs' own two colours: a
+           lit red bead for somebody who is here now, a dim green one for a
+           recording. Same distinction the stage makes by fading the ghosts. */
+        .world-bead {
+          flex: none; width: 0.42rem; height: 0.42rem; border-radius: 50%;
+        }
+        .world-bead-live {
+          background: #ff4a52;
+          box-shadow: 0 0 5px rgba(255, 74, 82, 0.95), 0 0 10px rgba(255, 74, 82, 0.55);
+        }
+        .world-bead-replay {
+          background: rgba(70, 232, 132, 0.55);
+          box-shadow: inset 0 0 0 1px rgba(70, 232, 132, 0.3);
+        }
+
+        /* Signature, bottom right. Flat black over the floor, no relief. */
+        .world-credit {
+          position: fixed; z-index: 40; right: 1.4rem; bottom: 1.2rem;
+          font-size: 0.58rem; line-height: 1;
+          color: #000000;
+          pointer-events: none;
+          user-select: none;
+        }
+        @media (max-width: 640px) {
+          .world-credit { font-size: 0.4rem; right: 1rem; bottom: 1rem; }
+        }
 
         /* The agent's cube face, reduced to a swatch with two eyes. */
         .world-face {
@@ -267,6 +422,11 @@ export default function WorldPage() {
           padding: 0.16rem 0;
         }
         .world-row-name { flex: 1; white-space: nowrap; }
+        .world-row-tag {
+          font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase;
+          opacity: 0.45; border: 1px solid rgba(255, 255, 255, 0.22);
+          border-radius: 3px; padding: 0 0.22rem;
+        }
       `,
         }}
       />
@@ -275,9 +435,26 @@ export default function WorldPage() {
         initialArticles={articles}
         initialEvents={events}
         liveEvent={liveEvent}
-        replay={!liveOnly}
+        replay={replayMode}
         onRosterChange={handleRoster}
       />
+
+      {/* Stage sign */}
+      <div className="world-signs">
+        <button
+          type="button"
+          className={`world-sign world-sign-replay ${replayMode ? "world-sign-on" : ""}`}
+          aria-pressed={replayMode}
+          onClick={() => setReplayMode((previous) => !previous)}
+        >
+          <span className="world-sign-tube">REPLAY</span>
+          <span className="world-sign-tip" role="tooltip">
+            {replayMode
+              ? "Replaying recorded sessions. They are ghosted whenever a live agent shares the floor, and stand down as soon as one arrives."
+              : "Fill the quiet with recorded sessions from the archive. Live agents are always staged either way."}
+          </span>
+        </button>
+      </div>
 
       {/* Title card */}
       <div className="world-panel" style={{ top: "1.15rem", left: "1.15rem", minWidth: "13rem" }}>
@@ -315,47 +492,42 @@ export default function WorldPage() {
 
       {/* Roster */}
       <div className="world-panel" style={{ top: "1.15rem", right: "1.15rem", minWidth: "13.5rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", marginBottom: "0.45rem" }}>
-          <span className="world-panel-title">ACTIVE AGENTS</span>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={() => setLiveOnly((previous) => !previous)}
-            onKeyDown={(keyEvent) => {
-              if (keyEvent.key === "Enter" || keyEvent.key === " ") {
-                keyEvent.preventDefault();
-                setLiveOnly((previous) => !previous);
-              }
-            }}
-            title={
-              liveOnly
-                ? "Live only: the floor is empty until an event arrives. Click to replay the archive between events."
-                : "Replaying the recorded archive between live events. Click to show live events only."
-            }
-            style={{
-              cursor: "pointer",
-              color: live ? "#5fdc7a" : "rgba(255,255,255,0.35)",
-            }}
-          >
-            {live ? "● LIVE" : liveOnly ? "○ WAITING" : "○ REPLAY"}
-          </span>
+        {/* No mode word here: the signs over the stage say which mode is on, and
+            each row's bead says which cast that avatar belongs to. A third
+            reading of the same thing, in a corner, only contradicted them. */}
+        <div className="world-panel-title" style={{ marginBottom: "0.45rem" }}>
+          ACTIVE AGENTS
         </div>
         {roster.length === 0 ? (
           <div style={{ opacity: 0.35 }}>
             {loading
               ? "loading archive…"
-              : liveOnly
+              : !replayMode
                 ? "waiting for a live event…"
                 : "no agents on stage"}
           </div>
         ) : (
           roster.map((entry, index) => (
+            // Not a control: an avatar's own details belong over its head on the
+            // floor, where the thing being described is, and that is where a
+            // click on the avatar itself puts them.
             <div key={`${entry.name}-${index}`} className="world-row">
               <span
+                className={`world-bead ${entry.live ? "world-bead-live" : "world-bead-replay"}`}
+                title={entry.live ? "live session" : "replayed from the archive"}
+              />
+              {/* The swatch is the avatar's own head, with its shirt as a band
+                  beneath — which is the whole of what separates a person from an
+                  agent on the floor, and so the whole of what marks the row. */}
+              <span
                 className="world-face"
-                style={{ background: `hsl(${entry.hue.toFixed(0)}, 72%, 50%)` }}
+                style={{
+                  background: entry.head,
+                  boxShadow: entry.human ? `inset 0 -0.3rem 0 ${entry.shirt}` : undefined,
+                }}
               />
               <span className="world-row-name">{entry.name}</span>
+              {entry.human && <span className="world-row-tag">human</span>}
               <span style={{ color: STATUS_COLOR[entry.status] ?? "rgba(255,255,255,0.45)" }}>
                 {entry.status}
               </span>
@@ -376,6 +548,8 @@ export default function WorldPage() {
           ))}
         </div>
       )}
+
+      <div className={`world-credit ${pixelFont.className}`}>By NuvolaProject</div>
     </>
   );
 }
