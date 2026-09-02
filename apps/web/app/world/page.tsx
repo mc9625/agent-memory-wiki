@@ -261,6 +261,7 @@ export default function WorldPage() {
            drawn at the size of one. */
         .world-bubble-icon { font-size: 1.7rem; padding: 0.3rem 0.5rem; line-height: 1; }
         .world-bubble-glyph { display: inline-block; transform-origin: 50% 80%; }
+
         /* iMessage's shake, near enough: a hard jolt that settles in half a
            second. Applied to the span, because the bubble's own transform is
            what puts it on screen. */
@@ -436,7 +437,14 @@ export default function WorldPage() {
           display: flex; align-items: center; gap: 0.5rem;
           padding: 0.16rem 0;
         }
-        .world-row-name { flex: 1; white-space: nowrap; }
+        .world-row-name {
+          /* "min-width: 0" is what lets a flex item shrink below its text:
+             without it the name pushes the card wider instead of truncating,
+             which is the accordion the fixed width above is there to stop. */
+          flex: 1; min-width: 0;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .world-row-status { flex: none; white-space: nowrap; }
         /* Flags render at the font's own emoji size, which next to a 0.64rem
            monospace row is a head taller than the text. */
         .world-row-flag { flex: none; font-size: 0.72rem; line-height: 1; }
@@ -469,7 +477,18 @@ export default function WorldPage() {
         /* Bottom right, clear of the speech bubbles the writers raise over the
            middle of the floor. The occupancy count rides in this card's own
            title rather than in a second card saying the same word again. */
-        .world-hud-roster { bottom: 1.15rem; right: 1.15rem; min-width: 13.5rem; }
+        /* A fixed width, not a minimum. The status column is one word and that
+           word changes -- Idle is four characters and Organizing is ten -- so a
+           card sized to its content resized itself every time an avatar changed
+           what it was doing, and a corner that pumps in and out draws the eye
+           away from the floor.
+
+           17.5rem is the widest row measured rather than guessed: JetBrains
+           Mono at 0.64rem is 0.384rem a character, and a live human visitor --
+           flag, "Human Explorer", the "human" tag and "Browsing" -- comes to
+           ~17.1rem with the padding and the five gaps. So nothing that renders
+           in full today starts truncating; past that the name gives way first. */
+        .world-hud-roster { bottom: 1.15rem; right: 1.15rem; width: 17.5rem; }
         .world-hud-roster-title {
           display: flex; align-items: center; gap: 0.4rem;
           margin-bottom: 0.45rem;
@@ -535,7 +554,7 @@ export default function WorldPage() {
           /* The roster, as pills rather than a card: a column of rows in the
              corner is what pushed everything else off the screen. */
           .world-hud-roster {
-            top: 3.5rem; bottom: auto; left: 0; right: 0; min-width: 0;
+            top: 3.5rem; bottom: auto; left: 0; right: 0; width: auto;
             display: flex; gap: 0.35rem;
             padding: 0 0.55rem;
             background: none; border: 0; box-shadow: none;
@@ -556,7 +575,7 @@ export default function WorldPage() {
             white-space: nowrap;
           }
           .world-hud-roster .world-row { gap: 0.35rem; }
-          .world-hud-roster .world-row-name { flex: none; }
+          .world-hud-roster .world-row-name { flex: none; overflow: visible; }
           .world-hud-roster-title { margin-bottom: 0; }
 
           .world-hud-log {
@@ -687,7 +706,10 @@ export default function WorldPage() {
               )}
               <span className="world-row-name">{entry.name}</span>
               {entry.human && <span className="world-row-tag">human</span>}
-              <span style={{ color: STATUS_COLOR[entry.status] ?? "rgba(255,255,255,0.45)" }}>
+              <span
+                className="world-row-status"
+                style={{ color: STATUS_COLOR[entry.status] ?? "rgba(255,255,255,0.45)" }}
+              >
                 {entry.status}
               </span>
             </div>
