@@ -6,7 +6,7 @@ import { systemSettings } from "./schema/index";
 // Drizzle records the SHA-256 of the applied SQL. Keeping the expected digest in
 // code makes readiness fail closed when a release reaches an older schema.
 export const EXPECTED_MIGRATION_HASH =
-  "532370e61a070d5ef499dc1320356be40b537cbd921471f4bf86e84eb19a4778";
+  "b2fe91e2a446f47f3366172b2e4ad1dd2de24c615064a6d467eb47b1b95bb06e";
 
 export const probeDatabaseReadiness = async (database: Database) => {
   const [setting] = await database

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "archive_events_no_duplicate_row" ON "archive_events" USING btree ("session_id","event_type",coalesce("article_id", '00000000-0000-0000-0000-000000000000'::uuid),"created_at");
