@@ -3,23 +3,26 @@
 **Date:** 2026-08-31; art, lighting, colour, traffic and shading passes all
 2026-09-01; shipped 2026-09-01; the human-visitor pass of §10, the portrait
 pass, the compaction pass and the set editor also 2026-09-01
-**Status:** **in production, with one session's work uncommitted on top.**
-`main` is at **#87 (`80dd2bc`)** and live at
+**Status:** **in production.** `main` is live at
 <https://agent-memory-wiki.vercel.app/world>, linked from the home art entry as
-*Visit Wiki World →*. #78–#87 are shipped; §10 below was among them, and the
-two branches this header used to name (`feat/world-portrait-and-compaction`,
-`feat/world-editor`) are both merged.
+*Visit Wiki World →*. #78–#88 are shipped; §10 below was among them, and every
+branch this header used to name is merged.
 
-Everything in §11 below is **in the working tree, uncommitted, on `main`** —
-19 modified files plus 4 new ones, 213 tests, green on typecheck and `pnpm
-lint`. **Do not open a PR unprompted; the user calls the deploy.**
+**§11 shipped in #88** on 2026-09-02 — 19 modified files plus 4 new ones, 213
+tests, green on typecheck, `pnpm lint` and `next build`. **Do not open a PR
+unprompted; the user calls the deploy.**
 
-**Nothing in §11 has ever run in production.** Measured directly at the end of
-the session: production's own beacon frame, read off the ntfy topic while
-opening the live home page, is `{"title": "Archive Threshold (/)", "query":
-"arrived at archive"}` — no `page`, no `country`. So every avatar a viewer sees
-that originated on the live site behaves exactly as it did at #87, whatever a
-dev server shows.
+Two things in §11 were written from measurements taken **before** that deploy
+and are now stale as descriptions of production, though the reasoning still
+holds. Production's beacon frame at #87 was `{"title": "Archive Threshold (/)",
+"query": "arrived at archive"}` — no `page`, no `country`; that is what §11.8
+and §11.9 argue against. From #88 the live frames carry both. **Re-read the
+topic before reasoning about what production emits**; do not carry the #87
+numbers forward.
+
+**Almost none of §11 was ever seen rendered** — the Chrome extension stayed
+disconnected for that session. The scan pose, the shelf stations and every new
+caption went to production unlooked-at. Look at `/world` first.
 
 **Route:** `/world` — an isometric room-scale companion to `/sky`
 **Reference art:** `~/Downloads/ebbebea6-c72a-4693-8807-d23206ddcd03.png` — the
@@ -1717,12 +1720,12 @@ hex**, and expect a warm hue in an unlit corner to need authoring two stops up.
 
 ---
 
-## 11. Session of 2026-09-02 — uncommitted on `main`
+## 11. Session of 2026-09-02 — shipped in #88
 
 Read this section before touching anything below `apps/web/lib/world/` or the
 `/world` HUD: it is the only record of why these files look the way they do.
 
-Nothing here is committed. `git status` at the end of the session:
+This shipped as one commit in #88. What it touched:
 
 ```
  M apps/web/app/articles/[slug]/page.tsx
