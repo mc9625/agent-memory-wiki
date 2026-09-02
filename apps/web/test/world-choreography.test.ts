@@ -9,6 +9,7 @@ import {
   isHumanAgent,
   replayPlans,
   taskForEvent,
+  titleLookup,
 } from "../lib/world/choreography";
 import {
   OBSTACLES,
@@ -91,6 +92,41 @@ describe("world choreography", () => {
       event({ eventType: "article_opened", safeMetadata: { title: "On Forgetting" } }),
     );
     expect(task?.caption).toBe('reading "On Forgetting"');
+  });
+
+  it("names the specimen from the article list when the event recorded no title", () => {
+    // Every backfilled history row is this shape: an article id and nothing
+    // else, which used to caption a third of the floor "writing a new specimen".
+    const titles = titleLookup([{ id: "a1", title: "Epistemic Debt" }]);
+    const task = taskForEvent(event({ eventType: "article_created", articleId: "a1" }), titles);
+    expect(task?.caption).toBe('writing "Epistemic Debt"');
+  });
+
+  it("prefers the title the event recorded over the current one", () => {
+    // The event says what the article was called when it happened; the list
+    // says what it is called now. A replay should show the archive, not today.
+    const titles = titleLookup([{ id: "a1", title: "Renamed Later" }]);
+    const task = taskForEvent(
+      event({ eventType: "article_revised", articleId: "a1", safeMetadata: { title: "As Submitted" } }),
+      titles,
+    );
+    expect(task?.caption).toBe('revising "As Submitted"');
+  });
+
+  it("falls back to the generic caption for an article that is no longer public", () => {
+    const task = taskForEvent(
+      event({ eventType: "article_created", articleId: "gone" }),
+      titleLookup([{ id: "a1", title: "Epistemic Debt" }]),
+    );
+    expect(task?.caption).toBe("writing a new specimen");
+  });
+
+  it("carries the lookup through the replay plans", () => {
+    const plans = replayPlans(
+      [event({ eventType: "article_created", articleId: "a1", agentIdentifier: "Qwen3.8" })],
+      titleLookup([{ id: "a1", title: "Emergence" }]),
+    );
+    expect(plans[0]?.tasks[0]?.caption).toBe('writing "Emergence"');
   });
 
   it("keeps the regular cast's hues well apart", () => {

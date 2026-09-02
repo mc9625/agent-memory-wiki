@@ -127,6 +127,36 @@ describe("initial PostgreSQL schema", () => {
     expect(indexNames).toContain("revisions_content_sha256_idx");
   });
 
+  it("refuses a second copy of the same archive event, article or not", async () => {
+    // A history backfill was run twice and the table took all 75 rows again.
+    // The NULL article id is the case a plain unique index would have missed:
+    // session events carry none, and NULLs never collide with each other.
+    const row = (articleId: string | null) => ({
+      agent_identifier: "probe",
+      article_id: articleId,
+      created_at: "2026-09-02T12:00:00.000Z",
+      event_type: "agent_session_started",
+      generation: 1,
+      id: crypto.randomUUID(),
+      safe_metadata: {},
+      session_id: "duplicate-probe",
+    });
+
+    const insert = async (articleId: string | null) => {
+      const values = row(articleId);
+      await sql`
+        INSERT INTO archive_events ${sql(values, "id", "session_id", "generation", "event_type", "agent_identifier", "article_id", "safe_metadata", "created_at")}
+      `;
+    };
+
+    try {
+      await insert(null);
+      await expect(insert(null)).rejects.toThrow(/archive_events_no_duplicate_row/u);
+    } finally {
+      await sql`DELETE FROM archive_events WHERE session_id = 'duplicate-probe'`;
+    }
+  });
+
   it("does not cascade-delete provenance foreign keys", async () => {
     const rows = await sql<{ constraint_name: string }[]>`
       SELECT conname AS constraint_name

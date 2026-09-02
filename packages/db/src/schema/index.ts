@@ -378,6 +378,18 @@ export const archiveEvents = pgTable(
   (table) => [
     index("archive_events_created_at_idx").on(table.createdAt, table.id),
     index("archive_events_session_idx").on(table.sessionId),
+    // One session cannot do the same thing to the same article at the same
+    // instant twice. Nothing in the application ever tried to — every write
+    // stamps its own `created_at` — but a history backfill was run twice and
+    // the table took all 75 rows again without complaint. `coalesce` because a
+    // session event carries no article and NULLs would otherwise each count as
+    // distinct, which is exactly the rows that were duplicated.
+    uniqueIndex("archive_events_no_duplicate_row").on(
+      table.sessionId,
+      table.eventType,
+      sql`coalesce(${table.articleId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+      table.createdAt,
+    ),
     check(
       "archive_events_type",
       sql`${table.eventType} IN ('agent_session_started', 'article_opened', 'article_created', 'article_revised', 'wikilinks_created', 'contribution_aborted', 'agent_session_ended')`,

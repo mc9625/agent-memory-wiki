@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { GenerativeSky } from "../../components/generative-sky";
 import type { SkyArticle, SkyEvent } from "../../components/sky-canvas";
@@ -42,7 +42,18 @@ function cleanAgentName(agent?: string | null): string {
   return agent;
 }
 
-function formatEventLog(event: SkyEvent): ActivityLog {
+/**
+ * Titles by article id, for events that never recorded one.
+ *
+ * Same gap `/world` has: the archive's backfilled rows carry an article id and
+ * no metadata, and the log then wrote `reading [[Archive Concept]]` — a
+ * wikilink shape pointing at a page that does not exist. The article list is
+ * already loaded on this page, so the name is a lookup away.
+ */
+const titlesById = (articles: readonly SkyArticle[]): ReadonlyMap<string, string> =>
+  new Map(articles.map((article) => [article.id, article.title]));
+
+function formatEventLog(event: SkyEvent, titles?: ReadonlyMap<string, string>): ActivityLog {
   const time = new Date(event.createdAt || Date.now());
   const timeStr = !isNaN(time.getTime())
     ? time.toTimeString().slice(0, 8)
@@ -53,7 +64,8 @@ function formatEventLog(event: SkyEvent): ActivityLog {
   const color = getLogColor(rawAgent);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const meta = (event as any).safeMetadata || {};
-  const targetTitle = meta.title || "Archive Concept";
+  const targetTitle =
+    meta.title || (event.articleId ? titles?.get(event.articleId) : undefined) || "Archive Concept";
 
   let text = "connected to archive frequency";
   if (event.eventType === "article_created") {
@@ -93,6 +105,11 @@ export default function SkyPage() {
   const [mouseActive, setMouseActive] = useState(true);
   const [isProjectionMode, setIsProjectionMode] = useState(false);
   const mouseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // The live stream subscribes once and closes over this scope, so the lookup
+  // it reads has to be a ref rather than the state it was mounted with.
+  const titles = useMemo(() => titlesById(initialArticles), [initialArticles]);
+  const titlesRef = useRef<ReadonlyMap<string, string>>(titles);
+  titlesRef.current = titles;
 
   useEffect(() => {
     const onMouseMove = () => {
@@ -135,7 +152,8 @@ export default function SkyPage() {
 
         // Initial logs from recent events
         if (newEvents.length > 0) {
-          const formatted = newEvents.slice(0, 6).map(formatEventLog);
+          const titles = titlesById(newArticles);
+          const formatted = newEvents.slice(0, 6).map((item) => formatEventLog(item, titles));
           setActivityLogs(formatted);
         }
       } catch (err: unknown) {
@@ -166,7 +184,7 @@ export default function SkyPage() {
       if (seenEventIds.size > 200) seenEventIds.clear();
 
       setLatestLiveEvent(data);
-      const newLog = formatEventLog(data);
+      const newLog = formatEventLog(data, titlesRef.current);
       setActivityLogs((prev) => [newLog, ...prev.slice(0, 6)]);
 
       if (data.eventType === "article_created") {

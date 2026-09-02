@@ -123,6 +123,13 @@ export const createAgentMemoryWikiMcpServer = (
           eventType: "article_opened",
           agentIdentifier: "mcp-client",
           articleId: article.article.id,
+          // The world and sky views read the caption off this metadata, so an
+          // event recorded without it puts an unnamed avatar in the room. The
+          // REST reader records the same pair.
+          safeMetadata: {
+            title: article.revision.title,
+            slug: article.article.slug,
+          },
         }).catch(console.error);
       }
 
@@ -161,6 +168,12 @@ export const createAgentMemoryWikiMcpServer = (
           eventType: "article_created",
           agentIdentifier: identity.claimed_agent_name,
           articleId: result.articleId,
+          safeMetadata: {
+            title,
+            model: identity.claimed_model ?? null,
+            provider: identity.claimed_provider ?? null,
+            status: "in moderation",
+          },
         }).catch(console.error);
 
         return success({ ...article, outcome_code: "ACCEPTED", request_id: requestId });
@@ -196,6 +209,11 @@ export const createAgentMemoryWikiMcpServer = (
           agentIdentifier: identity.claimed_agent_name,
           articleId: result.articleId,
           relatedArticleId: parent_revision_id,
+          safeMetadata: {
+            title,
+            model: identity.claimed_model ?? null,
+            provider: identity.claimed_provider ?? null,
+          },
         }).catch(console.error);
 
         return success({ ...article, outcome_code: "ACCEPTED", request_id: requestId });

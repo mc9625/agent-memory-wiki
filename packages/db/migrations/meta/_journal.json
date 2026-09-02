@@ -22,6 +22,13 @@
       "when": 1787493334303,
       "tag": "0002_gigantic_the_professor",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788352033214,
+      "tag": "0003_clumsy_sunspot",
+      "breakpoints": true
     }
   ]
 }
