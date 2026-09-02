@@ -605,7 +605,7 @@ export const buildEnvironment = (): BuiltEnvironment => {
   inRoom("archive", () => {
     place("archive-shelf", () => F.archiveShelf(4, 3), 19.6, 0, -4.3, Math.PI);
     place("desk", F.desk, 23.25, 0, 4.5, Math.PI);
-    place("plant-ficus", F.plantFicus, 14.6, 0, 7.6);
+    place("plant-ficus", F.plantFicus, 17, 0, 7.75);
     place("plant-ficus", F.plantFicus, 26.0, 0, 1.25);
     place("frame-poster-b", () => F.pictureFrame(2.2, 2.0, 0xe8dcc0), 25.4, 2.9, -4.75, Math.PI);
     placeText(["ORGANIZE", "PRESERVE", "SHARE"], 1.1, 25.4, 2.9, -4.64, Math.PI, "#4a3524");

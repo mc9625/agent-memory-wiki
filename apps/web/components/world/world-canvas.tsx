@@ -23,6 +23,7 @@ import {
   agentOrigin,
   cleaningTask,
   displayAgentName,
+  flagOf,
   isHumanAgent,
   replayPlans,
   titleLookup,
@@ -171,7 +172,8 @@ interface Actor {
   currentNode: string;
   /**
    * Station reserved for this actor: `${roomId}:s${index}` for a seat,
-   * `${roomId}:w${index}` for a standby spot in the room's waiting queue.
+   * `${roomId}:w${index}` for a standby spot in the room's waiting queue, and
+   * `${roomId}:f${index}` for standing room at the stacks.
    */
   stationKey: string | null;
   /** Queued for a seat rather than sitting in one. */
@@ -219,6 +221,14 @@ interface Actor {
   opacity: number;
   /** A cleaner that has been sent home, and is walking out rather than working. */
   retiring: boolean;
+  /**
+   * The flag for the country the session was reported from, or undefined.
+   *
+   * Undefined for the whole recorded cast: the country rides on a live beacon
+   * and is never written to `archive_events`, so a replayed avatar has none to
+   * show. Undefined is the honest answer there, not a placeholder.
+   */
+  readonly flag: string | undefined;
   /** Roster swatch, resolved once at spawn from the avatar's own palette. */
   readonly human: boolean;
   readonly head: string;
@@ -263,6 +273,8 @@ export interface WorldCanvasProps {
 export interface RosterEntry {
   readonly name: string;
   readonly status: string;
+  /** Country flag, when the session reported one. See `flagOf`. */
+  readonly flag: string | undefined;
   readonly hue: number;
   /** A person reading the wiki, rather than an agent. */
   readonly human: boolean;
@@ -284,6 +296,7 @@ const STATUS_LABEL: Readonly<Record<string, string>> = {
   type: "Editing",
   browse: "Browsing",
   sort: "Organizing",
+  scan: "Scanning",
   idle: "Idle",
   leave: "Leaving",
 };
@@ -697,6 +710,24 @@ export function WorldCanvas({
     };
 
     /**
+     * Reserves standing room at the stacks, or null when the room has none free.
+     */
+    const claimShelf = (actor: Actor, room: RoomId): Point | null => {
+      const spots = getRoom(room).shelf;
+      if (!spots) return null;
+      for (const [index, spot] of spots.entries()) {
+        const key = `${room}:f${index}`;
+        if (occupiedStations.has(key)) continue;
+        releaseStation(actor);
+        occupiedStations.add(key);
+        actor.stationKey = key;
+        actor.waiting = false;
+        return spot;
+      }
+      return null;
+    };
+
+    /**
      * Walks a queued avatar to a seat as soon as one frees.
      *
      * The route goes through the room's own waypoint rather than straight
@@ -782,6 +813,7 @@ export function WorldCanvas({
         sessionId: plan.sessionId,
         agentIdentifier: plan.agentIdentifier,
         displayName: displayAgentName(plan.agentIdentifier),
+        flag: flagOf(plan.country),
         generation: plan.generation,
         rig,
         bubble,
@@ -853,7 +885,9 @@ export function WorldCanvas({
             `${(actor.currentTask?.room ?? "hub").toUpperCase()} · ${seconds}s`,
           ]
         : [
-            `${actor.displayName} · ${actor.fromLive ? "LIVE" : "REPLAY"}`,
+            `${actor.flag ? `${actor.flag} ` : ""}${actor.displayName} · ${
+              actor.fromLive ? "LIVE" : "REPLAY"
+            }`,
             agentOrigin(actor.agentIdentifier),
             `#${actor.sessionId.slice(0, 8)}`,
             `${(actor.currentTask?.room ?? "hub").toUpperCase()} · ${seconds}s`,
@@ -992,7 +1026,11 @@ export function WorldCanvas({
       const pane = actor.tool === "cloth" ? getRoom(target).glass : undefined;
       if (pane) releaseStation(actor);
       actor.facingOverride = pane ? pane.facing : null;
-      const seat = pane ? pane.at : claimStation(actor, target);
+      // A scan is worked standing at the stacks. It never queues for a desk:
+      // see `Room.shelf`. With every shelf spot taken it falls back to the
+      // ordinary station queue rather than stranding the avatar in the doorway.
+      const stacks = actor.currentTask.action === "scan" ? claimShelf(actor, target) : null;
+      const seat = pane ? pane.at : (stacks ?? claimStation(actor, target));
       const path = findPath(actor.currentNode, target);
       // The graph ends at the room's doorway waypoint; the last leg is the walk
       // to whichever seat this actor reserved.
@@ -1055,6 +1093,9 @@ export function WorldCanvas({
             generation: event.generation || 1,
             startedAt: now,
             tasks: [task],
+            ...(flagOf(event.safeMetadata?.["country"])
+              ? { country: String(event.safeMetadata?.["country"]) }
+              : {}),
           },
           true,
         );
@@ -1434,6 +1475,7 @@ export function WorldCanvas({
           .filter((actor) => !actor.janitor)
           .map((actor) => ({
             name: actor.displayName,
+            flag: actor.flag,
             status:
               actor.phase === "walking"
                 ? (STATUS_LABEL["walking"] ?? "Moving")

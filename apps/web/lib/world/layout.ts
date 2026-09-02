@@ -64,6 +64,17 @@ export interface Room {
    * cleaning nothing.
    */
   readonly glass?: { readonly at: Point; readonly facing: number };
+  /**
+   * Standing room at the stacks, for an avatar reading the shelf rather than a
+   * desk. Only ARCHIVE has any.
+   *
+   * Not seats, and deliberately not part of the seat/standby queue: a visitor
+   * pulling the whole corpus down is not waiting for a desk to free up, and
+   * putting it in that queue would have it sit in a chair — which is the one
+   * picture of wholesale copying that is wrong. Claimed the same way, so two
+   * of them never stand inside each other.
+   */
+  readonly shelf?: readonly Point[];
   /** True when the room has no walls and the corridor may cross it. */
   readonly open: boolean;
   /** Sides that carry a doorway. Ignored when `open` is true. */
@@ -253,6 +264,14 @@ export const PLAN_ROOMS: readonly Room[] = [
     stationFacing: 0,
     // The south pane: the north one has the crate stacks in front of it.
     glass: { at: { x: 14, z: 7 }, facing: Math.PI / 2 },
+    // A pace off the shelf unit at (19.6, -4.3), which spans x 17.6..21.6, and
+    // a pace clear of the desk row at z = -2. `stationFacing` already turns an
+    // avatar towards -Z, which is the shelf.
+    shelf: [
+      { x: 18.2, z: -3.1 },
+      { x: 20.0, z: -3.1 },
+      { x: 21.8, z: -3.1 },
+    ],
     open: false,
     doorways: ["-x"],
     label: "ARCHIVE",
@@ -622,6 +641,91 @@ export const PLAN_SCENERY: readonly Footprint[] = [
    * side table belongs beside the chair rather than four units from it. It now
    * measures 1.55, with 0.15 between the two footprints.
    */
+  /*
+   * The eight ficus, which used to stand outside this list and were therefore
+   * measured by nothing. One of them — `plant-ficus#7`, in ARCHIVE — stood on
+   * the spot the glass leg walks out to, at a measured 0.00, and neither the
+   * clearance test nor the editor's own readout said a word: the readout names
+   * the tightest leg on the floor, and the tightest leg on the floor was some
+   * crates in another corner. Registered here, they are measured like the rest
+   * of the dressing.
+   *
+   * The footprint is the planter's lip, 1.2 square, which is the widest part of
+   * the prop an avatar can walk into. The crown is a metre and a half over its
+   * head.
+   */
+  {
+    id: "ficus-read-ne",
+    prop: "plant-ficus#1",
+    room: "read",
+    x: -14.6,
+    z: -7.4,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-read-nw",
+    prop: "plant-ficus#2",
+    room: "read",
+    x: -25.6,
+    z: -6.6,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-edit-ne",
+    prop: "plant-ficus#3",
+    room: "edit",
+    x: 8.0,
+    z: -25.8,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-edit-sw",
+    prop: "plant-ficus#4",
+    room: "edit",
+    x: -3.6,
+    z: -14.4,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-links-sw",
+    prop: "plant-ficus#5",
+    room: "links",
+    x: -7.5,
+    z: 25.75,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-links-se",
+    prop: "plant-ficus#6",
+    room: "links",
+    x: 3.6,
+    z: 26.0,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-archive-sw",
+    prop: "plant-ficus#7",
+    room: "archive",
+    x: 17,
+    z: 7.75,
+    width: 1.2,
+    depth: 1.2,
+  },
+  {
+    id: "ficus-archive-ne",
+    prop: "plant-ficus#8",
+    room: "archive",
+    x: 26.0,
+    z: 1.25,
+    width: 1.2,
+    depth: 1.2,
+  },
   {
     id: "lounge-chair",
     prop: "lounge-chair#1",
@@ -708,6 +812,7 @@ export const deriveFloor = (shift: Readonly<Record<RoomId, Point>>): Floor => {
       seats: room.seats.map((seat) => shifted(seat, by)),
       standby: room.standby.map((spot) => shifted(spot, by)),
       ...(room.glass ? { glass: { ...room.glass, at: shifted(room.glass.at, by) } } : {}),
+      ...(room.shelf ? { shelf: room.shelf.map((spot) => shifted(spot, by)) } : {}),
     };
   });
 

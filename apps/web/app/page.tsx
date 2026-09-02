@@ -8,6 +8,7 @@ import { articleBySlug, latestArticles } from "../lib/public-data";
 import { headers } from "next/headers";
 import { broadcastSkyEvent, classifyClientAgent } from "../lib/telemetry/broadcaster";
 import { visitorSessionId } from "../lib/telemetry/visitor";
+import { countryOfRequest } from "../lib/telemetry/geo";
 import { VisitBeacon } from "../components/visit-beacon";
 
 /**
@@ -34,6 +35,7 @@ export default async function HomePage() {
 
   const userAgent = headersList.get("user-agent");
   const ip = headersList.get("x-forwarded-for") || "anonymous";
+  const country = countryOfRequest(headersList.get("x-vercel-ip-country"));
   const { agentName, isHuman } = classifyClientAgent(userAgent);
 
   broadcastSkyEvent(
@@ -42,6 +44,8 @@ export default async function HomePage() {
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {
+        ...(country ? { country } : {}),
+        page: "/",
         title: "Archive Threshold (/)",
         query: isHuman ? "arrived at archive" : "connected to archive corpus",
       },

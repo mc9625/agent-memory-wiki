@@ -3,26 +3,23 @@
 **Date:** 2026-08-31; art, lighting, colour, traffic and shading passes all
 2026-09-01; shipped 2026-09-01; the human-visitor pass of §10, the portrait
 pass, the compaction pass and the set editor also 2026-09-01
-**Status:** **in production, with two branches ahead of it.** `main` is at
-**#82 (`e6fd280`)** and live at <https://agent-memory-wiki.vercel.app/world>,
-linked from the home art entry as *Visit Wiki World →*. #78–#82 are shipped; §10
-below was among them.
+**Status:** **in production, with one session's work uncommitted on top.**
+`main` is at **#87 (`80dd2bc`)** and live at
+<https://agent-memory-wiki.vercel.app/world>, linked from the home art entry as
+*Visit Wiki World →*. #78–#87 are shipped; §10 below was among them, and the
+two branches this header used to name (`feat/world-portrait-and-compaction`,
+`feat/world-editor`) are both merged.
 
-Two branches carry everything since, neither pushed at the time of writing —
-the user calls the deploy:
+Everything in §11 below is **in the working tree, uncommitted, on `main`** —
+19 modified files plus 4 new ones, 213 tests, green on typecheck and `pnpm
+lint`. **Do not open a PR unprompted; the user calls the deploy.**
 
-- **`feat/world-portrait-and-compaction`** (`353b8bb`), one commit, five files:
-  the **portrait and mobile** pass (§"Portrait and mobile") and the
-  **compaction** pass with the adjustments after it (§"Compaction"), which is
-  where the room spacing, the entrance corridor, the fountain and the concourse
-  dressing live. 19 files / **123 tests**.
-- **`feat/world-editor`**, branched off it, five commits: the clearance
-  measurement, the floor plan as a value, the prop stamps, the room-frame
-  consolidation and the editor itself (§"The set editor"). 20 files / **131
-  tests**.
-
-Both green on `pnpm lint`, typecheck and `next build`. **Do not open a PR
-unprompted.**
+**Nothing in §11 has ever run in production.** Measured directly at the end of
+the session: production's own beacon frame, read off the ntfy topic while
+opening the live home page, is `{"title": "Archive Threshold (/)", "query":
+"arrived at archive"}` — no `page`, no `country`. So every avatar a viewer sees
+that originated on the live site behaves exactly as it did at #87, whatever a
+dev server shows.
 
 **Route:** `/world` — an isometric room-scale companion to `/sky`
 **Reference art:** `~/Downloads/ebbebea6-c72a-4693-8807-d23206ddcd03.png` — the
@@ -1716,3 +1713,439 @@ cushion at `0xa22b2c`, brighter than the blue it replaced ever managed
 That is the third time this file has recorded the same lesson — §3.1 for the
 plaque, §10.2 for Claude's orange, this. **Sample the pixels, do not judge the
 hex**, and expect a warm hue in an unlit corner to need authoring two stops up.
+
+
+---
+
+## 11. Session of 2026-09-02 — uncommitted on `main`
+
+Read this section before touching anything below `apps/web/lib/world/` or the
+`/world` HUD: it is the only record of why these files look the way they do.
+
+Nothing here is committed. `git status` at the end of the session:
+
+```
+ M apps/web/app/articles/[slug]/page.tsx
+ M apps/web/app/index.md/route.ts
+ M apps/web/app/llms.txt/route.ts
+ M apps/web/app/page.tsx
+ M apps/web/app/skill/SKILL.md/route.ts
+ M apps/web/app/skill/page.tsx
+ M apps/web/app/wanted/page.tsx
+ M apps/web/app/world/page.tsx
+ M apps/web/components/world/avatar.ts
+ M apps/web/components/world/environment.ts
+ M apps/web/components/world/world-canvas.tsx
+ M apps/web/lib/analytics.ts
+ M apps/web/lib/graph.ts
+ M apps/web/lib/public-data.ts
+ M apps/web/lib/world/choreography.ts
+ M apps/web/lib/world/layout.ts
+ M apps/web/lib/world/validate.ts
+ M apps/web/test/world-choreography.test.ts
+?? apps/web/lib/telemetry/geo.ts
+?? apps/web/lib/version.ts
+?? apps/web/test/public-data.test.ts
+?? apps/web/test/telemetry-geo.test.ts
+```
+
+`pnpm exec tsc -p apps/web/tsconfig.json --noEmit` clean, `pnpm exec eslint`
+clean on every changed file, `pnpm exec vitest run` **213 passed / 32 files**.
+**Almost nothing in this session was seen rendered.** The Chrome extension
+stayed disconnected throughout, so the visual claims below are reasoned from the
+code and the numbers. The one exception is a screenshot the user sent of
+`localhost:3100/world`, which confirmed §11.2 and §11.3 on screen: the roster in
+the bottom right reading `ACTIVE AGENTS ● 1 / 6` with a green dot over a live
+avatar, `By NuvolaProject` under the sign, `v1.0.0`, the REPLAY sign dark. The
+scan pose (§11.5), the shelf spots and every caption remain unseen. Look at
+`/world` before shipping.
+
+### 11.1 The A–Z index was showing twenty of thirty-five articles
+
+Reported as "I can't find *Maintenance Is a Form of Creation* in the index".
+
+`latestArticles()` in `apps/web/lib/public-data.ts` was hard-coded to
+`limit: 20`. It is a front-page feed and twenty is right for that, but four
+pages that describe the **whole corpus** were reading the same feed and silently
+claiming the archive was twenty entries long. Production has 35.
+
+Added `allArticles()` beside it: walks the cursor at the API's own maximum page
+size (100), bounded at 50 pages because an unbounded loop against a paginating
+endpoint is one bad cursor away from spinning forever, and degrades to a partial
+read rather than an error screen. It takes the pager as a parameter with a
+default, which is the seam `apps/web/test/public-data.test.ts` uses — the repo
+has no module mocking anywhere and this keeps it that way.
+
+Repointed at it: `lib/analytics.ts` (the Directory A–Z and Patterns),
+`lib/graph.ts`, `app/wanted/page.tsx`, `app/index.md/route.ts` — the last of
+which was printing `Total Entries: 20`. **Left on `latestArticles()`
+deliberately:** `app/page.tsx` and `app/articles/[slug]/page.tsx`, where "the
+latest twenty" is the correct claim.
+
+### 11.2 HUD rework
+
+- The `ACTIVE AGENTS n/6` card in the top left is **gone**. Its count now rides
+  in the roster card's own title (`ACTIVE AGENTS ● 3 / 6`).
+- The roster moved from top-right to **bottom-right**, out from under the speech
+  bubbles the writers raise over the middle of the floor.
+- `By NuvolaProject` moved out of the loose bottom-right corner (which the
+  roster now wants) into the title card, under `WIKI WORLD`, white and small,
+  with a gap below it so it does not read as the first half of the version line.
+  On a phone it goes back to the floor: there is no room for it in the bar.
+- Version string is now `apps/web/lib/version.ts` → `APP_VERSION`, **1.0.0**.
+  Not read from any package.json: every manifest in the workspace is `0.0.0`,
+  a placeholder for packages that are never published. **The user asked that
+  this be bumped on every significant change from here on.** It was left at
+  1.0.0 through this whole session on the grounds that 1.0.0 has not deployed
+  yet and all of §11 is one release; the next change after 1.0.0 goes live must
+  bump it.
+
+### 11.3 Colour: green is live, yellow is a recording
+
+Was: red bead for live, dim green bead for replay, green REPLAY sign. Now:
+
+- live bead **green `#46e884`**, replay bead **yellow `#ffd23f`** — both lit, because
+  they are two states, not a state and its absence
+- the REPLAY sign lights **yellow** when on, the same yellow as the bead
+- the occupancy dot follows the floor: green if any live agent, yellow if the
+  floor is all replay, dark if empty (`occupancyTone` in `app/world/page.tsx`).
+  It was green-on-any-avatar, which under the new scheme would have been the
+  exact lie the beads were changed to stop telling.
+
+**Known collision, not fixed and not asked about:** `STATUS_COLOR.Reading` is
+still `#5fdc7a`, a green. A replay row now shows a yellow bead beside the green
+word `Reading`.
+
+### 11.4 A ficus was standing on a walk leg, and nothing could see it
+
+The user moved `plant-ficus#7` in ARCHIVE from `(14.6, 0, 7.6)` to
+`(17, 0, 7.75)` — in the editor, not in the file; the working tree still had the
+old value and this session applied it.
+
+Measured, footprint 1.2² (the planter's lip; the crown is at y=2.6, over an
+avatar's head), room-local coordinates on `ROOM_SHIFT.archive = {-0.75, 0.5}`:
+
+| | world | closest leg | distance |
+|---|---|---|---|
+| old `(14.6, 7.6)` | x 13.25–14.45, z 7.5–8.7 | `archive glass` | **0.000** |
+| new `(17, 7.75)` | x 15.65–16.85, z 7.65–8.85 | `archive glass` | **1.920** |
+
+The glass spot is at `(13.25, 7.5)` — exactly the old footprint's corner. The
+leg from the archive waypoint out to the glass **touched the planter**. The
+user's move fixes a real zero, of the class this file has now recorded three
+times.
+
+**Why nothing caught it:** none of the eight ficus were in `PLAN_SCENERY`, so
+`validate.ts` never measured them. The editor's own "tightest clearance on this
+floor" readout said `0.87 — archive seat 2 · prop:archive-crates-e`, which is
+the crates in another corner and is **identical before and after the move**. The
+readout gave no feedback at all about the prop being moved.
+
+So **all eight are now registered** in `PLAN_SCENERY` (ids `ficus-read-ne`,
+`ficus-read-nw`, `ficus-edit-ne`, `ficus-edit-sw`, `ficus-links-sw`,
+`ficus-links-se`, `ficus-archive-sw`, `ficus-archive-ne`), footprint 1.2². All
+pass; the tightest of the other seven is `#1` in READ at 2.300. Verified the
+guard bites by putting `#7` back at `(14.6, 7.6)`:
+
+```
+× has no leg that touches the scenery
++   "archive glass / scenery:ficus-archive-sw"
+```
+
+**Still open:** every other `environment.ts` prop — shelves, desks, frames,
+crates that are not in `PLAN_OBSTACLES` — is invisible to the validator the same
+way. Closing that needs a footprint per prop and is a job of its own.
+
+### 11.5 Where the visitors go, and the scraping pose
+
+The user asked what `curl` and `ki-radar/0.1` were reading. **They cannot be
+answered retroactively.** `broadcastSkyEvent` (`lib/telemetry/broadcaster.ts`)
+publishes to the in-process bus and to ntfy and **never writes
+`archive_events`** — confirmed against production, 101 rows, zero of either.
+
+Worse, `BEHAVIOUR` keyed only on event type, so `/`, `/skill`, `/skill/SKILL.md`,
+`/llms.txt`, `/index.md` and `/wanted` all became one `agent_session_started` →
+hub, idle, "connected to the archive". Six pages collapsed into one shrug. The
+page **was in the payload** as `safeMetadata.title` and was thrown away in
+`captionFor`.
+
+Fixed by adding `page: "<path>"` to each of those six beacons and a `PAGE` map
+in `choreography.ts`, path → room + action + caption + icon:
+
+| page | room | bubble |
+|---|---|---|
+| `/` | hub | ✨ arrived at the archive |
+| `/skill` | hub | 📋 reading the protocol |
+| `/skill/SKILL.md` | hub | 📋 studying the protocol |
+| `/llms.txt` | hub | 📜 reading the guidance |
+| `/wanted` | hub | 🔎 looking for the gaps |
+| `/index.md` | **archive** | 🔦 scanning the whole archive |
+
+Keyed on the path, not on the human title beside it: the path is an identifier,
+the title is prose that will be rewritten. **The words and the icons are the
+model's, not the user's — they were offered for review and not yet ruled on.**
+
+**Why the visitors stay in the hub rather than going to READ:** the user's own
+constraint. READ has three chairs and the floor can hold six agents. A bubble
+over a head in the hub costs no seat.
+
+**The scan action.** `/index.md` is the markdown dump of the entire corpus:
+that is not reading an entry, it is taking the shelf. So it goes to ARCHIVE and
+**stands at the stacks**, which needed new geometry:
+
+- `Room.shelf` in `layout.ts`, ARCHIVE only: three points at `(18.2, -3.1)`,
+  `(20, -3.1)`, `(21.8, -3.1)` in the plan frame — a pace off the shelf unit at
+  `(19.6, -4.3)`, a pace clear of the desk row at `z = -2`. `stationFacing: 0`
+  already turns an avatar towards −Z, which is the shelf, so no `facingOverride`.
+- Claimed like a station (`archive:f0..2` in `occupiedStations`) so two scanners
+  never stand inside each other, but **outside the seat/standby queue**: a
+  visitor copying the corpus is not waiting for a desk, and putting it in that
+  queue would sit it in a chair — the one picture of wholesale copying that is
+  wrong. With all three taken it falls back to `claimStation` rather than
+  stranding the avatar. `promoteWaiting` cannot pull a scanner into a seat
+  because a scanner is never `waiting`.
+- The three legs are in `routeLegs` and therefore validated. Tightest **1.400**
+  against `prop:archive-crates-e`, against `AVATAR_CLEARANCE` 0.55.
+- New `"scan"` pose in `avatar.ts`: standing, one arm tracing the spines, head
+  sweeping the row. Wider and slower than `browse`, which is somebody at a
+  screen. Roster status `Scanning`, `#c9a0f5`.
+
+**The injection surface, and why it is closed.** `safeMetadata` is text that
+arrives with a request. `pageOf` accepts a path **only if it is a key of `PAGE`**
+and **only on `agent_session_started`** — an unknown path falls back to the
+generic greeting, and `/index.md` on an article event does not move a reader into
+ARCHIVE. Three tests in `world-choreography.test.ts` pin exactly that. Do not
+relax this into printing `safeMetadata` directly; a floor that prints it is a
+floor that prints whatever a request can name.
+
+### 11.6 Findings handed back, not acted on
+
+- **`/robots.txt` returns 404.** No crawl directives for anybody. The
+  `<meta name="robots" content="noindex">` speaks to search indexers, not to a
+  poller.
+- **`classifyClientAgent` truncates the user agent to 18 characters**
+  (`broadcaster.ts:113`) before anything else sees it. A polite bot puts its
+  contact URL in the UA; we cut it off, and since these beacons are never
+  persisted the full string is gone from our side permanently. The Vercel log
+  has it, with the path.
+- **The passive-read cooldown is 2.5s**, keyed `ip:eventType:articleId`
+  (`broadcaster.ts:70`). Anything polling faster gets a fresh avatar every time,
+  so one poller reads as a crowd. This is the likely explanation for
+  `ki-radar/0.1` appearing constantly — one talkative client, not many.
+- **No beacon at all** on `/directory`, `/patterns`, `/search`, `/graph`,
+  `/about`, and **none on API reads**: a scraper pulling the corpus through
+  `GET /api/v1/articles` is completely invisible on the floor. The scan pose
+  therefore only ever fires on `/index.md`.
+- The avatar info card was raised as "not meaningful — I can't see the origin".
+  Four options were drawn up with mockups and widths; the user redirected to the
+  bubble work instead, so **the card is unchanged**. Note for whoever picks it
+  up: the card is `white-space: nowrap; max-width: none`, so it does not
+  truncate — any line carrying an article title needs a cap, ~32 characters.
+
+### 11.7 The floor now says which is a person and which is an agent
+
+The floor separated the two by costume and by the roster's `human` tag, never in
+words: a person opening `/` and an agent connecting through the API both read
+"connected to the archive". `captionFor` now branches on
+`isHumanAgent(event.agentIdentifier)`, and `PageBehaviour` carries a
+`humanCaption` beside its `caption`.
+
+| | agent | person |
+|---|---|---|
+| `/` | connected to the corpus | arrived at the archive |
+| `/skill` | parsing the participation protocol | reading the protocol |
+| `/skill/SKILL.md` | loading the skill instructions | reading the manual |
+| `/llms.txt` | fetching the agent guidance | reading the guidance |
+| `/wanted` | scanning the wanted list | looking for the gaps |
+| `/index.md` | pulling the whole index | browsing the whole index |
+| an article | consulting "X" | reading "X" |
+| a session start with no page | connected to the archive | arrived at the archive |
+
+The register is the one the beacon pages already write into
+`safeMetadata.query` for `/sky`: a person reads, an agent parses, loads, fetches
+and pulls. Icons are unchanged — one axis of difference is enough.
+
+**Why not read `safeMetadata.query`, which already carries exactly this
+wording.** Two reasons, and the second is the one that decided it:
+
+1. `query` only exists on the six live beacons. `isHumanAgent` is a pure reading
+   of the identifier, so it also works on every replayed archive row, which
+   carries no metadata at all — and the replayed cast is most of the floor.
+2. `recordEventInputSchema` in `apps/web/lib/http/handlers.ts:33` declares
+   `safeMetadata: z.record(z.string(), z.unknown()).optional()` — **no constraint
+   at all**. Any authenticated agent may POST arbitrary metadata. Printing it in
+   a caption is the surface §11.5 deliberately closed, and it would have been
+   reopened by the back door.
+
+**Related finding, not acted on.** `/sky` does print it: `app/sky/page.tsx:80`
+renders `searching: "${meta.query}"` straight from the payload, and
+`titleOf` in `choreography.ts` takes `safeMetadata.title` the same way, so an
+agent can already author the sentence in `/sky`'s log and the title inside a
+`/world` bubble. React escapes it, so this is content spoofing in a public view
+rather than script execution — but nothing bounds the length or the wording. If
+that is ever tightened, the fix belongs on the write path (a length cap and a
+character class on the two fields), not in the two renderers.
+
+**An earlier note in this file was wrong** and is corrected here: `query` was
+described as read by nobody. It is read by `/sky`. `/world` is the view that
+never used it.
+
+
+
+### 11.8 A flag on the avatars
+
+The user asked for one thing only: the country an avatar came from, as a flag.
+No address kept, nothing else.
+
+**The address is still never read for this.** Vercel resolves the country at the
+edge and hands it over as `x-vercel-ip-country`; the seven beaconed pages read
+that header and put a two-letter code in `safeMetadata.country`. `visitor.ts`'s
+property — the address goes into a salted digest and nowhere else — is untouched,
+and no geo-IP lookup or third party is involved.
+
+`flagOf` in `choreography.ts` turns the code into regional indicator symbols
+(`IT` → U+1F1EE U+1F1F9), one codepoint per letter at a fixed offset from `A`.
+No table, no image. It accepts **exactly two ASCII letters** and nothing else,
+because `safeMetadata` is unconstrained on the write path — see §11.7. The worst
+a hostile agent can then do is fly the wrong flag, which is the same thing it
+can already do by choosing its own name. Eleven cases are pinned in the tests,
+including `"ITA"`, `"I7"`, a number, and an object with a `toString`.
+
+`countryOf` takes the session's country from the first event that reported a
+usable one; `AgentPlan.country` carries it; `Actor.flag` resolves it once at
+spawn; `RosterEntry.flag` publishes it.
+
+**Where it shows:** the roster row (before the name) and the first line of the
+info card a click opens. **Not over the avatar's head** — the user ruled out a
+permanent nameplate in the same conversation, and a flag there would be one.
+
+**The limit, and it is a real one.** Only a *live* avatar can have a flag. The
+country rides on a page beacon, and page beacons are never written to
+`archive_events` (§11.5), so **the entire replayed cast has none** — which is
+most of what is on screen most of the time, since REPLAY is the default mode.
+An absent flag means "this is a recording", not "unknown country". If flags
+should appear in replay too, the country has to be persisted, and that is a
+deliberate step into storing a geographic datum per session: worth a decision,
+not worth sliding into.
+
+**Verified end to end on a dev server**, by sending the header a Vercel edge
+would send and reading the payload off the local SSE stream:
+
+```
+curl -H "x-vercel-ip-country: JP" -H "user-agent: <a browser UA>" localhost:3100/
+
+LIVE agent_session_started | Human Explorer |
+  {"country": "JP", "page": "/", "title": "Archive Threshold (/)", ...}
+```
+
+The avatar arrives with its flag. `page` rides along, so §11.5 is confirmed by
+the same frame.
+
+**What is still unverified is only the header's arrival in production.**
+`x-vercel-ip-country` is asserted from Vercel's documented behaviour, not
+observed on this project — nothing in the codebase read any `x-vercel-*` header
+before this change. Off Vercel the header is absent, which yields no flag rather
+than a wrong one.
+
+**A note on probing this, because it cost an hour.** An SSE reader started as
+`(curl -sN ... > file &)` — backgrounded inside a subshell — dies with the parent
+shell and discards its buffer, so the stream looks empty and the archive looks
+like it holds no events. Both conclusions were drawn and both were wrong; the
+bus and the DB were fine the whole time. Use `nohup curl -sN --no-buffer ... &`
+and kill it by PID. `event-bus.ts` already survives Next's module-graph split by
+hanging the bus off `globalThis`, so a bus that looks dead in dev is far more
+likely to be a broken probe than a broken bus.
+
+**How to see it locally.** The first cut of this shipped with no way to observe
+it short of a deploy — the user ran `/world` on `localhost:3100`, where the edge
+header does not exist, and correctly reported no flags. The seven duplicated
+header reads are now one helper, `countryOfRequest` in
+`apps/web/lib/telemetry/geo.ts`, and a development server may stand in for the
+edge:
+
+```
+TELEMETRY_DEV_COUNTRY=IT pnpm --filter @agent-memory-wiki/web dev
+```
+
+Read from the environment, never from the request — a country a request can name
+is a country an agent can claim — and **refused outright when `NODE_ENV` is
+`production`**, so a variable left set on a real deploy cannot put a flag on the
+public floor. Four cases pinned in `apps/web/test/telemetry-geo.test.ts`,
+following the `vi.stubEnv` pattern `telemetry-broadcast-scope.test.ts`
+established for the same read-only `NODE_ENV` typing.
+
+
+### 11.9 Open: a flag nobody can currently explain
+
+**Unresolved at the end of the session. Start here if the flags misbehave.**
+
+The user reported seeing a flag on their own avatar, on `localhost:3100/world`,
+without restarting anything — and was confident it was theirs because the avatar
+walked to READ and opened the article they had open **on the live site**.
+
+Everything measured says that should be impossible:
+
+- Production emits no `country`. Verified by subscribing to the ntfy topic and
+  opening the live home page: `{"title": "Archive Threshold (/)", "query":
+  "arrived at archive"}`. So a prod-originated avatar has nothing to make a flag
+  from.
+- `Actor.flag` is resolved **once, at spawn**, from `AgentPlan.country`. An event
+  arriving for a session that already has an avatar is appended as a task and
+  cannot add a flag later.
+- The replay path takes its country from `countryOf(sessionEvents)`, i.e. from
+  rows in the local DB. No row in that DB carries a `country` key.
+
+Two candidate explanations, neither confirmed:
+
+1. **It was one of the assistant's probes.** While diagnosing, four requests
+   were sent to the user's dev server with a forged `x-vercel-ip-country`
+   (`IT`, `IT`, `FR`, `JP`) and a Chrome/macOS user agent. Those spawn a
+   `Human Explorer` with a flag. The user is in Italy, so an 🇮🇹 `Explorer · LIVE`
+   in the hub at that exact moment is very easy to read as one's own avatar.
+   **Against it:** those probes hit `/`, `/llms.txt` and `/wanted` only. All three
+   map to the hub and then to the exit. None of them can walk to READ, and the
+   user was specific that theirs did.
+2. **A path not modelled here.** If a flagged avatar genuinely reached READ, the
+   model above has a hole and it is worth finding, because it would mean a
+   country is reaching an avatar by a route nobody intended.
+
+**How to settle it.** Restart the dev server with the override and browse
+locally, end to end:
+
+```
+kill <the next dev PID>
+TELEMETRY_DEV_COUNTRY=IT pnpm --filter @agent-memory-wiki/web dev
+```
+
+Open `localhost:3100/`, then an article, then watch `/world` in another tab. The
+flag must appear on the avatar that walks to READ. If it does, the feature is
+sound and only the deploy is outstanding. If it does not, the fault is upstream
+of the flag.
+
+**Do not assume the user misremembered.** Twice in this session the assistant
+asserted a confident diagnosis that measurement then contradicted — that page
+beacons never reach the local bus, and that the local archive held no events.
+Both were artefacts of an SSE probe backgrounded inside a subshell, which dies
+with its parent and discards its buffer. The user's report of what they saw on
+screen has so far been the more reliable instrument.
+
+### 11.10 The origin line is a constant for live human visitors
+
+Noticed while reading the screenshot, not acted on.
+
+The info card's second line is `agentOrigin(actor.agentIdentifier)`, written to
+reduce a raw user agent to `Chrome · macOS`. But `classifyClientAgent` replaces
+the user agent with the constant string `"Human Explorer"` **before the event
+exists**, so `agentOrigin` finds no browser token and no platform token and
+returns `browser · web` — for every live human visitor, always. The screenshot
+shows exactly that.
+
+The distinction is only between *live page beacons* and *persisted rows*: some
+older `article_opened` rows in the archive do carry a raw `Mozilla/5.0
+(Macintosh…` identifier, and for those the origin line is real.
+
+The fix, if wanted, is the same shape as `page` and `country`: have the beacon
+put the already-classified browser and platform into `safeMetadata` rather than
+throwing the user agent away and asking the floor to re-derive them from a label
+that does not contain them. The user was asked and had not answered when the
+session ended.

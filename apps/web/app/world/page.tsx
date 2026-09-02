@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Press_Start_2P } from "next/font/google";
+import { Silkscreen } from "next/font/google";
 import {
   MAX_CONCURRENT_AGENTS,
   WorldCanvas,
@@ -18,10 +18,13 @@ import {
 } from "../../components/world/world-canvas";
 import type { SkyArticle, SkyEvent } from "../../components/sky-canvas";
 import { agentHue, displayAgentName } from "../../lib/world/choreography";
+import { APP_VERSION } from "../../lib/version";
 
 /** The credit's typeface: a pixel face, loaded here rather than in the root
- *  layout because /world is the only page that wears it. */
-const pixelFont = Press_Start_2P({
+ *  layout because /world is the only page that wears it. Silkscreen rather than
+ *  Press Start 2P, which is monospace at a full em per glyph and made sixteen
+ *  characters wider than the card wanted to be. */
+const pixelFont = Silkscreen({
   subsets: ["latin"],
   weight: "400",
   display: "swap",
@@ -41,6 +44,7 @@ const STATUS_COLOR: Readonly<Record<string, string>> = {
   Editing: "#e46bd6",
   Browsing: "#4fd8e8",
   Organizing: "#f0a04a",
+  Scanning: "#c9a0f5",
   Moving: "rgba(255, 255, 255, 0.45)",
   Leaving: "rgba(255, 255, 255, 0.45)",
   Idle: "rgba(255, 255, 255, 0.45)",
@@ -76,6 +80,13 @@ export default function WorldPage() {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("live") === "1") setReplayMode(false);
   }, []);
+
+  const occupancyTone =
+    roster.length === 0
+      ? ""
+      : roster.some((entry) => entry.live)
+        ? "world-hud-dot-on"
+        : "world-hud-dot-replay";
 
   const handleRoster = useCallback((next: readonly RosterEntry[]) => {
     setRoster((previous) => {
@@ -343,11 +354,11 @@ export default function WorldPage() {
           .world-sign-tip { transition: none; }
         }
         .world-sign-replay.world-sign-on .world-sign-tube {
-          color: #46e884;
-          border-color: #46e884;
-          background: rgba(8, 38, 22, 0.95);
-          text-shadow: 0 0 6px rgba(70, 232, 132, 0.95), 0 0 18px rgba(70, 232, 132, 0.7);
-          box-shadow: 0 0 18px rgba(70, 232, 132, 0.55), inset 0 0 14px rgba(70, 232, 132, 0.35);
+          color: #ffd23f;
+          border-color: #ffd23f;
+          background: rgba(40, 30, 4, 0.95);
+          text-shadow: 0 0 6px rgba(255, 210, 63, 0.95), 0 0 18px rgba(255, 210, 63, 0.7);
+          box-shadow: 0 0 18px rgba(255, 210, 63, 0.55), inset 0 0 14px rgba(255, 210, 63, 0.35);
         }
         /* The tube's own flicker, small enough to read as a sign rather than a
            fault, and gone entirely for anybody who asked for less motion. */
@@ -374,31 +385,35 @@ export default function WorldPage() {
         }
         .world-panel-title { letter-spacing: 0.16em; opacity: 0.5; font-size: 0.6rem; }
 
-        /* Which cast a roster row belongs to, in the signs' own two colours: a
-           lit red bead for somebody who is here now, a dim green one for a
-           recording. Same distinction the stage makes by fading the ghosts. */
+        /* Which cast a roster row belongs to. Green is somebody who is here
+           now; yellow is a recording, the same yellow the REPLAY sign burns
+           when it is lit — so the one colour on the screen answers the one
+           question the floor keeps raising, and answers it the same way in
+           both corners. Same distinction the stage makes by fading the ghosts. */
         .world-bead {
           flex: none; width: 0.42rem; height: 0.42rem; border-radius: 50%;
         }
         .world-bead-live {
-          background: #ff4a52;
-          box-shadow: 0 0 5px rgba(255, 74, 82, 0.95), 0 0 10px rgba(255, 74, 82, 0.55);
+          background: #46e884;
+          box-shadow: 0 0 5px rgba(70, 232, 132, 0.95), 0 0 10px rgba(70, 232, 132, 0.55);
         }
         .world-bead-replay {
-          background: rgba(70, 232, 132, 0.55);
-          box-shadow: inset 0 0 0 1px rgba(70, 232, 132, 0.3);
+          background: #ffd23f;
+          box-shadow: 0 0 5px rgba(255, 210, 63, 0.85), 0 0 10px rgba(255, 210, 63, 0.45);
         }
 
-        /* Signature, bottom right. Flat black over the floor, no relief. */
-        .world-credit {
-          position: fixed; z-index: 40; right: 1.4rem; bottom: 1.2rem;
+        /* The byline hangs under the sign's own name, inside the title card.
+           Loose in the bottom-right corner it was in the way of the roster,
+           which is the card that now wants that corner. */
+        .world-hud-credit {
+          /* The gap below is what keeps the byline a byline: pressed against
+             the version line it read as the first half of one caption. */
+          margin: 0.15rem 0 0.55rem;
+          /* Larger in ems than the face it replaces and still narrower on the
+             card: Silkscreen draws a smaller glyph inside its em box. */
           font-size: 0.58rem; line-height: 1;
-          color: #000000;
-          pointer-events: none;
+          color: #fff;
           user-select: none;
-        }
-        @media (max-width: 640px) {
-          .world-credit { font-size: 0.4rem; right: 1rem; bottom: 1rem; }
         }
 
         /* The agent's cube face, reduced to a swatch with two eyes. */
@@ -422,6 +437,9 @@ export default function WorldPage() {
           padding: 0.16rem 0;
         }
         .world-row-name { flex: 1; white-space: nowrap; }
+        /* Flags render at the font's own emoji size, which next to a 0.64rem
+           monospace row is a head taller than the text. */
+        .world-row-flag { flex: none; font-size: 0.72rem; line-height: 1; }
         .world-row-tag {
           font-size: 0.52rem; letter-spacing: 0.1em; text-transform: uppercase;
           opacity: 0.45; border: 1px solid rgba(255, 255, 255, 0.22);
@@ -441,17 +459,25 @@ export default function WorldPage() {
           display: inline-block; margin-top: 0.4rem;
           color: #7fd8ff; text-decoration: none;
         }
-        .world-hud-count { top: 7.4rem; left: 1.15rem; min-width: 13rem; }
-        .world-hud-count-row {
-          display: flex; align-items: center; gap: 0.45rem; margin-top: 0.35rem;
-        }
         .world-hud-dot {
           width: 0.5rem; height: 0.5rem; border-radius: 50%;
           background: rgba(255, 255, 255, 0.3);
         }
-        .world-hud-dot-on { background: #5fdc7a; }
-        .world-hud-count-value { font-size: 0.9rem; color: #fff; }
-        .world-hud-roster { top: 1.15rem; right: 1.15rem; min-width: 13.5rem; }
+        .world-hud-dot-on { background: #46e884; }
+        .world-hud-dot-replay { background: #ffd23f; }
+        .world-hud-count-value { color: #fff; }
+        /* Bottom right, clear of the speech bubbles the writers raise over the
+           middle of the floor. The occupancy count rides in this card's own
+           title rather than in a second card saying the same word again. */
+        .world-hud-roster { bottom: 1.15rem; right: 1.15rem; min-width: 13.5rem; }
+        .world-hud-roster-title {
+          display: flex; align-items: center; gap: 0.4rem;
+          margin-bottom: 0.45rem;
+          /* A panel title dims itself whole; here only the words should dim, or
+             the live bead and the count would fade along with them. */
+          opacity: 1;
+        }
+        .world-hud-roster-label { opacity: 0.5; }
         .world-hud-empty { opacity: 0.35; }
         .world-hud-log { bottom: 1.15rem; left: 1.15rem; max-width: 22rem; }
         .world-hud-log-line { padding: 0.1rem 0; display: flex; gap: 0.5rem; }
@@ -461,9 +487,9 @@ export default function WorldPage() {
            Four corners is a desktop's arrangement: on a phone the title card and
            the roster are wider together than the screen, so they overlapped and
            the sign — the only control on the page — sat underneath both. Here
-           the three top cards become one bar, the roster becomes a row of pills
-           under it, and the log spans the foot at three lines. Nothing overlaps
-           and nothing is a corner. */
+           the title card and the sign become one bar, the roster becomes a row
+           of pills under it, and the log spans the foot at three lines. Nothing
+           overlaps and nothing is a corner. */
         @media (max-width: 720px), (max-height: 520px) {
           .world-hud-top {
             position: fixed; z-index: 42; top: 0; left: 0; right: 0;
@@ -486,13 +512,10 @@ export default function WorldPage() {
           .world-hud-version { display: none; }
           .world-hud-back { order: -1; margin-top: 0; }
           .world-hud-back-text { display: none; }
-          .world-hud-count { order: 2; margin-left: auto; }
-          .world-hud-count .world-panel-title { display: none; }
-          .world-hud-count-row { margin-top: 0; }
           .world-hud-count-value { font-size: 0.72rem; }
 
           .world-signs {
-            order: 3; position: static; transform: none;
+            order: 3; margin-left: auto; position: static; transform: none;
             left: auto; top: auto; flex: none;
           }
           .world-sign { padding: 0.22rem; border-radius: 10px; }
@@ -512,14 +535,15 @@ export default function WorldPage() {
           /* The roster, as pills rather than a card: a column of rows in the
              corner is what pushed everything else off the screen. */
           .world-hud-roster {
-            top: 3.5rem; left: 0; right: 0; min-width: 0;
+            top: 3.5rem; bottom: auto; left: 0; right: 0; min-width: 0;
             display: flex; gap: 0.35rem;
             padding: 0 0.55rem;
             background: none; border: 0; box-shadow: none;
             overflow-x: auto; scrollbar-width: none;
           }
           .world-hud-roster::-webkit-scrollbar { display: none; }
-          .world-hud-roster .world-panel-title { display: none; }
+          .world-hud-roster-label { display: none; }
+          .world-hud-roster .world-panel-title,
           .world-hud-roster .world-row,
           .world-hud-empty {
             flex: none; padding: 0.16rem 0.5rem;
@@ -533,6 +557,7 @@ export default function WorldPage() {
           }
           .world-hud-roster .world-row { gap: 0.35rem; }
           .world-hud-roster .world-row-name { flex: none; }
+          .world-hud-roster-title { margin-bottom: 0; }
 
           .world-hud-log {
             left: 0.5rem; right: 0.5rem; bottom: 0.5rem; max-width: none;
@@ -544,9 +569,14 @@ export default function WorldPage() {
           /* Three lines is what fits over the floor without becoming the floor. */
           .world-hud-log-line:nth-child(n + 4) { display: none; }
 
-          /* Clear of the log, which now spans the whole foot of the screen and
-             stands three lines tall whatever the archive is doing. */
-          .world-credit { bottom: 5.7rem; }
+          /* No room for a byline in the bar, so on a phone it goes back to the
+             floor — clear of the log, which spans the whole foot of the screen
+             and stands three lines tall whatever the archive is doing. */
+          .world-hud-credit {
+            position: fixed; z-index: 40; right: 1rem; bottom: 5.7rem;
+            margin: 0; font-size: 0.52rem;
+            color: #000000; pointer-events: none;
+          }
         }
 
         /* No hover to open the sign's card with, so a tap has to do it. */
@@ -565,13 +595,13 @@ export default function WorldPage() {
         onRosterChange={handleRoster}
       />
 
-      {/* The sign and the two head cards.
+      {/* The sign and the title card.
 
-          On a desktop each of the three keeps its own corner and this wrapper
-          is `display: contents`, so it changes nothing. On a phone the three
-          corners were one pile — the cards overlapped each other and buried the
-          sign between them — so there the wrapper becomes the single top bar
-          that carries all three in a row. */}
+          On a desktop each keeps its own corner and this wrapper is
+          `display: contents`, so it changes nothing. On a phone those corners
+          were one pile — the cards overlapped each other and buried the sign
+          between them — so there the wrapper becomes the single top bar that
+          carries both in a row. */}
       <div className="world-hud-top">
         <div className="world-signs">
           <button
@@ -592,25 +622,15 @@ export default function WorldPage() {
         {/* Title card */}
         <div className="world-panel world-hud-title">
           <div className="world-hud-name">WIKI WORLD</div>
+          <div className={`world-hud-credit ${pixelFont.className}`}>By NuvolaProject</div>
           <div className="world-hud-sub">
-            <span className="world-hud-version">v0.1.0-alpha · </span>
+            <span className="world-hud-version">v{APP_VERSION} · </span>
             {articles.length} specimens
           </div>
           <Link href="/" className="world-hud-back">
             <span aria-hidden="true">←</span>
             <span className="world-hud-back-text"> Agent Memory Wiki</span>
           </Link>
-        </div>
-
-        {/* Stage occupancy, mirroring the reference's second card */}
-        <div className="world-panel world-hud-count">
-          <div className="world-panel-title">ACTIVE AGENTS</div>
-          <div className="world-hud-count-row">
-            <span className={`world-hud-dot ${roster.length > 0 ? "world-hud-dot-on" : ""}`} />
-            <span className="world-hud-count-value">
-              {roster.length} / {MAX_CONCURRENT_AGENTS}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -619,8 +639,15 @@ export default function WorldPage() {
         {/* No mode word here: the signs over the stage say which mode is on, and
             each row's bead says which cast that avatar belongs to. A third
             reading of the same thing, in a corner, only contradicted them. */}
-        <div className="world-panel-title" style={{ marginBottom: "0.45rem" }}>
-          ACTIVE AGENTS
+        <div className="world-panel-title world-hud-roster-title">
+          <span className="world-hud-roster-label">ACTIVE AGENTS</span>
+          {/* Green only while somebody is actually here: a lit green dot over a
+              floor of recordings is the exact claim the beads were changed to
+              stop making. */}
+          <span className={`world-hud-dot ${occupancyTone}`} />
+          <span className="world-hud-count-value">
+            {roster.length} / {MAX_CONCURRENT_AGENTS}
+          </span>
         </div>
         {roster.length === 0 ? (
           <div className="world-hud-empty">
@@ -650,6 +677,14 @@ export default function WorldPage() {
                   boxShadow: entry.human ? `inset 0 -0.3rem 0 ${entry.shirt}` : undefined,
                 }}
               />
+              {entry.flag && (
+                // The country the session was reported from, resolved at the
+                // edge. Only a live avatar has one — the archive never recorded
+                // it — so an absent flag is a recording, not an unknown place.
+                <span className="world-row-flag" aria-hidden="true">
+                  {entry.flag}
+                </span>
+              )}
               <span className="world-row-name">{entry.name}</span>
               {entry.human && <span className="world-row-tag">human</span>}
               <span style={{ color: STATUS_COLOR[entry.status] ?? "rgba(255,255,255,0.45)" }}>
@@ -672,8 +707,6 @@ export default function WorldPage() {
           ))}
         </div>
       )}
-
-      <div className={`world-credit ${pixelFont.className}`}>By NuvolaProject</div>
     </>
   );
 }

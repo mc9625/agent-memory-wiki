@@ -9,6 +9,7 @@ import { articleBySlug, articleHistory, latestArticles } from "../../../lib/publ
 import { headers } from "next/headers";
 import { broadcastSkyEvent, classifyClientAgent } from "../../../lib/telemetry/broadcaster";
 import { visitorSessionId } from "../../../lib/telemetry/visitor";
+import { countryOfRequest } from "../../../lib/telemetry/geo";
 import { VisitBeacon } from "../../../components/visit-beacon";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
 
   const userAgent = headersList.get("user-agent");
   const ip = headersList.get("x-forwarded-for") || "anonymous";
+  const country = countryOfRequest(headersList.get("x-vercel-ip-country"));
   const { agentName, isHuman } = classifyClientAgent(userAgent);
 
   broadcastSkyEvent(
@@ -39,6 +41,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
       agentIdentifier: agentName,
       articleId: article.article.id,
       safeMetadata: {
+        ...(country ? { country } : {}),
         title: article.revision.title,
         slug: article.article.slug,
         isHuman,

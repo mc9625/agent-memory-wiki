@@ -1,6 +1,6 @@
 import { SEMANTIC_ATTRACTORS } from "./analytics";
 import { computeWantedArticles, extractWikilinks, normalizeWikiKey } from "./markdown/wikilinks";
-import { articleBySlug, latestArticles } from "./public-data";
+import { allArticles, articleBySlug } from "./public-data";
 
 export interface GraphNode {
   readonly id: string;
@@ -278,7 +278,7 @@ export const computeDeterministicOverviewLayout = (
 };
 
 export const getCorpusGraphData = async (): Promise<GraphData> => {
-  const articleList = await latestArticles();
+  const articleList = await allArticles();
   const fullArticles = await Promise.all(
     articleList.items.map(async (item) => articleBySlug(item.slug || item.id))
   );

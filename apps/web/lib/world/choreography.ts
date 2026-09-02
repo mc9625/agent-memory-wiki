@@ -18,7 +18,8 @@ export type AgentAction =
   | "browse"
   | "sort"
   | "leave"
-  | "clean";
+  | "clean"
+  | "scan";
 
 export interface AgentTask {
   readonly room: RoomId;
@@ -39,6 +40,8 @@ export interface AgentPlan {
   readonly generation: number;
   readonly startedAt: number;
   readonly tasks: readonly AgentTask[];
+  /** Two-letter country of the session, when one was reported. See `flagOf`. */
+  readonly country?: string;
 }
 
 interface EventBehaviour {
@@ -60,6 +63,102 @@ const BEHAVIOUR: Readonly<Record<string, EventBehaviour>> = {
   wikilinks_created: { room: "links", action: "browse", durationMs: 4800, icon: "🔗" },
   contribution_aborted: { room: "archive", action: "sort", durationMs: 3200, icon: "📦" },
   agent_session_ended: { room: "entrance", action: "leave", durationMs: 1200, icon: "👋" },
+};
+
+/**
+ * What a visitor is doing, read off the page it asked for.
+ *
+ * Every page that is not an article broadcasts `agent_session_started`, and
+ * `BEHAVIOUR` sends all of them to one place: the hub, idle, captioned
+ * "connected to the archive". So a crawler working through the protocol pages
+ * and somebody glancing at the front door stood in the same spot doing the same
+ * nothing, and the floor could not answer the one question a viewer asks of it.
+ * The page was in the payload the whole time and was thrown away here.
+ *
+ * The corpus dump is the one that earns a room of its own. Pulling `/index.md`
+ * is not reading an entry, it is taking the shelf, so it goes to ARCHIVE and
+ * stands at the stacks rather than sitting at a desk — see `Room.shelf`.
+ *
+ * Keyed on the path rather than on the human title beside it, because the path
+ * is an identifier and the title is prose that will be rewritten.
+ */
+interface PageBehaviour extends EventBehaviour {
+  readonly caption: string;
+  /**
+   * The same errand, done by a person.
+   *
+   * The floor already tells a visitor from an agent by their clothes and by the
+   * roster's tag, but never in words — so a reader watching a bubble could not
+   * tell whether a thing was being read or fetched. The register follows the
+   * one the pages already write into `safeMetadata.query` for `/sky`: a person
+   * reads, an agent parses, loads, fetches and pulls.
+   *
+   * Decided from `agentIdentifier` rather than from that metadata field on
+   * purpose. `safeMetadata` is `z.record(z.string(), z.unknown())` on the write
+   * path — an authenticated agent may put anything in it — and a caption is not
+   * a place to print text that arrived with a request. `isHumanAgent` is a pure
+   * reading of the identifier, so it also works on the replayed archive rows,
+   * which carry no metadata at all.
+   */
+  readonly humanCaption: string;
+}
+
+const PAGE: Readonly<Record<string, PageBehaviour>> = {
+  "/": {
+    room: "hub",
+    action: "idle",
+    durationMs: 2600,
+    icon: "✨",
+    caption: "connected to the corpus",
+    humanCaption: "arrived at the archive",
+  },
+  "/skill": {
+    room: "hub",
+    action: "idle",
+    durationMs: 5200,
+    icon: "📋",
+    caption: "parsing the participation protocol",
+    humanCaption: "reading the protocol",
+  },
+  "/skill/SKILL.md": {
+    room: "hub",
+    action: "idle",
+    durationMs: 6200,
+    icon: "📋",
+    caption: "loading the skill instructions",
+    humanCaption: "reading the manual",
+  },
+  "/llms.txt": {
+    room: "hub",
+    action: "idle",
+    durationMs: 5200,
+    icon: "📜",
+    caption: "fetching the agent guidance",
+    humanCaption: "reading the guidance",
+  },
+  "/wanted": {
+    room: "hub",
+    action: "idle",
+    durationMs: 4600,
+    icon: "🔎",
+    caption: "scanning the wanted list",
+    humanCaption: "looking for the gaps",
+  },
+  "/index.md": {
+    room: "archive",
+    action: "scan",
+    durationMs: 7600,
+    icon: "🔦",
+    caption: "pulling the whole index",
+    humanCaption: "browsing the whole index",
+  },
+};
+
+/** The path a page beacon reported, when it is one this floor knows. */
+const pageOf = (event: SkyEvent): string | undefined => {
+  if (event.eventType !== "agent_session_started") return undefined;
+  const asked = event.safeMetadata?.["page"];
+  return typeof asked === "string" && asked in PAGE ? asked : undefined;
 };
 
 /**
@@ -90,10 +189,14 @@ export const titleLookup = (
 ): TitleLookup => new Map(articles.map((article) => [article.id, article.title]));
 
 const captionFor = (event: SkyEvent, titles?: TitleLookup): string | undefined => {
+  const human = isHumanAgent(event.agentIdentifier);
+  const page = pageOf(event);
+  if (page) return human ? PAGE[page]!.humanCaption : PAGE[page]!.caption;
   const title = titleOf(event, titles);
   switch (event.eventType) {
     case "article_opened":
-      return title ? `reading "${title}"` : "reading the archive";
+      if (human) return title ? `reading "${title}"` : "reading the archive";
+      return title ? `consulting "${title}"` : "consulting the archive";
     case "article_created":
       return title ? `writing "${title}"` : "writing a new specimen";
     case "article_revised":
@@ -103,7 +206,10 @@ const captionFor = (event: SkyEvent, titles?: TitleLookup): string | undefined =
     case "contribution_aborted":
       return "left without contributing";
     case "agent_session_started":
-      return "connected to the archive";
+      // Reached by a person only before the page field ships, or from a page
+      // that sends none: `/` is the door either way, so the words are the same
+      // ones `PAGE["/"]` gives them.
+      return human ? "arrived at the archive" : "connected to the archive";
     case "agent_session_ended":
       return undefined;
     default:
@@ -133,6 +239,38 @@ export const isHumanAgent = (identifier?: string | null): boolean => {
   return !/bot\b|crawler|spider|headless|preview|claude|gpt|deepseek|gemini|perplexity/.test(
     lower,
   );
+};
+
+/**
+ * The flag for a two-letter country code, or undefined for anything else.
+ *
+ * Regional indicator symbols: 'IT' is U+1F1EE U+1F1F9, one codepoint per letter
+ * at a fixed offset from 'A'. No table, and no image to ship.
+ *
+ * The code arrives in `safeMetadata`, which the write path does not constrain —
+ * an authenticated agent may put any JSON there — so the shape is checked
+ * rather than trusted. Exactly two ASCII letters map to exactly two regional
+ * indicators; everything else, including a longer string that merely starts
+ * with two letters, yields nothing. The worst an agent can then claim is the
+ * wrong flag, which is the same thing it can already claim by choosing its own
+ * name.
+ */
+export const flagOf = (country?: unknown): string | undefined => {
+  if (typeof country !== "string") return undefined;
+  const code = country.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return undefined;
+  return String.fromCodePoint(
+    ...[...code].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65),
+  );
+};
+
+/** The country a session reported, taken from the first event that carried one. */
+export const countryOf = (events: readonly SkyEvent[]): string | undefined => {
+  for (const event of events) {
+    const reported = event.safeMetadata?.["country"];
+    if (flagOf(reported)) return (reported as string).trim().toUpperCase();
+  }
+  return undefined;
 };
 
 /** Strips user-agent noise down to a short display name. */
@@ -308,7 +446,8 @@ export const agentOrigin = (identifier?: string | null): string => {
 
 /** Converts one archive event into a task, or null when it maps to nothing. */
 export const taskForEvent = (event: SkyEvent, titles?: TitleLookup): AgentTask | null => {
-  const behaviour = BEHAVIOUR[event.eventType];
+  const page = pageOf(event);
+  const behaviour = page ? PAGE[page]! : BEHAVIOUR[event.eventType];
   if (!behaviour) return null;
 
   const caption = captionFor(event, titles);
@@ -371,12 +510,14 @@ export const buildAgentPlans = (
     if (!first) continue;
 
     const startedAt = new Date(first.createdAt).getTime();
+    const country = countryOf(sessionEvents);
     plans.push({
       sessionId,
       agentIdentifier: first.agentIdentifier || "Agent",
       generation: first.generation || 1,
       startedAt: Number.isNaN(startedAt) ? 0 : startedAt,
       tasks,
+      ...(country ? { country } : {}),
     });
   }
 
