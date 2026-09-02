@@ -2152,3 +2152,119 @@ put the already-classified browser and platform into `safeMetadata` rather than
 throwing the user agent away and asking the floor to re-derive them from a label
 that does not contain them. The user was asked and had not answered when the
 session ended.
+
+---
+
+## 12. Session of 2026-09-02, after #88 — uncommitted on `main`
+
+`APP_VERSION` is **1.0.1**. #88 is live, so from here every change bumps it.
+
+**The flags work.** The user confirmed them on the production floor, which was
+the one thing §11.8 could not verify: `x-vercel-ip-country` does arrive on
+Vercel. §11.9's premise is therefore narrower than it looked — the feature is
+sound and only the flag seen on `localhost` before the deploy is unexplained.
+
+### 12.1 The roster was an accordion
+
+The status column is one word and that word changes — `Idle` is four characters
+and `Organizing` is ten — and the card was sized `min-width: 13.5rem`, so it
+resized itself every time an avatar changed what it was doing. A corner that
+pumps in and out pulls the eye off the floor.
+
+Now `width: 17.5rem`, fixed. The number was measured, not guessed: JetBrains
+Mono at `0.64rem` is `0.384rem` a character, and the widest realistic row — a
+live human visitor with a flag, `Human Explorer`, the `human` tag and
+`Browsing` — comes to ~17.1rem once the panel's `0.8rem` padding, its 2px
+border and the five `0.5rem` gaps are counted. So nothing that renders in full
+today begins to truncate.
+
+Past that the **name** is what yields: `.world-row-name` gained `min-width: 0`,
+`overflow: hidden` and `text-overflow: ellipsis`. Without `min-width: 0` a flex
+item will not shrink below its own text, so the name would have gone on pushing
+the card wider and the fixed width would have done nothing. The status word got
+a class (`.world-row-status`, `flex: none`) so it is never the thing that
+shrinks. The phone's pill row overrides both back — there the card *should* size
+to its content.
+
+**Verified by measurement, not by eye:** Playwright sampled the card's
+`getBoundingClientRect().width` fourteen times over ~30s of replay while the
+roster went from 0 to 6 rows and statuses cycled `Idle`/`Moving`/`Reading`. It
+read **280px — 17.5rem — every time**, and no row reported
+`scrollWidth > clientWidth`. Before the change the same sampling is what would
+have shown the pumping.
+
+### 12.2 `ki-radar/0.1` is off the floor
+
+The user asked that it stop being tracked: it polls constantly, is plainly not
+an agent participating in the archive, and identifies itself as nothing that can
+be looked up.
+
+`isUntrackedClient` in `broadcaster.ts`, checked at the top of
+`broadcastSkyEvent` **before the rate limiter** — a client we are not tracking
+should not be spending the shared budget either. One choke point rather than a
+guard in each of the eight beacons, so it covers `/api/v1/events/leave` and
+anything added later. Matched as a **prefix** on the classified identifier, so
+`ki-radar/0.2` does not quietly re-admit itself. Six cases in
+`apps/web/test/telemetry-untracked.test.ts`, including `radar/0.1` and
+`some-ki-radar-clone/1.0`, which must still pass.
+
+Nothing is deleted and nothing is blocked: the client still gets its page, it
+just gets no avatar.
+
+**We still do not know what it is, and from our side we now never will.**
+`classifyClientAgent` truncates the user agent to 18 characters before anything
+sees it, and these beacons are never persisted (§11.5, §11.6). **The Vercel
+request log is the only place that still holds the full string and the path
+together** — that is where to look if this is ever worth identifying. Lifting
+the truncation would be the change that makes the *next* unknown client
+identifiable; it was not made here.
+
+### 12.3 Pale icons on a near-white tile — tried, and reverted
+
+Reported: the sparkles on `connected to the corpus` are hard to see. It is a
+real observation — the tile is the reference's `#fbfaf6` and `✨`, `📜` and `📋`
+are nearly as light — but **every fix attempted made it worse, and the icons are
+back exactly as they were.** Do not re-attempt without reading this.
+
+Three were built and rendered at 1:1 against the running page, not argued about:
+
+1. **A blurred `drop-shadow` rim.** Haloes the whole glyph. At the caption's
+   size it reads as dirt on the tile.
+2. **Four zero-blur `drop-shadow`s, one per direction** — a crisp one-pixel
+   outline. Better than the blur, and it looked convincing *zoomed*. At 1:1 it
+   is not: the caption glyph is about 13px, so a one-pixel rim is a tenth of the
+   glyph and it thickens the emoji into a blob. **This is the trap** — the
+   zoomed comparison flattered it and the 1:1 comparison is the one that counts.
+3. **A slate chip behind the icon** (`#3d434f`, `1.15em`). This one genuinely
+   separates every icon, pale and dark alike, and was measured across all eleven
+   caption icons to pick a tone that black would have swallowed the pen, the
+   torch and the magnifier at. The user rejected it on sight: it turns the
+   reference's clean tile into a row of badges. **The legibility was not the
+   problem; the look was.**
+
+The mechanical finding is still worth keeping, because any future attempt needs
+it: the icon and the caption share **one text node**, so the icon cannot be
+styled without splitting it into its own span in `setCaption`. That split was
+made and then reverted with the rest.
+
+If this is picked up again, the levers not yet tried are the ones that do not
+add furniture to the tile: a **larger icon** (`1.3em` alone was clean and
+noticeably more visible than the baseline, and was never shown to the user), or
+**choosing icons that are not pale** in the first place, which costs nothing at
+render time. `✨` is the worst offender and is also the most replaceable — it
+marks nothing more specific than "arrived".
+
+### 12.4 The screenshot loop, since the extension is still down
+
+The Chrome extension did not connect this session either. The Playwright recipe
+in §Screenshots was used unchanged and is worth trusting: write
+`apps/web/.shot.tmp.mjs`, run it with `node`, **delete it** — `eslint .` fails on
+it (`'document' is not defined`), which is a useful reminder rather than a
+nuisance.
+
+Two things it did here that eyeballing could not: sampled a live element's
+width over half a minute of replay to prove a layout no longer moves, and
+injected side-by-side variant tiles into the real page — same fonts, same
+background, same build — so the only difference in the pixels was the rule under
+test. Prefer that to reasoning about CSS, and prefer reading the pixels with PIL
+to squinting at the picture.

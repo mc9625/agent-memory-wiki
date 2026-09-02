@@ -8,5 +8,6 @@
  * noticing — a new room, a fixed page, a change in what the archive shows.
  *
  * 1.0.0 is where production starts: the alpha string outlived the alpha.
+ * 1.0.1 pinned the roster's width and stopped putting `ki-radar` on the floor.
  */
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.0.1";

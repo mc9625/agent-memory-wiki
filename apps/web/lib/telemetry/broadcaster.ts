@@ -113,10 +113,42 @@ export function classifyClientAgent(userAgent?: string | null): {
   return { agentName: userAgent.slice(0, 18), isHuman: false };
 }
 
+/**
+ * Clients we deliberately keep off the floor.
+ *
+ * `ki-radar/0.1` polls the site continuously and identifies itself as nothing
+ * that can be looked up: no contact URL, no documentation, no operator, and
+ * nothing in the request that says what it wants. It is plainly not an agent
+ * participating in the archive, and against the 2.5s passive-read cooldown one
+ * poller arrives on the floor as a crowd of avatars.
+ *
+ * Matched as a prefix, so a version bump does not quietly re-admit it, and
+ * against the *classified* identifier, which is what would have been shown.
+ *
+ * This drops the live broadcast only. Nothing is deleted and nothing that
+ * reaches `archive_events` by another path is touched -- and note that the full
+ * user agent never survives `classifyClientAgent` anyway, so if we ever want to
+ * find out what this thing is, the Vercel request log is the only place that
+ * still has the string and the path together.
+ */
+const UNTRACKED_CLIENT_PREFIXES = ["ki-radar"] as const;
+
+export function isUntrackedClient(agentIdentifier?: string | null): boolean {
+  if (!agentIdentifier) return false;
+  const lower = agentIdentifier.trim().toLowerCase();
+  return UNTRACKED_CLIENT_PREFIXES.some((prefix) => lower.startsWith(prefix));
+}
+
 export async function broadcastSkyEvent(
   event: Partial<SkyEvent> & { eventType: string },
   options?: { ipOrKey?: string; isPriority?: boolean }
 ): Promise<void> {
+  // Before the rate limiter, not after: a client we are not tracking should not
+  // be spending the shared budget the limiter hands out either.
+  if (isUntrackedClient(event.agentIdentifier)) {
+    return;
+  }
+
   const isPriority =
     options?.isPriority ||
     event.eventType === "article_created" ||
