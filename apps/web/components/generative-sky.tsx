@@ -1095,18 +1095,29 @@ export function GenerativeSky({ initialArticles = [], initialEvents = [], liveEv
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const safeMeta = (liveEvent as any).safeMetadata || {};
     const isPublished = safeMeta.status === "published";
-    const rawTitle = safeMeta.title || "Archive Concept";
-    const displayTitle = rawTitle;
+    // The title the event itself recorded, if it recorded one. Backfilled rows
+    // and the MCP writes before this fix carry none, and the old placeholder
+    // did real damage here: matched by article id, it renamed a star that was
+    // already on screen to "Archive Concept", and unmatched it added a second
+    // star for an article that already had one. Falling back to the anchor's
+    // own title keeps both from happening.
+    const recordedTitle =
+      typeof safeMeta.title === "string" && safeMeta.title.trim().length > 0
+        ? (safeMeta.title as string)
+        : undefined;
 
-    let target = anchorsRef.current.find(
-      (a) =>
-        a.id === liveEvent.articleId ||
-        a.title.toLowerCase().includes(rawTitle.toLowerCase()) ||
-        rawTitle.toLowerCase().includes(a.title.toLowerCase())
-    );
+    let target = anchorsRef.current.find((a) => a.id === liveEvent.articleId);
+    if (!target && recordedTitle) {
+      const needle = recordedTitle.toLowerCase();
+      target = anchorsRef.current.find(
+        (a) => a.title.toLowerCase().includes(needle) || needle.includes(a.title.toLowerCase())
+      );
+    }
+
+    const displayTitle = recordedTitle ?? target?.title ?? "Archive Concept";
 
     if (target) {
-      target.title = displayTitle;
+      if (recordedTitle) target.title = recordedTitle;
       target.excerpt = isPublished ? "published" : "in moderation";
     } else {
       const u = seededRandom((liveEvent.articleId || "new") + "u");

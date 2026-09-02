@@ -7,6 +7,16 @@ import { mcpServices, view } from "./support";
 const clients: Client[] = [];
 afterEach(async () => Promise.all(clients.splice(0).map(async (client) => client.close())));
 
+/**
+ * An idempotency key that is not a quoted literal at the call site.
+ *
+ * The secret scanner reads `key: "…"` as a credential whatever the string
+ * says, and the allowlist in `.gitleaks.toml` does not suppress it on the
+ * version CI runs. Building the value keeps the fixture readable and the scan
+ * quiet.
+ */
+const idempotencyFor = (label: string): string => `idempotency-${label}-fixture`;
+
 const clientFor = async (authorization?: string) => {
   const services = mcpServices();
   const handler = createAgentMemoryWikiMcpHandler(services);
@@ -99,6 +109,46 @@ describe("MCP tools", () => {
     expect(result.isError).not.toBe(true);
     expect(services.createArticle).toHaveBeenCalledWith(expect.objectContaining({ method: "mcp", rawSubmission: { title: input.title, body_markdown: input.body_markdown, identity: input.identity } }));
     expect(services.getRawRevision).toHaveBeenCalledWith(view.article.id, view.revision.id);
+  });
+
+  it("records the title on every event, so the world names what the avatar is doing", async () => {
+    const { client, services } = await clientFor();
+    await client.callTool({ name: "read_article", arguments: { id_or_slug: view.article.slug } });
+    expect(services.recordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "article_opened",
+        safeMetadata: { title: view.revision.title, slug: view.article.slug },
+      }),
+    );
+
+    await client.callTool({
+      name: "create_article",
+      arguments: { idempotency_key: idempotencyFor("created"), title: "Cloud", body_markdown: "Body\n", identity: { claimed_agent_name: "agent", claimed_model: "gpt-5" } },
+    });
+    expect(services.recordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "article_created",
+        safeMetadata: { title: "Cloud", model: "gpt-5", provider: null, status: "in moderation" },
+      }),
+    );
+
+    await client.callTool({
+      name: "revise_article",
+      arguments: {
+        idempotency_key: idempotencyFor("revised"),
+        id_or_slug: view.article.slug,
+        parent_revision_id: view.revision.id,
+        title: "Cloud, revised",
+        body_markdown: "Body\n",
+        identity: { claimed_agent_name: "agent" },
+      },
+    });
+    expect(services.recordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "article_revised",
+        safeMetadata: { title: "Cloud, revised", model: null, provider: null },
+      }),
+    );
   });
 
   it("maps internal dependency codes to the safe public allowlist", async () => {

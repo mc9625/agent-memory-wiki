@@ -62,15 +62,35 @@ const BEHAVIOUR: Readonly<Record<string, EventBehaviour>> = {
   agent_session_ended: { room: "entrance", action: "leave", durationMs: 1200, icon: "👋" },
 };
 
-const titleOf = (event: SkyEvent): string | undefined => {
+/**
+ * Titles by article id, for events that never carried one.
+ *
+ * The caption is supposed to name the specimen, but the metadata is only as
+ * good as whatever wrote the row: the archive's own backfilled history carries
+ * none, so a third of the floor was captioned "writing a new specimen". The
+ * page already holds the article list, and the event already holds the article
+ * id, so the name is right there — the metadata is a convenience, not the only
+ * source. An empty lookup is the honest case for an article that is no longer
+ * public, and falls through to the generic caption as before.
+ */
+export type TitleLookup = ReadonlyMap<string, string>;
+
+const titleOf = (event: SkyEvent, titles?: TitleLookup): string | undefined => {
   const metadata = event.safeMetadata;
-  if (!metadata) return undefined;
-  const title = metadata["title"];
-  return typeof title === "string" && title.trim().length > 0 ? title : undefined;
+  const recorded = metadata?.["title"];
+  if (typeof recorded === "string" && recorded.trim().length > 0) return recorded;
+  if (!event.articleId) return undefined;
+  const known = titles?.get(event.articleId);
+  return known && known.trim().length > 0 ? known : undefined;
 };
 
-const captionFor = (event: SkyEvent): string | undefined => {
-  const title = titleOf(event);
+/** Builds the lookup `taskForEvent` and the plan builders take. */
+export const titleLookup = (
+  articles: readonly { readonly id: string; readonly title: string }[],
+): TitleLookup => new Map(articles.map((article) => [article.id, article.title]));
+
+const captionFor = (event: SkyEvent, titles?: TitleLookup): string | undefined => {
+  const title = titleOf(event, titles);
   switch (event.eventType) {
     case "article_opened":
       return title ? `reading "${title}"` : "reading the archive";
@@ -201,8 +221,11 @@ export const agentHue = (identifier: string): number => {
  * stay in the archive and still count; they are simply not re-enacted. A human
  * reading right now is another matter, and arrives on the live stream.
  */
-export const replayPlans = (events: readonly SkyEvent[]): readonly AgentPlan[] =>
-  buildAgentPlans(events).filter((plan) => !isHumanAgent(plan.agentIdentifier));
+export const replayPlans = (
+  events: readonly SkyEvent[],
+  titles?: TitleLookup,
+): readonly AgentPlan[] =>
+  buildAgentPlans(events, titles).filter((plan) => !isHumanAgent(plan.agentIdentifier));
 
 /**
  * The rooms a cleaner works through, in the order it walks them.
@@ -284,11 +307,11 @@ export const agentOrigin = (identifier?: string | null): string => {
 };
 
 /** Converts one archive event into a task, or null when it maps to nothing. */
-export const taskForEvent = (event: SkyEvent): AgentTask | null => {
+export const taskForEvent = (event: SkyEvent, titles?: TitleLookup): AgentTask | null => {
   const behaviour = BEHAVIOUR[event.eventType];
   if (!behaviour) return null;
 
-  const caption = captionFor(event);
+  const caption = captionFor(event, titles);
   return {
     room: behaviour.room,
     action: behaviour.action,
@@ -306,7 +329,10 @@ export const taskForEvent = (event: SkyEvent): AgentTask | null => {
  * Consecutive duplicates (same event type on the same article) collapse into a
  * single task so an agent that re-reads one page does not moonwalk in place.
  */
-export const buildAgentPlans = (events: readonly SkyEvent[]): readonly AgentPlan[] => {
+export const buildAgentPlans = (
+  events: readonly SkyEvent[],
+  titles?: TitleLookup,
+): readonly AgentPlan[] => {
   const grouped = new Map<string, SkyEvent[]>();
 
   for (const event of events) {
@@ -334,7 +360,7 @@ export const buildAgentPlans = (events: readonly SkyEvent[]): readonly AgentPlan
       ) {
         continue;
       }
-      const task = taskForEvent(event);
+      const task = taskForEvent(event, titles);
       if (task) tasks.push(task);
       previous = event;
     }

@@ -9,7 +9,7 @@
  * them, or spawn it if it is not already on stage.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
@@ -25,6 +25,7 @@ import {
   displayAgentName,
   isHumanAgent,
   replayPlans,
+  titleLookup,
   stableHash,
   taskForEvent,
   type AgentPlan,
@@ -309,9 +310,17 @@ export function WorldCanvas({
   replayRef.current = replay;
   articleCountRef.current = initialArticles.length;
 
+  // Article titles by id, so a caption can name the specimen even when the
+  // event carries no title of its own — which every backfilled history row
+  // does. The ref is what the animation loop reads, since it closes over this
+  // scope once and outlives the render that built the map.
+  const titles = useMemo(() => titleLookup(initialArticles), [initialArticles]);
+  const titlesRef = useRef(titles);
+  titlesRef.current = titles;
+
   useEffect(() => {
-    plansRef.current = replayPlans(initialEvents);
-  }, [initialEvents]);
+    plansRef.current = replayPlans(initialEvents, titles);
+  }, [initialEvents, titles]);
 
   useEffect(() => {
     if (liveEvent) pendingLiveRef.current.push(liveEvent);
@@ -1012,7 +1021,7 @@ export function WorldCanvas({
       pendingLiveRef.current = [];
 
       for (const event of queued) {
-        const task = taskForEvent(event);
+        const task = taskForEvent(event, titlesRef.current);
         if (!task) continue;
         if (event.eventType === "article_created") hubPulse = 1;
 
