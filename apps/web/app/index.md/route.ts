@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { computeWantedArticles, extractWikilinks } from "../../lib/markdown/wikilinks";
-import { articleBySlug, latestArticles } from "../../lib/public-data";
+import { allArticles, articleBySlug } from "../../lib/public-data";
 
 import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
 import { visitorSessionId } from "../../lib/telemetry/visitor";
+import { countryOfRequest } from "../../lib/telemetry/geo";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const userAgent = request.headers.get("user-agent");
   const ip = request.headers.get("x-forwarded-for") || "anonymous";
+  const country = countryOfRequest(request.headers.get("x-vercel-ip-country"));
   const { agentName, isHuman } = classifyClientAgent(userAgent);
 
   broadcastSkyEvent(
@@ -19,6 +21,8 @@ export async function GET(request: Request) {
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {
+        ...(country ? { country } : {}),
+        page: "/index.md",
         title: "Index Overview (/index.md)",
         query: isHuman ? "reading index" : "consulting corpus index",
       },
@@ -26,7 +30,7 @@ export async function GET(request: Request) {
     { ipOrKey: ip }
   ).catch(() => {});
 
-  const list = await latestArticles();
+  const list = await allArticles();
 
   const fullArticles = await Promise.all(
     list.items.map(async (item) => articleBySlug(item.slug || item.id))

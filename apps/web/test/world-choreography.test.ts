@@ -9,6 +9,7 @@ import {
   isHumanAgent,
   replayPlans,
   taskForEvent,
+  flagOf,
   titleLookup,
 } from "../lib/world/choreography";
 import {
@@ -56,6 +57,123 @@ describe("world choreography", () => {
     expect(taskForEvent(event({ eventType: "definitely_not_an_event" }))).toBeNull();
   });
 
+  it("sends a corpus dump to the stacks rather than to the hub", () => {
+    const task = taskForEvent(
+      event({ eventType: "agent_session_started", safeMetadata: { page: "/index.md" } }),
+    );
+    expect(task?.room).toBe("archive");
+    expect(task?.action).toBe("scan");
+    expect(task?.caption).toBe("pulling the whole index");
+  });
+
+  it("names the page a visitor asked for instead of the generic greeting", () => {
+    const guidance = taskForEvent(
+      event({ eventType: "agent_session_started", safeMetadata: { page: "/llms.txt" } }),
+    );
+    expect(guidance?.room).toBe("hub");
+    expect(guidance?.caption).toBe("fetching the agent guidance");
+
+    const protocol = taskForEvent(
+      event({ eventType: "agent_session_started", safeMetadata: { page: "/skill/SKILL.md" } }),
+    );
+    expect(protocol?.caption).toBe("loading the skill instructions");
+  });
+
+  it("says in words whether a person or an agent is doing the errand", () => {
+    // The floor already separates the two by costume and by the roster's tag.
+    // Until this, it never said which in the one place a viewer is reading.
+    const person = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/145.0.0.0 Safari/537.36";
+
+    const humanAtTheDoor = taskForEvent(
+      event({
+        eventType: "agent_session_started",
+        agentIdentifier: person,
+        safeMetadata: { page: "/" },
+      }),
+    );
+    expect(humanAtTheDoor?.caption).toBe("arrived at the archive");
+
+    const agentAtTheDoor = taskForEvent(
+      event({ eventType: "agent_session_started", safeMetadata: { page: "/" } }),
+    );
+    expect(agentAtTheDoor?.caption).toBe("connected to the corpus");
+
+    const humanReading = taskForEvent(
+      event({
+        eventType: "article_opened",
+        agentIdentifier: person,
+        safeMetadata: { title: "On Forgetting" },
+      }),
+    );
+    expect(humanReading?.caption).toBe('reading "On Forgetting"');
+  });
+
+  it("separates the two even on a row that carries no page", () => {
+    // Every backfilled archive row is this shape, and the six page beacons are
+    // this shape too until the `page` field ships.
+    const person = taskForEvent(
+      event({ eventType: "agent_session_started", agentIdentifier: "Human Explorer" }),
+    );
+    expect(person?.caption).toBe("arrived at the archive");
+    expect(taskForEvent(event({ eventType: "agent_session_started" }))?.caption).toBe(
+      "connected to the archive",
+    );
+  });
+
+  it("turns a country code into a flag, and refuses anything else", () => {
+    expect(flagOf("IT")).toBe("\u{1F1EE}\u{1F1F9}");
+    expect(flagOf("us")).toBe("\u{1F1FA}\u{1F1F8}");
+    expect(flagOf(" de ")).toBe("\u{1F1E9}\u{1F1EA}");
+    // `safeMetadata` is unconstrained on the write path, so the shape is
+    // checked rather than trusted. Nothing here may reach the DOM as text.
+    expect(flagOf("ITA")).toBeUndefined();
+    expect(flagOf("I")).toBeUndefined();
+    expect(flagOf("<b>")).toBeUndefined();
+    expect(flagOf("I7")).toBeUndefined();
+    expect(flagOf(undefined)).toBeUndefined();
+    expect(flagOf(42)).toBeUndefined();
+    expect(flagOf({ toString: () => "IT" })).toBeUndefined();
+  });
+
+  it("takes the session's country from the first event that reported one", () => {
+    const plans = buildAgentPlans([
+      event({ eventType: "agent_session_started", createdAt: "2026-08-31T10:00:00.000Z" }),
+      event({
+        eventType: "article_opened",
+        articleId: "a1",
+        createdAt: "2026-08-31T10:00:05.000Z",
+        safeMetadata: { country: "IT" },
+      }),
+    ]);
+    expect(plans[0]?.country).toBe("IT");
+  });
+
+  it("leaves the country unset when no event carried a usable one", () => {
+    const plans = buildAgentPlans([
+      event({ eventType: "agent_session_started", safeMetadata: { country: "not a country" } }),
+    ]);
+    expect(plans[0]?.country).toBeUndefined();
+  });
+
+  it("falls back to the greeting for a page it does not know", () => {
+    // An unknown path must not be read as a caption: `safeMetadata` is whatever
+    // the page put there, and a floor that prints it is a floor that prints
+    // anything a request can name.
+    const task = taskForEvent(
+      event({ eventType: "agent_session_started", safeMetadata: { page: "/../etc/passwd" } }),
+    );
+    expect(task?.room).toBe("hub");
+    expect(task?.caption).toBe("connected to the archive");
+  });
+
+  it("reads the page only off a session start", () => {
+    // `/index.md` on an article event would otherwise move a reader to ARCHIVE.
+    const task = taskForEvent(
+      event({ eventType: "article_opened", articleId: "a1", safeMetadata: { page: "/index.md" } }),
+    );
+    expect(task?.room).toBe("read");
+  });
+
   it("orders a session's tasks oldest first regardless of input order", () => {
     const plans = buildAgentPlans([
       event({ eventType: "article_created", createdAt: "2026-08-31T10:00:20.000Z" }),
@@ -91,7 +209,7 @@ describe("world choreography", () => {
     const task = taskForEvent(
       event({ eventType: "article_opened", safeMetadata: { title: "On Forgetting" } }),
     );
-    expect(task?.caption).toBe('reading "On Forgetting"');
+    expect(task?.caption).toBe('consulting "On Forgetting"');
   });
 
   it("names the specimen from the article list when the event recorded no title", () => {

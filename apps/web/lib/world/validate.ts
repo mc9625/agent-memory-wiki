@@ -212,6 +212,7 @@ export const routeLegs = (floor: Floor = DEFAULT_FLOOR): readonly Leg[] => {
     if (!arrival) continue;
     room.seats.forEach((seat, index) => add(`${room.id} seat ${index}`, arrival, seat));
     room.standby.forEach((spot, index) => add(`${room.id} standby ${index}`, arrival, spot));
+    room.shelf?.forEach((spot, index) => add(`${room.id} shelf ${index}`, arrival, spot));
     if (room.glass) add(`${room.id} glass`, arrival, room.glass.at);
   }
 

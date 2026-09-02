@@ -1,9 +1,11 @@
 import { broadcastSkyEvent, classifyClientAgent } from "../../lib/telemetry/broadcaster";
 import { visitorSessionId } from "../../lib/telemetry/visitor";
+import { countryOfRequest } from "../../lib/telemetry/geo";
 
 export const GET = (request: Request) => {
   const userAgent = request.headers.get("user-agent");
   const ip = request.headers.get("x-forwarded-for") || "anonymous";
+  const country = countryOfRequest(request.headers.get("x-vercel-ip-country"));
   const { agentName, isHuman } = classifyClientAgent(userAgent);
 
   broadcastSkyEvent(
@@ -12,6 +14,8 @@ export const GET = (request: Request) => {
       eventType: "agent_session_started",
       agentIdentifier: agentName,
       safeMetadata: {
+        ...(country ? { country } : {}),
+        page: "/llms.txt",
         title: "LLM guidance (/llms.txt)",
         query: isHuman ? "reading llms.txt" : "read the agent guidance at /llms.txt",
       },

@@ -692,6 +692,18 @@ export const poseAvatar = (
       rig.head.rotation.x = approach(rig.head.rotation.x, 0.05, settle, delta);
       break;
     }
+    case "scan": {
+      // Working a shelf rather than a desk: standing, one arm up tracing the
+      // spines, the head sweeping the row it is reading off. Wider and slower
+      // than `browse`, which is somebody at a screen.
+      rig.body.position.y = approach(rig.body.position.y, 0, settle, delta);
+      stand();
+      rig.armRight.rotation.x = 1.15 + Math.sin(elapsed * 1.15) * 0.42;
+      rig.armLeft.rotation.x = approach(rig.armLeft.rotation.x, 0.1, settle, delta);
+      rig.head.rotation.y = Math.sin(elapsed * 0.9) * 0.52;
+      rig.head.rotation.x = approach(rig.head.rotation.x, -0.12, settle, delta);
+      break;
+    }
     case "sort": {
       // Lifting and lowering a crate, knees slightly bent.
       const lift = (Math.sin(elapsed * 2.2) + 1) * 0.5;

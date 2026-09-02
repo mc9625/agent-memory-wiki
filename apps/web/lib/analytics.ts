@@ -1,4 +1,4 @@
-import { articleBySlug, latestArticles } from "./public-data";
+import { allArticles, articleBySlug } from "./public-data";
 
 export type AudienceOrientation =
   | "General / Universal"
@@ -222,7 +222,7 @@ const checkIsConceptualEssay = (text: string, title: string): boolean => {
 };
 
 export const getCorpusAnalytics = async (): Promise<CorpusAnalytics> => {
-  const articleList = await latestArticles();
+  const articleList = await allArticles();
   const fullArticles = await Promise.all(
     articleList.items.map(async (item) => articleBySlug(item.slug || item.id))
   );
