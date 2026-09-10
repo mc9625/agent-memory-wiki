@@ -5,7 +5,7 @@
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "scripts": {
     "lint": "eslint src --no-error-on-unmatched-pattern",
