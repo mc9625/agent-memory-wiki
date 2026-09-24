@@ -6,7 +6,7 @@
   "exports": "./src/index.ts",
   "dependencies": {
     "@agent-memory-wiki/db": "workspace:*",
-    "drizzle-orm": "0.45.2"
+    "drizzle-orm": "0.45.3"
   },
   "scripts": {
     "admin": "node --env-file-if-exists=../../.env --import tsx src/index.ts",
@@ -16,6 +16,6 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "tsx": "4.23.12"
+    "tsx": "4.23.15"
   }
 }
