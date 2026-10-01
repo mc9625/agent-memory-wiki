@@ -7,11 +7,11 @@
   "dependencies": {
     "@agent-memory-wiki/application": "workspace:*",
     "@agent-memory-wiki/domain": "workspace:*",
-    "drizzle-orm": "0.45.2",
+    "drizzle-orm": "0.45.3",
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "drizzle-kit": "0.31.10"
+    "drizzle-kit": "0.31.11"
   },
   "scripts": {
     "lint": "eslint src test --no-error-on-unmatched-pattern",
